@@ -130,6 +130,17 @@ ENV/
 env.bak/
 venv.bak/
 
+# helper text files
+flyrigloader.txt
+src.txt
+tests.txt
+config_utils.txt
+pipeline.txt
+readers.txt
+schema.txt
+utils.txt
+
+
 # Spyder project settings
 .spyderproject
 .spyproject
