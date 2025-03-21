@@ -58,11 +58,8 @@ def detect_format(file_path: Union[str, Path]) -> Optional[str]:
     """
     file_path = Path(file_path)
     extension = file_path.suffix.lower()
-    
-    if extension in FORMAT_READERS:
-        return extension[1:]  # Return without leading dot
-    
-    return None
+
+    return extension[1:] if extension in FORMAT_READERS else None
 
 
 def get_reader_for_format(format_name: str) -> Optional[Callable]:
@@ -76,11 +73,7 @@ def get_reader_for_format(format_name: str) -> Optional[Callable]:
         Reader function or None if format not supported
     """
     # Normalize format name
-    if format_name.startswith('.'):
-        format_name = format_name
-    else:
-        format_name = f".{format_name}"
-        
+    format_name = format_name if format_name.startswith('.') else f".{format_name}"
     return FORMAT_READERS.get(format_name)
 
 
@@ -181,41 +174,41 @@ def read_file(
         DataFrame or None if loading fails
     """
     file_path = Path(file_path)
-    
+
     # Check if file exists
     if not file_path.exists():
         logger.error(f"File not found: {file_path}")
         return None
-    
+
     # Determine format
     if not format_name:
         format_name = detect_format(file_path)
-        if not format_name:
-            logger.error(f"Unsupported file format: {file_path}")
-            return None
-    
-    # Get reader function
-    reader = get_reader_for_format(format_name)
-    if not reader:
-        logger.error(f"No reader available for format: {format_name}")
+    if not format_name:
+        logger.error(f"Unsupported file format: {file_path}")
         return None
-    
+
     # Special case for pickle files
     if format_name in ('pkl', 'pickle'):
         from .pickle import load_pickle_to_dataframe
         return load_pickle_to_dataframe(file_path)
-    
+
+    # Get reader function for non-pickle formats
+    reader = get_reader_for_format(format_name)
+    if not reader:
+        logger.error(f"No reader available for format: {format_name}")
+        return None
+
     # Read the file
     kwargs = reader_kwargs or {}
     try:
         df = reader(file_path, **kwargs)
-        
+
         # Add metadata if requested
         if add_metadata and df is not None:
             metadata = extract_metadata_from_path(file_path)
             for key, value in metadata.items():
                 df[key] = value
-        
+
         return df
     except Exception as e:
         logger.error(f"Error reading {format_name} file {file_path}: {e}")
@@ -262,7 +255,7 @@ def read_directory(
     
     # Filter by format if specified
     if formats:
-        format_extensions = [f".{fmt}" if not fmt.startswith('.') else fmt for fmt in formats]
+        format_extensions = [fmt if fmt.startswith('.') else f".{fmt}" for fmt in formats]
         matching_files = [f for f in matching_files if Path(f).suffix.lower() in format_extensions]
     
     # Sort files for consistency

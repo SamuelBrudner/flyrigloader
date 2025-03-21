@@ -71,19 +71,13 @@ def _create_filtered_config(
     """Create the initial filtered configuration with experiment data."""
     exp_entry = config['experiments'][experiment_name]
     
-    if transform_structure:
-        # Create a transformed structure with experiment data at top level
-        filtered_config = {
-            'experiment': exp_entry,
-            'datasets': _extract_relevant_datasets(config, exp_entry)
-        }
-    else:
-        # Preserve original structure with experiments dictionary
-        filtered_config = {
-            'experiments': {experiment_name: exp_entry}
-        }
-    
-    return filtered_config
+    # Return either transformed or original structure based on transform_structure flag
+    return {
+        'experiment': exp_entry,
+        'datasets': _extract_relevant_datasets(config, exp_entry)
+    } if transform_structure else {
+        'experiments': {experiment_name: exp_entry}
+    }
 
 
 def _extract_relevant_datasets(
@@ -206,80 +200,81 @@ def _apply_filter_criteria(
         Filtered configuration dictionary
     """
     filtered_config = config.copy()
-    
-    # Process each filter criterion
+
+    # Process each filter criterion for simple dictionary filtering
     for key, allowed_values in filter_criteria.items():
         # Skip if the key doesn't exist in config
         if key not in filtered_config:
             continue
-            
+
         # If the config item is a dictionary, filter its keys
         if isinstance(filtered_config[key], dict):
             filtered_config[key] = {
                 k: v for k, v in filtered_config[key].items()
                 if k in allowed_values
             }
+
+    # Skip dataset processing if there's no datasets or no relevant criteria
+    if 'datasets' not in filtered_config:
+        return filtered_config
+        
+    has_vial_filter = 'vials' in filter_criteria
+    has_rig_filter = 'rigs' in filter_criteria
     
-    # Special handling for datasets when filtering by vials or rigs
-    if 'datasets' in filtered_config and ('vials' in filter_criteria or 'rigs' in filter_criteria):
-        # Collect datasets to remove
-        datasets_to_remove = []
-        
-        for dataset_name, dataset_config in filtered_config['datasets'].items():
-            # Filter dataset by vials if specified
-            if 'vials' in filter_criteria and 'vials' in dataset_config:
-                dataset_config['vials'] = [
-                    vial for vial in dataset_config['vials'] 
-                    if vial in filter_criteria['vials']
-                ]
-                
-            # Filter dataset by rigs if specified
-            if 'rigs' in filter_criteria and 'rigs' in dataset_config:
-                dataset_config['rigs'] = [
-                    rig for rig in dataset_config['rigs'] 
-                    if rig in filter_criteria['rigs']
-                ]
-                
-            # Mark dataset for removal if it has no vials or rigs left after filtering
-            if ('vials' in dataset_config and not dataset_config['vials']) or \
-               ('rigs' in dataset_config and not dataset_config['rigs']):
-                datasets_to_remove.append(dataset_name)
-        
-        # Remove datasets that were marked for removal
-        for dataset_name in datasets_to_remove:
-            del filtered_config['datasets'][dataset_name]
+    # Skip if no relevant filters for datasets
+    if not (has_vial_filter or has_rig_filter):
+        return filtered_config
     
-    # Handle the special case of 'dates_vials' in dataset configurations
-    if 'datasets' in filtered_config and 'vials' in filter_criteria:
-        # Collect datasets to remove
-        datasets_to_remove = []
-        
-        for dataset_name, dataset_config in filtered_config['datasets'].items():
-            if 'dates_vials' in dataset_config:
-                # For each date, filter the vials
-                # Collect dates to remove
-                dates_to_remove = []
-                
-                for date, vials in dataset_config['dates_vials'].items():
-                    filtered_vials = [v for v in vials if v in filter_criteria['vials']]
-                    if filtered_vials:
-                        dataset_config['dates_vials'][date] = filtered_vials
-                    else:
-                        # Mark date for removal if no vials left
-                        dates_to_remove.append(date)
-                
-                # Remove dates that were marked for removal
-                for date in dates_to_remove:
-                    del dataset_config['dates_vials'][date]
-                
-                # Mark dataset for removal if no dates left
-                if not dataset_config['dates_vials']:
-                    datasets_to_remove.append(dataset_name)
-        
-        # Remove datasets that were marked for removal
-        for dataset_name in datasets_to_remove:
-            del filtered_config['datasets'][dataset_name]
+    # Process datasets
+    datasets_to_remove = set()
     
+    # Helper function to filter a list by allowed values
+    def filter_list_by_criteria(items: List, allowed_items: List) -> List:
+        return [item for item in items if item in allowed_items]
+    
+    # Process all datasets
+    for dataset_name, dataset_config in filtered_config['datasets'].items():
+        # Filter dataset by vials if specified
+        if has_vial_filter and 'vials' in dataset_config:
+            dataset_config['vials'] = filter_list_by_criteria(
+                dataset_config['vials'], filter_criteria['vials']
+            )
+            if not dataset_config['vials']:
+                datasets_to_remove.add(dataset_name)
+                continue  # Skip further processing for this dataset
+
+        # Filter dataset by rigs if specified
+        if has_rig_filter and 'rigs' in dataset_config:
+            dataset_config['rigs'] = filter_list_by_criteria(
+                dataset_config['rigs'], filter_criteria['rigs']
+            )
+            if not dataset_config['rigs']:
+                datasets_to_remove.add(dataset_name)
+                continue  # Skip further processing for this dataset
+        
+        # Process dates_vials (only needs vial filtering)
+        if has_vial_filter and 'dates_vials' in dataset_config:
+            dates_to_remove = []
+            
+            for date, vials in dataset_config['dates_vials'].items():
+                filtered_vials = filter_list_by_criteria(vials, filter_criteria['vials'])
+                if filtered_vials:
+                    dataset_config['dates_vials'][date] = filtered_vials
+                else:
+                    dates_to_remove.append(date)
+            
+            # Remove empty dates
+            for date in dates_to_remove:
+                del dataset_config['dates_vials'][date]
+            
+            # Mark dataset for removal if no dates left
+            if not dataset_config['dates_vials']:
+                datasets_to_remove.add(dataset_name)
+    
+    # Remove datasets that were marked for removal
+    for dataset_name in datasets_to_remove:
+        del filtered_config['datasets'][dataset_name]
+
     return filtered_config
 
 

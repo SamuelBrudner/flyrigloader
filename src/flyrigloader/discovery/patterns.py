@@ -55,8 +55,7 @@ class PatternMatcher:
         result = {}
         
         for file in files:
-            match_dict = self.match(file)
-            if match_dict:
+            if match_dict := self.match(file):
                 result[file] = match_dict
                 
         return result

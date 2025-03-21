@@ -92,10 +92,9 @@ def with_logging(
     Returns:
         The result of the function, or default_value if an exception is raised
     """
-    if args is None:
-        args = []
-    if kwargs is None:
-        kwargs = {}
+    # Use empty list/dict as defaults
+    args = args or []
+    kwargs = kwargs or {}
         
     try:
         return function(*args, **kwargs)

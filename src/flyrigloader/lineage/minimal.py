@@ -130,11 +130,8 @@ class MinimalLineageTracker:
             try:
                 # First check if this is a valid path
                 path_obj = Path(source)
-                if path_obj.exists():
-                    self.source_path = path_obj.resolve()
-                else:
-                    # Store as is without resolving if path doesn't exist
-                    self.source_path = path_obj
+                # Store resolved path if exists, otherwise store as is
+                self.source_path = path_obj.resolve() if path_obj.exists() else path_obj
             except (ValueError, TypeError):
                 # Handle cases where source is a string but not a valid path
                 self.source_path = Path(str(source))

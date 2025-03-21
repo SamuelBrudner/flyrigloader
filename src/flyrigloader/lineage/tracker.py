@@ -198,14 +198,14 @@ class LineageTracker:
             LineageTracker instance with loaded data
         """
         input_path = Path(path)
-        
+
         if not input_path.exists():
             raise FileNotFoundError(f"Lineage file {input_path} not found")
-        
+
         # Use set for extension checking
         json_extensions = {'.json'}
         yaml_extensions = {'.yaml', '.yml'}
-        
+
         # Use named expression to simplify conditional
         if input_path.suffix.lower() in json_extensions:
             with open(input_path, 'r') as f:
@@ -223,8 +223,10 @@ class LineageTracker:
                 with open(input_path, 'r') as f:
                     data = json.load(f)
             except json.JSONDecodeError as e:
-                raise ValueError(f"Failed to load '{input_path}' as JSON. Consider using a standard extension (.json, .yaml, .yml): {e}")
-                
+                raise ValueError(
+                    f"Failed to load '{input_path}' as JSON. Consider using a standard extension (.json, .yaml, .yml): {e}"
+                ) from e
+
         return cls.from_dict(data)
     
     @classmethod

@@ -15,7 +15,7 @@ from ..config_utils.filter import filter_config_by_experiment
 from ..discovery.files import discover_dataset_files
 from ..schema.validator import get_schema_by_name
 from ..lineage.tracker import LineageTracker
-from .assembly import load_file_into_dataframe, combine_dataframes
+from .data_assembly import load_file_into_dataframe, combine_dataframes
 
 
 def load_experiment_data(
@@ -60,10 +60,8 @@ def load_experiment_data(
         return pd.DataFrame()
     
     # Get schema if not provided
-    if schema is None:
-        schema_name = experiment.get("schema")
-        if schema_name:
-            schema = get_schema_by_name(schema_name, config=config)
+    if schema is None and (schema_name := experiment.get("schema")):
+        schema = get_schema_by_name(schema_name, config=config)
     
     # Create lineage tracker if requested
     lineage = None
@@ -136,7 +134,7 @@ def load_from_file_list(
         }
         # Add additional metadata if provided
         if metadata:
-            item.update(metadata)
+            item |= metadata
         file_items.append(item)
     
     # Load each file

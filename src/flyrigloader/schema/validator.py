@@ -7,6 +7,7 @@ validation, and application with a consistent API regardless of the underlying
 implementation.
 """
 
+
 from typing import Any, Dict, List, Optional, Set, Tuple, Union
 import pandas as pd
 from loguru import logger
@@ -14,10 +15,7 @@ from loguru import logger
 from ..utils.imports import has_pandera, import_pandera
 from .operations import map_type_string_to_pandas, apply_column_operations
 
-# Import Pandera if available
-pa = None
-if has_pandera():
-    pa = import_pandera()
+pa = import_pandera() if has_pandera() else None
 
 
 def create_schema_from_dict(schema_dict: Dict[str, Any]) -> Optional[Any]:
@@ -71,7 +69,7 @@ def create_schema_from_dict(schema_dict: Dict[str, Any]) -> Optional[Any]:
     
     # Create and return the schema with combined columns using the dictionary union operator
     return pa.DataFrameSchema(
-        columns={**data_columns, **metadata_columns},
+        columns=data_columns | metadata_columns,
         strict=schema_dict.get("strict", False)
     )
 
@@ -246,10 +244,7 @@ def _try_create_pandera_schema(schema: Union[Dict[str, Any], Any]) -> Optional[A
     """
     if has_pandera() and isinstance(schema, pa.DataFrameSchema):
         return schema
-        
-    # Try to create Pandera schema from dictionary
-    pa_schema = create_schema_from_dict(schema)
-    return pa_schema
+    return create_schema_from_dict(schema)
 
 
 def apply_schema(df: pd.DataFrame, schema: Union[Dict[str, Any], Any]) -> pd.DataFrame:
@@ -267,36 +262,43 @@ def apply_schema(df: pd.DataFrame, schema: Union[Dict[str, Any], Any]) -> pd.Dat
         DataFrame with applied schema
     """
     result_df = df.copy()
-    
+
     # If Pandera is not available, use our fallback apply_column_operations
     if not has_pandera():
         logger.warning("Pandera not installed. Using basic schema transformations.")
-        if isinstance(schema, dict):
-            return apply_column_operations(result_df, schema)
-        logger.warning("Cannot apply non-dictionary schema without Pandera. Returning original DataFrame.")
-        return result_df
-    
+        return _extracted_from_apply_schema_20(
+            schema,
+            result_df,
+            "Cannot apply non-dictionary schema without Pandera. Returning original DataFrame.",
+        )
     # Use Pandera for column transformations if available
     try:
         # Convert dict schema to Pandera schema if needed
         pa_schema = _try_create_pandera_schema(schema)
         if pa_schema is None:
-            # Fallback to basic transformations if schema creation fails
-            if isinstance(schema, dict):
-                return apply_column_operations(result_df, schema)
-            logger.warning("Cannot create Pandera schema. Returning original DataFrame.")
-            return result_df
-        
+            return _extracted_from_apply_schema_20(
+                schema,
+                result_df,
+                "Cannot create Pandera schema. Returning original DataFrame.",
+            )
         # Use Pandera's coerce feature to transform the DataFrame
         result_df = pa_schema.validate(result_df, lazy=True, inplace=False)
         return result_df
     except Exception as e:
         logger.warning(f"Error applying schema with Pandera: {str(e)}")
-        
+
         # Fall back to our centralized column operations if Pandera fails
         if isinstance(schema, dict):
             return apply_column_operations(result_df, schema)
-        
+
+    return result_df
+
+
+# TODO Rename this here and in `apply_schema`
+def _extracted_from_apply_schema_20(schema, result_df, arg2):
+    if isinstance(schema, dict):
+        return apply_column_operations(result_df, schema)
+    logger.warning(arg2)
     return result_df
 
 
@@ -366,32 +368,31 @@ def get_schema_by_name(
         Schema dictionary or None if not found
     """
     from ..utils.files import safe_load_yaml
-    
+
     # If direct path is provided, load it
     if schema_path:
         return safe_load_yaml(schema_path)
-    
+
     # If name and config are provided, look up in config
     if schema_name and config:
         schema_info = config.get('schemas', {}).get(schema_name)
         if schema_info and 'path' in schema_info:
             return safe_load_yaml(schema_info['path'])
-    
+
     # If just a name but no config, or if lookup failed
     if schema_name:
         # Try common locations
         common_paths = [
-            f"conf/schemas/{schema_name}.yaml",
-            f"conf/{schema_name}.yaml",
-            f"schemas/{schema_name}.yaml",
-            f"conf/column_definitions.yaml"  # Default fallback
+            "conf/schemas/" + schema_name + ".yaml",
+            "conf/" + schema_name + ".yaml",
+            "schemas/" + schema_name + ".yaml",
+            "conf/column_definitions.yaml"  # Default fallback
         ]
-        
+
         for path in common_paths:
-            schema = safe_load_yaml(path)
-            if schema:
+            if schema := safe_load_yaml(path):
                 return schema
-    
+
     # Last resort: return a minimal default schema
     return {
         "schema_name": "default",

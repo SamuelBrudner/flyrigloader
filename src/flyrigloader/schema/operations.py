@@ -316,13 +316,15 @@ def get_column_definitions(schema: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
         Dictionary mapping column names to their definitions
     """
     column_defs = {}
-    
-    # Process data columns
-    for col_name, col_def in schema.get("column_mappings", {}).get("data_columns", {}).items():
-        column_defs[col_name] = col_def if isinstance(col_def, dict) else {"dtype": col_def}
-    
-    # Process metadata columns
-    for col_name, col_def in schema.get("column_mappings", {}).get("metadata_columns", {}).items():
-        column_defs[col_name] = col_def if isinstance(col_def, dict) else {"dtype": col_def}
-    
-    return column_defs
+
+    return {
+        col_name: col_def if isinstance(col_def, dict) else {"dtype": col_def}
+        for col_name, col_def in schema.get("column_mappings", {})
+        .get("data_columns", {})
+        .items()
+    } | {
+        col_name: col_def if isinstance(col_def, dict) else {"dtype": col_def}
+        for col_name, col_def in schema.get("column_mappings", {})
+        .get("metadata_columns", {})
+        .items()
+    }

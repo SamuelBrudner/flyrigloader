@@ -1,8 +1,10 @@
 """
-High-level data assembly for fly rig experiments.
+Data assembly for fly rig experiments.
 
-This module provides functions for transforming raw file data into structured
-DataFrames with proper typing, metadata, and lineage tracking.
+This module provides low-level functions for transforming raw file data into structured
+DataFrames with proper typing, metadata, and lineage tracking. It handles the actual
+data loading and transformation logic, while higher-level pipeline orchestration is 
+handled by the data_pipeline module.
 """
 
 from typing import Any, Dict, List, Optional, Tuple, Union
@@ -181,13 +183,13 @@ def _dict_to_dataframe(
         DataFrame with basic structure
     """
     from ..schema.operations import ensure_1d
-    
+
     # Handle time array, assuming 't' is the standard time key
     if 't' not in data_dict:
         raise ValueError("Data dictionary must contain a 't' array")
-        
+
     t = ensure_1d(data_dict['t'], 't')
-    
+
     # Start with basic metadata
     result_dict = {
         't': t,
@@ -195,14 +197,14 @@ def _dict_to_dataframe(
         'date': metadata.get('date', 'unknown'),
         'file_path': str(metadata['path'])
     }
-    
+
     # Add standard data columns
     standard_columns = [
         'trjn', 'x', 'y', 'x_smooth', 'y_smooth', 'theta', 'theta_smooth',
         'dtheta_smooth', 'vx_smooth', 'vy_smooth', 'spd_smooth',
         'signal', 'jumps', 'headx_smooth', 'heady_smooth'
     ]
-    
+
     # Add each column if it exists
     for col in standard_columns:
         if col in data_dict:
@@ -211,22 +213,16 @@ def _dict_to_dataframe(
             # Create empty column filled with NaN
             import numpy as np
             result_dict[col] = np.full_like(t, np.nan, dtype=float)
-    
+
     # Handle special case for signal_disp (which is 2D)
     if 'signal_disp' in data_dict:
         # Convert 2D array to list of arrays
         sd = data_dict['signal_disp']
-        if sd.ndim != 2:
-            if lineage:
-                lineage.add_step(
-                    "warning", 
-                    f"signal_disp has unexpected shape {sd.shape}, expected 2D array"
-                )
-        else:
+        if sd.ndim == 2:
             # Match to time dimension
             T = len(t)
             n, m = sd.shape
-            
+
             if n == T:
                 # Already in correct orientation
                 pass
@@ -241,13 +237,18 @@ def _dict_to_dataframe(
                     )
                 import numpy as np
                 result_dict['signal_disp'] = pd.Series([[] for _ in range(len(t))], index=range(len(t)))
-                
+
             # Store as Series of arrays
             result_dict['signal_disp'] = pd.Series(list(sd), index=range(T), name='signal_disp')
-    
+
+        elif lineage:
+            lineage.add_step(
+                "warning", 
+                f"signal_disp has unexpected shape {sd.shape}, expected 2D array"
+            )
     # Create the DataFrame
     df = pd.DataFrame(result_dict)
-    
+
     # Record in lineage
     if lineage:
         lineage.add_step(
@@ -255,7 +256,7 @@ def _dict_to_dataframe(
             "Converting dictionary to DataFrame",
             {"original_keys": list(data_dict.keys())},
         )
-    
+
     return df
 
 
