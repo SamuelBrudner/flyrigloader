@@ -93,6 +93,16 @@ class TestConfigDiscovery:
             import shutil
             shutil.rmtree(temp_dir)
     
+    def assert_no_ignored_patterns(self, files, patterns):
+        """Assert that files don't contain any of the given patterns."""
+        for pattern in patterns:
+            assert not any(pattern in f for f in files)
+    
+    def assert_all_contain_patterns(self, files, patterns):
+        """Assert that all files contain all of the given patterns."""
+        for pattern in patterns:
+            assert all(pattern in f for f in files)
+    
     def test_discover_files_with_config(self, sample_config, test_directory_structure):
         """Test discovering files using config-aware filtering."""
         # Test with project-level ignore patterns only
@@ -105,8 +115,7 @@ class TestConfigDiscovery:
         
         # Should exclude files with "._" and "temp_" but include everything else
         assert len(files) == 7
-        assert not any("._" in f for f in files)
-        assert not any("temp_" in f for f in files)
+        self.assert_no_ignored_patterns(files, ["._", "temp_"])
         
         # Test with experiment-specific filters
         files = discover_files_with_config(
@@ -119,10 +128,8 @@ class TestConfigDiscovery:
         
         # Should enforce both ignore patterns and mandatory substrings
         assert len(files) == 3
-        assert all("include_me" in f for f in files)
-        assert not any("exclude_me" in f for f in files)
-        assert not any("._" in f for f in files)
-        assert not any("temp_" in f for f in files)
+        self.assert_all_contain_patterns(files, ["include_me"])
+        self.assert_no_ignored_patterns(files, ["exclude_me", "._", "temp_"])
     
     def test_discover_dataset_files(self, sample_config, test_directory_structure, monkeypatch):
         """Test discovering files for a specific dataset."""
@@ -140,8 +147,7 @@ class TestConfigDiscovery:
         assert len(files) == 7
         assert any("2023-01-01" in f for f in files)
         assert any("2023-01-02" in f for f in files)
-        assert not any("._" in f for f in files)
-        assert not any("temp_" in f for f in files)
+        self.assert_no_ignored_patterns(files, ["._", "temp_"])
         
         # Test with extension filtering
         files = discover_dataset_files(
@@ -169,8 +175,8 @@ class TestConfigDiscovery:
         
         # Should use experiment-specific filters
         assert len(files) == 3
-        assert all("include_me" in f for f in files)
-        assert not any("exclude_me" in f for f in files)
+        self.assert_all_contain_patterns(files, ["include_me"])
+        self.assert_no_ignored_patterns(files, ["exclude_me"])
         
         # Test with a basic experiment (no specific filters)
         files = discover_experiment_files(
@@ -183,5 +189,4 @@ class TestConfigDiscovery:
         # Should only apply project-level filters
         assert len(files) == 7
         assert all(f.endswith(".csv") for f in files)
-        assert not any("._" in f for f in files)
-        assert not any("temp_" in f for f in files)
+        self.assert_no_ignored_patterns(files, ["._", "temp_"])

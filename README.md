@@ -10,26 +10,29 @@ The project follows a src-layout Python package structure:
 flyrigloader/
 ├── src/
 │   └── flyrigloader/    # Main package code
-│       └── discovery/   # File discovery module
+│       ├── discovery/   # File discovery module
+│       └── config/      # Configuration handling module
 ├── tests/               # Test directory matching package structure
 ├── docs/                # Documentation
+├── config/              # Configuration files
 └── pyproject.toml       # Project metadata and dependencies
 ```
 
-## File Discovery Module
+## Modules
+
+### File Discovery Module
 
 The `discovery` module provides utilities for finding and organizing files based on patterns, with support for:
 
-### Features
+#### Features
 
 - **Basic file discovery**: Find files by pattern using glob matching
 - **Multiple base directories**: Search across multiple directories in a single call
 - **Recursive discovery**: Search through nested subdirectories
 - **Extension filtering**: Filter files by one or more extensions
+- **Pattern filtering**: Include or exclude files based on substring patterns
 
-### Usage Examples
-
-#### Basic File Discovery
+#### Usage Examples
 
 ```python
 from flyrigloader.discovery.files import discover_files
@@ -42,16 +45,88 @@ files = discover_files("/path/to/code", "**/*.py", recursive=True)
 
 # Find specific file types using extension filtering
 files = discover_files("/path/to/data", "*", extensions=["csv", "json"])
-```
-
-#### Multiple Base Directories
-
-```python
-from flyrigloader.discovery.files import discover_files
 
 # Search across multiple directories
 dirs = ["/path/to/data1", "/path/to/data2", "/path/to/data3"]
 files = discover_files(dirs, "*.csv")
+
+# Filter files by patterns
+files = discover_files(
+    "/path/to/data", 
+    "*.*", 
+    ignore_patterns=["._", "temp_"],
+    mandatory_substrings=["experiment"]
+)
+```
+
+### YAML Configuration Module
+
+The `config` module provides utilities for loading, parsing, and working with hierarchical YAML configuration files:
+
+#### Features
+
+- **Configuration loading**: Load and parse YAML config files
+- **Hierarchical settings**: Access settings at project, dataset, and experiment levels
+- **Config-aware discovery**: Find files using configuration-defined filters
+- **Dataset and experiment discovery**: Find files specific to datasets or experiments
+
+#### Usage Examples
+
+```python
+from flyrigloader.config.yaml_config import load_config, get_ignore_patterns
+from flyrigloader.config.discovery import discover_experiment_files
+
+# Load configuration
+config = load_config("/path/to/config.yaml")
+
+# Get patterns to ignore (respects hierarchy)
+patterns = get_ignore_patterns(config, experiment="my_experiment")
+
+# Find files for a specific experiment
+files = discover_experiment_files(
+    config=config,
+    experiment_name="plume_movie_navigation",
+    base_directory="/path/to/data",
+    extensions=["csv"]
+)
+
+# Find files for a specific dataset
+from flyrigloader.config.discovery import discover_dataset_files
+files = discover_dataset_files(
+    config=config,
+    dataset_name="no_green_light",
+    base_directory="/path/to/data"
+)
+```
+
+## Configuration Structure
+
+The configuration supports a hierarchical structure with the following key sections:
+
+```yaml
+project:
+  directories:
+    major_data_directory: /path/to/data
+  ignore_substrings:
+    - 'pattern_to_ignore'
+    - '._'
+
+datasets:
+  my_dataset:
+    rig: rig_name
+    dates_vials:
+      2023-01-01: [1, 2, 3]
+      2023-01-02: [4, 5]
+
+experiments:
+  my_experiment:
+    datasets:
+      - my_dataset
+    filters:
+      ignore_substrings:
+        - 'experiment_specific_ignore'
+      mandatory_experiment_strings:
+        - 'required_pattern'
 ```
 
 ## Development

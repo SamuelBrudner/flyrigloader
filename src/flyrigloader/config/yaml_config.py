@@ -30,8 +30,7 @@ def load_config(config_path: Union[str, Path]) -> Dict[str, Any]:
     
     with open(config_path, 'r') as f:
         try:
-            config = yaml.safe_load(f)
-            return config
+            return yaml.safe_load(f)
         except yaml.YAMLError as e:
             raise yaml.YAMLError(f"Error parsing YAML configuration: {e}")
 
