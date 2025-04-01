@@ -32,7 +32,7 @@ def load_config(config_path: Union[str, Path]) -> Dict[str, Any]:
         try:
             return yaml.safe_load(f)
         except yaml.YAMLError as e:
-            raise yaml.YAMLError(f"Error parsing YAML configuration: {e}")
+            raise yaml.YAMLError(f"Error parsing YAML configuration: {e}") from e
 
 
 def get_ignore_patterns(
