@@ -1,0 +1,39 @@
+---
+# Example external project configuration file that integrates with flyrigloader
+project:
+  name: "external_analysis_project"
+  directories:
+    major_data_directory: "/path/to/fly_data"
+    output_directory: "/path/to/analysis_results"
+  ignore_substrings:
+    - "._"
+    - "temp_"
+    - "debug_"
+    - "test_"
+  mandatory_experiment_strings: []  # No project-wide mandatory strings
+
+datasets:
+  plume_tracking:
+    rig: "rig1"
+    dates_vials:
+      2023-05-01: [1, 2, 3, 4]
+      2023-05-02: [5, 6, 7, 8]
+
+  odor_preference:
+    rig: "rig2"
+    dates_vials:
+      2023-06-15: [1, 3, 5]
+      2023-06-16: [2, 4, 6]
+
+experiments:
+  plume_navigation_analysis:
+    datasets: ["plume_tracking"]
+    filters:
+      ignore_substrings: ["failed_run", "calibration"]
+      mandatory_experiment_strings: ["plume", "tracking"]
+
+  odor_preference_experiment:
+    datasets: ["odor_preference"]
+    filters:
+      ignore_substrings: ["control"]
+      mandatory_experiment_strings: ["choice", "preference"]

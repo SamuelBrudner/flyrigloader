@@ -18,6 +18,34 @@ flyrigloader/
 └── pyproject.toml       # Project metadata and dependencies
 ```
 
+## Using as a Library in External Projects
+
+`flyrigloader` is designed to be easily integrated into external data analysis projects. The high-level API provides simple entry points for loading experiment data based on configuration files:
+
+```python
+from flyrigloader.api import load_experiment_files, get_experiment_parameters
+
+# Load all CSV files for a specific experiment defined in your config
+files = load_experiment_files(
+    config_path="/path/to/your/config.yaml",
+    experiment_name="plume_navigation_analysis",
+    extensions=["csv"]
+)
+
+# Get experiment-specific parameters for analysis
+parameters = get_experiment_parameters(
+    config_path="/path/to/your/config.yaml",
+    experiment_name="plume_navigation_analysis"
+)
+
+# Process the files using the parameters
+for file in files:
+    # Your analysis code here
+    analyze_data(file, parameters)
+```
+
+See the [examples directory](examples/external_project) for a complete demonstration of integrating `flyrigloader` into an external analysis project.
+
 ## Modules
 
 ### File Discovery Module
