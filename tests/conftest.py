@@ -1,6 +1,8 @@
 """
 Pytest configuration file.
 """
+
+import contextlib
 import os
 import sys
 from pathlib import Path
@@ -30,15 +32,12 @@ def capture_loguru_logs_globally(caplog):
 
     # Add the handler to loguru's sinks
     handler_id = logger.add(PropagateHandler(), format="{message}", level=0)
-    
+
     # Set caplog default level (individual tests can override)
     caplog.set_level(logging.DEBUG)
-    
+
     yield # Run tests
-    
+
     # Remove the handler after the session finishes
-    try:
+    with contextlib.suppress(ValueError):
         logger.remove(handler_id)
-    except ValueError:
-        # Handler may have already been removed in another test
-        pass

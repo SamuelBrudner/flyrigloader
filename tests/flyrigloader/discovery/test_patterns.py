@@ -203,47 +203,47 @@ class TestPatternMatcher:
     def test_generate_pattern_from_template(self):
         """Test generating regex patterns from templates."""
         from flyrigloader.discovery.patterns import generate_pattern_from_template
-        
+
         # Simple template
         template = "vial_{date}_{condition}.csv"
         pattern = generate_pattern_from_template(template)
-        
+
         # Should create a pattern with named capture groups
         assert "(?P<date>" in pattern
         assert "(?P<condition>" in pattern
-        
+
         # Test the generated pattern
         regex = re.compile(pattern)
         match = regex.match("vial_20240315_control.csv")
         assert match is not None
-        assert match.group("date") == "20240315"
-        assert match.group("condition") == "control"
-        
+        assert match["date"] == "20240315"
+        assert match["condition"] == "control"
+
         # More complex template
         template = "exp_{experiment_id}_{animal}_{condition}.csv"
         pattern = generate_pattern_from_template(template)
-        
+
         # Test the complex pattern
         regex = re.compile(pattern)
         match = regex.match("exp_001_mouse_control.csv")
         assert match is not None
-        assert match.group("experiment_id") == "001"
-        assert match.group("animal") == "mouse"
-        assert match.group("condition") == "control"
-        
+        assert match["experiment_id"] == "001"
+        assert match["animal"] == "mouse"
+        assert match["condition"] == "control"
+
         # Test with special characters
         template = "data[{date}]_{sample_id}.txt"
         pattern = generate_pattern_from_template(template)
-        
+
         # Escaped special characters
         assert r"data\[" in pattern
-        
+
         # Test pattern
         regex = re.compile(pattern)
         match = regex.match("data[20240315]_sample123.txt")
         assert match is not None
-        assert match.group("date") == "20240315"
-        assert match.group("sample_id") == "sample123"
+        assert match["date"] == "20240315"
+        assert match["sample_id"] == "sample123"
 
 
 class TestPatternIntegration:
