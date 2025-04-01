@@ -5,8 +5,9 @@ import os
 import tempfile
 import pytest
 from pathlib import Path
+from typing import List
 
-# Import the function we want to test (doesn't exist yet)
+# Import the function we want to test
 from flyrigloader.discovery.files import discover_files
 
 
@@ -17,10 +18,20 @@ class TestFileDiscovery:
         """Create a temporary directory with test files."""
         temp_dir = tempfile.mkdtemp()
         try:
-            # Create a few test files
-            for i in range(3):
-                with open(os.path.join(temp_dir, f"test_{i}.txt"), "w") as f:
-                    f.write(f"Test content {i}")
+            # Create test files without using loops
+            file_paths = [
+                os.path.join(temp_dir, "test_0.txt"),
+                os.path.join(temp_dir, "test_1.txt"),
+                os.path.join(temp_dir, "test_2.txt")
+            ]
+            
+            # Write content to each file
+            with open(file_paths[0], "w") as f:
+                f.write("Test content 0")
+            with open(file_paths[1], "w") as f:
+                f.write("Test content 1")
+            with open(file_paths[2], "w") as f:
+                f.write("Test content 2")
             
             yield temp_dir
         finally:
@@ -32,25 +43,33 @@ class TestFileDiscovery:
     def nested_test_dir(self):
         """Create a temporary directory with nested subdirectories and test files."""
         temp_dir = tempfile.mkdtemp()
+        subdir = os.path.join(temp_dir, "subdir")
+        deepdir = os.path.join(subdir, "deepdir")
+        
         try:
-            # Create files in root directory
-            for i in range(2):
-                with open(os.path.join(temp_dir, f"root_{i}.txt"), "w") as f:
-                    f.write(f"Root content {i}")
-            
-            # Create subdirectory and files
-            subdir = os.path.join(temp_dir, "subdir")
+            # Create directories
             os.makedirs(subdir)
-            for i in range(3):
-                with open(os.path.join(subdir, f"sub_{i}.txt"), "w") as f:
-                    f.write(f"Subdir content {i}")
-                    
-            # Create deeper subdirectory and files
-            deepdir = os.path.join(subdir, "deepdir")
             os.makedirs(deepdir)
-            for i in range(2):
-                with open(os.path.join(deepdir, f"deep_{i}.txt"), "w") as f:
-                    f.write(f"Deep content {i}")
+            
+            # Create root files
+            with open(os.path.join(temp_dir, "root_0.txt"), "w") as f:
+                f.write("Root content 0")
+            with open(os.path.join(temp_dir, "root_1.txt"), "w") as f:
+                f.write("Root content 1")
+            
+            # Create subdir files
+            with open(os.path.join(subdir, "sub_0.txt"), "w") as f:
+                f.write("Subdir content 0")
+            with open(os.path.join(subdir, "sub_1.txt"), "w") as f:
+                f.write("Subdir content 1")
+            with open(os.path.join(subdir, "sub_2.txt"), "w") as f:
+                f.write("Subdir content 2")
+            
+            # Create deepdir files
+            with open(os.path.join(deepdir, "deep_0.txt"), "w") as f:
+                f.write("Deep content 0")
+            with open(os.path.join(deepdir, "deep_1.txt"), "w") as f:
+                f.write("Deep content 1")
             
             yield temp_dir
         finally:
@@ -64,25 +83,61 @@ class TestFileDiscovery:
         temp_dir = tempfile.mkdtemp()
         try:
             # Create text files
-            for i in range(2):
-                with open(os.path.join(temp_dir, f"data_{i}.txt"), "w") as f:
-                    f.write(f"Text data {i}")
+            with open(os.path.join(temp_dir, "data_0.txt"), "w") as f:
+                f.write("Text data 0")
+            with open(os.path.join(temp_dir, "data_1.txt"), "w") as f:
+                f.write("Text data 1")
             
             # Create CSV files
-            for i in range(3):
-                with open(os.path.join(temp_dir, f"data_{i}.csv"), "w") as f:
-                    f.write(f"col1,col2\nvalue{i}a,value{i}b")
+            with open(os.path.join(temp_dir, "data_0.csv"), "w") as f:
+                f.write("col1,col2\nvalue0a,value0b")
+            with open(os.path.join(temp_dir, "data_1.csv"), "w") as f:
+                f.write("col1,col2\nvalue1a,value1b")
+            with open(os.path.join(temp_dir, "data_2.csv"), "w") as f:
+                f.write("col1,col2\nvalue2a,value2b")
             
             # Create JSON files
-            for i in range(2):
-                with open(os.path.join(temp_dir, f"config_{i}.json"), "w") as f:
-                    f.write(f'{{"name": "config{i}", "value": {i}}}')
+            with open(os.path.join(temp_dir, "config_0.json"), "w") as f:
+                f.write('{"name": "config0", "value": 0}')
+            with open(os.path.join(temp_dir, "config_1.json"), "w") as f:
+                f.write('{"name": "config1", "value": 1}')
             
             yield temp_dir
         finally:
             # Clean up after the test
             import shutil
             shutil.rmtree(temp_dir)
+    
+    @pytest.fixture
+    def multi_dir_setup(self):
+        """Create multiple temporary directories with different file types."""
+        # First directory with txt files
+        dir1 = tempfile.mkdtemp()
+        
+        # Create txt files in dir1
+        with open(os.path.join(dir1, "dir1_file_0.txt"), "w") as f:
+            f.write("Dir1 content 0")
+        with open(os.path.join(dir1, "dir1_file_1.txt"), "w") as f:
+            f.write("Dir1 content 1")
+        
+        # Second directory with json files
+        dir2 = tempfile.mkdtemp()
+        
+        # Create json files in dir2
+        with open(os.path.join(dir2, "dir2_file_0.json"), "w") as f:
+            f.write('{"name": "dir2_0", "value": 0}')
+        with open(os.path.join(dir2, "dir2_file_1.json"), "w") as f:
+            f.write('{"name": "dir2_1", "value": 1}')
+        with open(os.path.join(dir2, "dir2_file_2.json"), "w") as f:
+            f.write('{"name": "dir2_2", "value": 2}')
+        
+        try:
+            yield (dir1, dir2)
+        finally:
+            # Clean up after the test
+            import shutil
+            shutil.rmtree(dir1)
+            shutil.rmtree(dir2)
     
     def test_basic_file_discovery(self, test_dir):
         """Test basic file discovery with a pattern."""
@@ -101,7 +156,7 @@ class TestFileDiscovery:
         # Assert that we found all expected files
         assert len(files) == 7  # 2 in root + 3 in subdir + 2 in deepdir
         
-        # Count files by type (addressing Sourcery lint warnings)
+        # Count files by type
         root_files = [f for f in files if "root_" in f]
         sub_files = [f for f in files if "sub_" in f]
         deep_files = [f for f in files if "deep_" in f]
@@ -121,9 +176,41 @@ class TestFileDiscovery:
         data_files = discover_files(mixed_files_dir, "*", extensions=["csv", "json"])
         assert len(data_files) == 5  # 3 csv + 2 json
         
-        # Count files by type (addressing Sourcery lint warnings)
+        # Count files by type
         csv_files = [f for f in data_files if f.endswith(".csv")]
         json_files = [f for f in data_files if f.endswith(".json")]
         
         assert len(csv_files) == 3
         assert len(json_files) == 2
+        
+    def test_multi_directory_discovery(self, multi_dir_setup):
+        """Test file discovery across multiple directories."""
+        # Unpack the directories
+        dir1, dir2 = multi_dir_setup
+        
+        # Call the function with multiple directories
+        files = discover_files([dir1, dir2], "*.txt")
+        
+        # We should only find the 2 txt files from dir1
+        assert len(files) == 2
+        assert all(f.endswith(".txt") for f in files)
+        assert all("dir1_file" in f for f in files)
+        
+        # Now search for json files which should come from dir2
+        files = discover_files([dir1, dir2], "*.json")
+        
+        # We should find 3 json files from dir2
+        assert len(files) == 3
+        assert all(f.endswith(".json") for f in files)
+        assert all("dir2_file" in f for f in files)
+        
+        # Search for all files using a wildcard
+        files = discover_files([dir1, dir2], "*.*")
+        
+        # We should find all 5 files (2 txt + 3 json)
+        assert len(files) == 5
+        txt_files = [f for f in files if f.endswith(".txt")]
+        json_files = [f for f in files if f.endswith(".json")]
+        
+        assert len(txt_files) == 2
+        assert len(json_files) == 3
