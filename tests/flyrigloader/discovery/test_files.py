@@ -7,6 +7,7 @@ import pytest
 from pathlib import Path
 from typing import List
 
+
 # Import the function we want to test
 from flyrigloader.discovery.files import discover_files
 
@@ -171,6 +172,37 @@ class TestFileDiscovery:
             # Clean up after the test
             import shutil
             shutil.rmtree(temp_dir)
+            
+    @pytest.fixture
+    def mandatory_substrings_dir(self):
+        """Create a directory with files for testing mandatory substrings."""
+        temp_dir = tempfile.mkdtemp()
+        try:
+            # Create various experimental files
+            with open(os.path.join(temp_dir, "experiment_smoke_2a_001.csv"), "w") as f:
+                f.write("smoke_2a experiment data")
+            with open(os.path.join(temp_dir, "experiment_smoke_2a_002.csv"), "w") as f:
+                f.write("more smoke_2a experiment data")
+            with open(os.path.join(temp_dir, "experiment_control_001.csv"), "w") as f:
+                f.write("control experiment data")
+            with open(os.path.join(temp_dir, "experiment_nagel_001.csv"), "w") as f:
+                f.write("nagel experiment data")
+            with open(os.path.join(temp_dir, "setup_notes.txt"), "w") as f:
+                f.write("general experiment notes")
+            
+            # Create subdirectory with more files
+            subdir = os.path.join(temp_dir, "subdir")
+            os.makedirs(subdir)
+            with open(os.path.join(subdir, "experiment_smoke_2a_003.csv"), "w") as f:
+                f.write("nested smoke_2a experiment data")
+            with open(os.path.join(subdir, "experiment_control_002.csv"), "w") as f:
+                f.write("nested control experiment data")
+            
+            yield temp_dir
+        finally:
+            # Clean up after the test
+            import shutil
+            shutil.rmtree(temp_dir)
     
     def test_basic_file_discovery(self, test_dir):
         """Test basic file discovery with a pattern."""
@@ -286,4 +318,59 @@ class TestFileDiscovery:
         )
         # Should find only normal_file.txt in root
         assert len(files) == 1
-        assert files[0].endswith("normal_file.txt")
+        assert "normal_file.txt" in files[0]
+        
+    def test_mandatory_substrings(self, mandatory_substrings_dir):
+        """Test file discovery with mandatory substrings."""
+        # Test without any mandatory substrings - should find all files
+        all_files = discover_files(mandatory_substrings_dir, "**/*.*", recursive=True)
+        assert len(all_files) == 7  # 5 in root + 2 in subdir
+        
+        # Test with single mandatory substring - only smoke_2a experiments
+        files = discover_files(
+            mandatory_substrings_dir,
+            "**/*.*",
+            recursive=True,
+            mandatory_substrings=["smoke_2a"]
+        )
+        # Should only include the 3 smoke_2a files
+        assert len(files) == 3
+        assert all("smoke_2a" in f for f in files)
+        
+        # Test with multiple mandatory substrings - OR logic
+        files = discover_files(
+            mandatory_substrings_dir,
+            "**/*.*",
+            recursive=True,
+            mandatory_substrings=["nagel", "control"]
+        )
+        # Should include both nagel and control files (1 nagel + 2 control = 3)
+        assert len(files) == 3
+        assert any("nagel" in f for f in files)
+        assert any("control" in f for f in files)
+        
+        # Test with mandatory AND ignore patterns together
+        files = discover_files(
+            mandatory_substrings_dir,
+            "**/*.*",
+            recursive=True,
+            mandatory_substrings=["experiment"],
+            ignore_patterns=["smoke_2a"]
+        )
+        # Should include experiment files but not smoke_2a ones (6 experiments - 3 smoke_2a = 3)
+        assert len(files) == 3
+        assert all("experiment" in f for f in files)
+        assert all("smoke_2a" not in f for f in files)
+        
+        # Test with extension filter and mandatory substrings
+        files = discover_files(
+            mandatory_substrings_dir,
+            "**/*.*",
+            recursive=True,
+            extensions=["csv"],
+            mandatory_substrings=["experiment"]
+        )
+        # Should find only CSV files with "experiment" in name (all experimental files)
+        assert len(files) == 6
+        assert all(f.endswith(".csv") for f in files)
+        assert all("experiment" in f for f in files)

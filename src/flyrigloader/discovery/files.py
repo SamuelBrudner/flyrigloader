@@ -12,7 +12,8 @@ def discover_files(
     pattern: str, 
     recursive: bool = False,
     extensions: Optional[List[str]] = None,
-    ignore_patterns: Optional[List[str]] = None
+    ignore_patterns: Optional[List[str]] = None,
+    mandatory_substrings: Optional[List[str]] = None
 ) -> List[str]:
     """
     Discover files matching a pattern in the specified directory or directories.
@@ -23,9 +24,11 @@ def discover_files(
         recursive: If True, search recursively through subdirectories
         extensions: Optional list of file extensions to filter by (without the dot)
         ignore_patterns: Optional list of substring patterns to ignore
+        mandatory_substrings: Optional list of substrings that must be present in files
         
     Returns:
         List of file paths matching the pattern and extensions, excluding ignored patterns
+        and including only paths with mandatory substrings (if specified)
     """
     # Handle single directory or multiple directories
     directories = [directory] if isinstance(directory, str) else directory
@@ -61,6 +64,14 @@ def discover_files(
         all_matched_files = [
             f for f in all_matched_files
             if all(pattern not in f for pattern in ignore_patterns)
+        ]
+    
+    # Apply mandatory substrings if specified
+    if mandatory_substrings:
+        # Keep only files containing at least one of the mandatory substrings (OR logic)
+        all_matched_files = [
+            f for f in all_matched_files
+            if any(pattern in f for pattern in mandatory_substrings)
         ]
     
     return all_matched_files
