@@ -1,0 +1,251 @@
+# Revised AI Coding Assistant Guidelines
+
+## 1. Python Data Science Focus
+
+1. **Primary Programming Language**  
+   - Use **Python 3** for all data science and machine learning tasks.
+
+2. **Core Libraries**  
+   - **NumPy** for numerical computing  
+   - **pandas** for data manipulation and analysis  
+   - **Jupyter** notebooks for interactive development and exploration  
+   - Use **conda** for environment and package management (prefer `conda install` where possible)
+
+3. **Project Environment**  
+   - Inside this project, Python code must use the **conda environment**: `flyrigloader`  
+   - When installing packages, use `conda install` if possible
+
+---
+
+## 2. Code Style and Structure
+
+1. **Code Conventions**  
+   - Follow **PEP8** style guidelines (including snake_case naming)  
+   - Use **type hints** consistently  
+   - Favor **readability over premature optimization**
+
+2. **Naming Conventions**  
+   - Use descriptive names (e.g., `is_loading`, `has_error`) for booleans  
+   - Avoid abbreviations or unclear acronyms
+
+3. **Modular Design**  
+   - Separate code into modules (e.g., models, data loading, training, evaluation)  
+   - Store hardcoded values and parameters in a **YAML configuration file**  
+   - Do not commit machine-specific paths or credentials to version control
+
+4. **Path Handling**  
+   - Use `pathlib` for file and directory operations
+
+5. **Documentation**  
+   - Use clear, concise docstrings (NumPy or Google style)  
+   - Document function parameters, return values, and side effects
+
+6. **Jupyter Notebooks vs. `.py` Modules**  
+   - Use Jupyter notebooks for **exploration** or **prototyping**  
+   - Keep production or large-scale logic in `.py` modules so it can be tested and versioned cleanly
+
+---
+
+## 3. Testing, TDD, and Configuration
+
+1. **Test-Driven Development (TDD)**  
+   - Adopt a **red–green–refactor** approach:
+     1. **Red**: Write a test that fails initially (no or incomplete implementation yet).  
+     2. **Green**: Implement just enough functionality to make the test pass.  
+     3. **Refactor**: Clean up and improve the code while keeping all tests green.  
+   - Keep each test focused on verifying one behavior or code path.
+
+2. **Test Organization**  
+   - Keep tests **simple and declarative**, with minimal branching logic.  
+   - Use descriptive test method names that clearly indicate the behavior under test.  
+   - When code duplication arises, prefer parameterized tests or fixture-based approaches over ad hoc conditionals.
+
+3. **Distinguishing Execution Errors from Failing Tests**  
+   - A **failing test** indicates an unmet assertion or condition (i.e., the code output differs from what is expected).  
+   - An **execution error/exception** indicates an unexpected runtime failure (e.g., unhandled exception).  
+   - If a specific exception is part of intended functionality, explicitly test for it (e.g., `pytest.raises`).  
+   - If exceptions arise unintentionally, address them with bug fixes, then update tests to confirm the fix.
+
+4. **Configuration Management**  
+   - Store environment-specific details in a **local YAML config file** (avoid committing these to source control).  
+   - Consider a hierarchical configuration approach (default config plus overrides).
+
+5. **Continuous Integration** (Optional but Recommended)  
+   - Use a CI service (e.g., GitHub Actions, GitLab CI) to enforce code style, type checks, and run tests automatically.  
+   - Aim for meaningful coverage without spending time on trivial tests.
+
+---
+
+## 4. Core Operating Principles
+
+1. **Instruction Reception and Understanding**  
+   - Read user instructions carefully and confirm any technical constraints.  
+   - Ask for clarification when needed.
+
+2. **Respecting Scope**  
+   - **Do not implement any features or functionalities that the user did not explicitly request.**  
+   - If additional or related functionality seems beneficial, propose it first and wait for confirmation before implementing.
+
+3. **In-depth Analysis and Planning**  
+   - Provide a brief overview before coding. For instance:
+     - **Task Analysis**  
+       - Purpose: [Final goal of the task]  
+       - Technical Requirements: [Key libraries, environment constraints]  
+       - Implementation Steps: [Planned outline]  
+       - Risks: [Potential pitfalls]  
+       - Quality Standards: [Guidelines, e.g. PEP8, docstring coverage]
+
+4. **Implementation Planning**  
+   - Draft an incremental plan. For example:
+     - **Implementation Plan**  
+       1. [Step 1]  
+          - Rationale, expected challenges, approach  
+       2. [Step 2]  
+          - ...
+
+5. **Implementation and Verification**  
+   - Develop in logical, well-defined phases.  
+   - Continuously verify code quality (PEP8, docstring coverage, type hints).  
+   - Do not add extra, unrequested features beyond the established scope.
+
+6. **Continuous Feedback**  
+   - Report progress at critical decision points.  
+   - Propose solutions when issues arise and wait for confirmation.
+
+---
+
+## 5. Implementation Process
+
+1. **Initial Analysis Phase**  
+   - Identify functional requirements.  
+   - Confirm technical constraints.  
+   - Assess potential risks (performance, security, etc.).
+
+2. **Implementation Phase**  
+   - Follow TDD: write failing tests, implement minimal code to pass, then refactor.  
+   - Check code style, docstring coverage, and correctness regularly.
+
+3. **Verification Phase**  
+   - Conduct unit and integration tests (parametrizing tests where beneficial).  
+   - Perform performance tests if data size or speed is critical.
+
+4. **Final Confirmation**  
+   - Validate final code against requirements.  
+   - Confirm maintainability (docstrings, configuration usage).  
+   - Provide or update final documentation.
+
+---
+
+## 6. Quality Management Protocol
+
+1. **Code Quality**  
+   - Enforce strict PEP8 rules.  
+   - Maintain consistent type hints.  
+   - Use TDD to encourage thorough test coverage and refactoring.
+
+2. **Performance**  
+   - Avoid unnecessary nested loops over large arrays (vectorization preferred).  
+   - Optimize only after confirming a real bottleneck.
+
+3. **Security**  
+   - Validate inputs carefully.  
+   - Provide appropriate error handling (avoid silent failures).  
+   - Store sensitive information (tokens, private keys) securely (not in public repos).
+
+4. **UI/UX** (If Relevant)  
+   - If a front-end or dashboard is part of the scope, ensure consistent design and accessibility.  
+   - Keep visualizations (e.g., in notebooks) clear and comprehensible.
+
+---
+
+## 7. Error Handling Protocol
+
+1. **Problem Identification**  
+   - Evaluate error messages or stack traces.  
+   - Identify scope (e.g., local or widespread).
+
+2. **Solution Development**  
+   - Consider multiple solutions.  
+   - Weigh potential side effects.  
+   - Select the best approach.
+
+3. **Implementation and Verification**  
+   - Implement the fix, then re-run tests (unit, integration).  
+   - Confirm no new issues were introduced.
+
+4. **Documentation**  
+   - Record the root cause, solution, and any preventative steps.  
+   - Update relevant sections to avoid future recurrence.
+
+---
+
+## 8. Logging Protocol
+
+1. **Preferred Logging Library**  
+   - Use **loguru** for advanced logging capabilities.
+
+2. **Basic Logging Usage**  
+   - Use `logger.info()`, `logger.debug()`, `logger.error()`, etc.  
+   - Configure loguru at the entry point of your application. Each module should import the logger from the root module.  
+   - Store logging configuration in a separate config file (yaml).
+
+3. **Log Levels**  
+   - Use `logger.info()` for general information.  
+   - Use `logger.debug()` for detailed information.  
+   - Use `logger.error()` for errors.  
+   - Use `logger.warning()` for warnings.  
+   - Use `logger.critical()` for critical errors.
+
+4. **Configuration and Sinks**  
+   - Use loguru’s configuration to control formatting, logging levels, and output locations (e.g., console, file).  
+   - Use sinks to direct logs to different destinations (e.g., console, file, database).  
+   - Integrate with YAML configuration for ease of management.
+
+5. **Contextual Logging**  
+   - Include contextual information (e.g., timestamps, process IDs, thread IDs) in logs.  
+   - Use structured logging (e.g., JSON) for better log analysis.
+
+6. **Avoid Excessive Logging**  
+   - Do not log large data structures or arrays (can use summaries).  
+   - Ensure logs remain readable and concise.
+
+7. **Error Handling**  
+   - Log exceptions at the place where they are handled, not where they are raised.  
+   - Use `logger.exception()` to log exceptions.
+
+---
+
+## 9. Version Control and Branching Strategy
+
+1. **Frequent Commits**  
+   - Commit changes to **git** frequently, ideally every time you complete a small, coherent unit of work or fix a bug.  
+   - Write concise, informative commit messages that describe what changed and why.
+
+2. **Branching Strategy**  
+   - Develop new features, bug fixes, and experimental ideas on **feature branches** instead of committing directly to `main`.  
+   - Merge feature branches into `main` (for example, via pull requests) only after code review and testing are complete.  
+   - Keep `main` in a working state at all times.
+
+3. **Pull Requests**  
+   - Use pull requests to facilitate code reviews.  
+   - Ensure all tests pass and code meets quality standards (PEP8, type hints, docstrings) before merging.
+
+4. **Conflict Resolution**  
+   - Pull or rebase frequently to minimize merge conflicts.  
+   - Resolve any conflicts promptly, confirming that the resulting code still passes tests.
+
+5. **Commit Hygiene**  
+   - Do not include large or unrelated changes in a single commit.  
+   - Group logically related changes to keep commits clear and easily reversible.
+
+---
+
+## Final Note
+
+By following these guidelines—especially adopting **TDD**, committing changes frequently, using feature branches, and clearly distinguishing between legitimate test failures and unexpected exceptions—you foster a culture of building well-tested, modular code. This leads to:
+
+1. **Readability and Clarity**: Code is carefully scoped, dependencies are made explicit.  
+2. **Robustness**: Failing tests verify intended behavior; unexpected exceptions signal bugs for prompt resolution.  
+3. **Maintainability**: Regular refactoring keeps the code clean as it evolves.  
+4. **Focus**: By refraining from implementing unrequested features, you ensure development efforts remain aligned with user needs and requirements.  
+5. **Traceability**: Frequent commits on separate branches make it easier to isolate changes and track the code’s evolution.
