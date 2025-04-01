@@ -6,6 +6,8 @@ import tempfile
 import pytest
 from pathlib import Path
 from typing import List
+import re
+from datetime import datetime
 
 
 # Import the function we want to test
@@ -204,6 +206,83 @@ class TestFileDiscovery:
             import shutil
             shutil.rmtree(temp_dir)
     
+    @pytest.fixture
+    def pattern_extraction_dir(self):
+        """Create a directory with files containing extractable patterns."""
+        temp_dir = tempfile.mkdtemp()
+        try:
+            # Create files with animal IDs, dates, and other metadata in filenames
+            files = [
+                # Format: animalID_YYYYMMDD_condition.ext
+                "mouse_20240315_control_1.csv",
+                "mouse_20240316_control_2.csv",
+                "mouse_20240320_treatment_1.csv",
+                # Format: YYYYMMDD_animalID_condition.ext
+                "20240321_rat_control_1.csv",
+                "20240322_rat_treatment_1.csv",
+                # Format with experiment ID: expID_animalID_condition.ext
+                "exp001_mouse_baseline.csv",
+                "exp002_rat_baseline.csv",
+                # Files with batch info in directories
+                "batch1/mouse_20240401_treatment_1.csv",
+                "batch2/mouse_20240402_treatment_2.csv"
+            ]
+            
+            # Create the files with some content
+            for file_path in files:
+                # Handle nested paths
+                full_path = os.path.join(temp_dir, file_path)
+                os.makedirs(os.path.dirname(full_path), exist_ok=True)
+                
+                with open(full_path, "w") as f:
+                    f.write(f"Data for {file_path}")
+            
+            yield temp_dir
+        finally:
+            # Clean up
+            import shutil
+            shutil.rmtree(temp_dir)
+    
+    @pytest.fixture
+    def date_files_dir(self):
+        """Create a directory with files containing dates in different formats."""
+        temp_dir = tempfile.mkdtemp()
+        try:
+            # Create test files with various date formats in names
+            date_files = {
+                # Standard format YYYYMMDD
+                "data_20240315.csv": "2024-03-15",
+                "data_20240316.csv": "2024-03-16",
+                # ISO format YYYY-MM-DD
+                "data_2024-03-17.csv": "2024-03-17",
+                "data_2024-03-18.csv": "2024-03-18",
+                # US format MM-DD-YYYY
+                "data_03-19-2024.csv": "2024-03-19",
+                "data_03-20-2024.csv": "2024-03-20",
+                # With timestamp YYYYMMDD_HHMMSS
+                "data_20240321_142030.csv": "2024-03-21",
+                "data_20240322_152030.csv": "2024-03-22"
+            }
+            
+            # Different versions of the same file (for latest file testing)
+            versions = {
+                "experiment_v1_20240301.csv": "Version 1",
+                "experiment_v2_20240305.csv": "Version 2",
+                "experiment_v3_20240310.csv": "Version 3"
+            }
+            
+            # Create all files
+            for filename, content in {**date_files, **versions}.items():
+                filepath = os.path.join(temp_dir, filename)
+                with open(filepath, "w") as f:
+                    f.write(content)
+            
+            yield temp_dir
+        finally:
+            # Clean up
+            import shutil
+            shutil.rmtree(temp_dir)
+
     def test_basic_file_discovery(self, test_dir):
         """Test basic file discovery with a pattern."""
         # Call the function we want to test
@@ -374,3 +453,100 @@ class TestFileDiscovery:
         assert len(files) == 6
         assert all(f.endswith(".csv") for f in files)
         assert all("experiment" in f for f in files)
+    
+    def test_pattern_extraction(self, pattern_extraction_dir):
+        """Test extracting metadata from file paths using patterns."""
+        # Get all files
+        files = discover_files(pattern_extraction_dir, "**/*.csv", recursive=True)
+        assert len(files) == 9
+        
+        # Extract pattern information
+        patterns = [
+            # Mouse pattern (start of filename)
+            r".*/(mouse)_(\d{8})_(\w+)_(\d+)\.csv",
+            # Rat pattern (date at start)
+            r".*/(\d{8})_(rat)_(\w+)_(\d+)\.csv",
+            # Experiment ID pattern
+            r".*/(exp\d+)_(\w+)_(\w+)\.csv"
+        ]
+        
+        # The function we're testing should return file information with extracted patterns
+        file_info = discover_files(
+            pattern_extraction_dir, 
+            "**/*.csv", 
+            recursive=True,
+            extract_patterns=patterns
+        )
+        
+        # Instead of a list of strings, we should now get a dictionary with metadata
+        assert isinstance(file_info, dict)
+        assert len(file_info) == 9
+        
+        # Check pattern extraction results
+        mouse_files = [info for path, info in file_info.items() if "animal" in info and info["animal"] == "mouse"]
+        assert len(mouse_files) == 5  # 3 in root + 2 in batch dirs
+        
+        rat_files = [info for path, info in file_info.items() if "animal" in info and info["animal"] == "rat"]
+        assert len(rat_files) == 3  # 2 in root + 1 in experiment
+        
+        # Check specific metadata examples
+        # Find a specific file by partial path match
+        mouse_treatment_info = next(
+            info for path, info in file_info.items() 
+            if "mouse_20240320_treatment_1.csv" in path
+        )
+        assert mouse_treatment_info["animal"] == "mouse"
+        assert mouse_treatment_info["date"] == "20240320"
+        assert mouse_treatment_info["condition"] == "treatment"
+        assert mouse_treatment_info["replicate"] == "1"
+    
+    def test_date_handling(self, date_files_dir):
+        """Test date extraction and parsing from filenames."""
+        # Get file info with date parsing enabled
+        file_info = discover_files(
+            date_files_dir,
+            "*.csv",
+            parse_dates=True
+        )
+        
+        assert isinstance(file_info, dict)
+        assert len(file_info) == 11  # 8 date files + 3 version files
+        
+        # Check that dates were parsed
+        for path, info in file_info.items():
+            assert "parsed_date" in info
+            assert isinstance(info["parsed_date"], datetime)
+        
+        # Check specific date parsing
+        iso_file_info = next(
+            info for path, info in file_info.items() 
+            if "data_2024-03-17.csv" in path
+        )
+        assert iso_file_info["parsed_date"].year == 2024
+        assert iso_file_info["parsed_date"].month == 3
+        assert iso_file_info["parsed_date"].day == 17
+    
+    def test_latest_files(self, date_files_dir):
+        """Test getting the latest version of files."""
+        # Get file info
+        file_info = discover_files(
+            date_files_dir,
+            "*_v*_*.csv",  # Pattern to match versioned files
+            parse_dates=True
+        )
+        
+        # Get latest version of experiment files
+        latest_files = discover_files(
+            date_files_dir,
+            "*_v*_*.csv",
+            parse_dates=True,
+            get_latest=True
+        )
+        
+        # We should only get one file (the latest version)
+        assert isinstance(latest_files, dict)
+        assert len(latest_files) == 1
+        
+        # It should be v3 (the latest)
+        latest_path = next(iter(latest_files.keys()))
+        assert "experiment_v3_20240310.csv" in latest_path
