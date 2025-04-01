@@ -9,6 +9,9 @@ description = "Tools for managing and controlling fly rigs for neuroscience expe
 readme = "README.md"
 requires-python = ">=3.8"
 license = {text = "MIT"}
+dependencies = [
+    "loguru>=0.7.0",
+]
 
 [project.optional-dependencies]
 dev = [
