@@ -9,17 +9,18 @@ handled by the data_pipeline module.
 
 from typing import Any, Dict, List, Optional, Tuple, Union
 import pandas as pd
-from pathlib import Path
-from datetime import datetime
+import numpy as np
 from loguru import logger
-
+from datetime import datetime
+from ..core.utils import ensure_path, PathLike, ensure_1d
 from ..schema.validator import apply_schema
 from ..readers.pickle import read_pickle_any_format
 from ..lineage.tracker import LineageTracker
+from ..core.factories import create_minimal_lineage_tracker, create_lineage_tracker
 
 
 def load_file_into_dataframe(
-    item: Union[str, Path, Dict[str, Any]],
+    item: Union[PathLike, Dict[str, Any]],
     config: Optional[Dict[str, Any]] = None,
     schema: Optional[Dict[str, Any]] = None,
     lineage: Optional[LineageTracker] = None,
@@ -41,64 +42,64 @@ def load_file_into_dataframe(
         
     Returns:
         Tuple of (DataFrame, metadata_dict)
-        If processing fails, DataFrame will be None and metadata_dict will contain error info.
+        If processing fails, DataFrame will be None and metadata_dict will contain 
+        structured error information including success status, error message, 
+        error type, and traceback.
     """
-    # Handle different input types
-    if isinstance(item, (str, Path)):
-        path = Path(item)
-        item_dict = {
-            'path': path,
-            'file_path': str(path),
-            'file_name': path.name,
-            'date': datetime.now().strftime("%Y-%m-%d")
-        }
-    else:
-        item_dict = item
-        # Check if 'path' key exists in the dictionary
-        if 'path' not in item_dict:
-            processing_meta = {
-                "timestamp": datetime.now().isoformat(),
-                "success": False,
-                "error": "'path' key missing in item dictionary"
-            }
-            logger.error("Required 'path' key missing in item dictionary")
-            return None, processing_meta
-            
-        path = Path(item_dict['path'])
-    
     # Initialize processing metadata
     processing_meta = {
-        "file_processed": str(path),
         "timestamp": datetime.now().isoformat(),
-        "success": False,
-        "rows_processed": 0
+        "success": False
     }
 
-    # Create or use lineage tracker
-    if track_lineage:
-        if lineage is None:
-            from ..lineage.minimal import MinimalLineageTracker
-            tracker = MinimalLineageTracker(source=path, description=f"Loading file {path.name}")
-            lineage = tracker._tracker
-
-        # Record source in lineage
-        lineage.add_source(path, metadata=item_dict)
-        lineage.add_step("load_file", f"Loading data from {path.name}", {
-            "item_metadata": item_dict
-        })
-
-    # Load data from file
     try:
-        # Get file reader based on extension
+        # Handle different input types
+        if isinstance(item, (str, PathLike)):
+            path = ensure_path(item)
+            item_dict = {
+                'path': path,
+                'file_path': str(path),
+                'file_name': path.name,
+                'date': datetime.now().strftime("%Y-%m-%d")
+            }
+        else:
+            item_dict = item
+            # Check if 'path' key exists in the dictionary
+            if 'path' not in item_dict:
+                raise ValueError("'path' key missing in item dictionary")
+                
+            path = ensure_path(item_dict['path'])
+        
+        # Update processing metadata with file info
+        processing_meta["file_processed"] = str(path)
+
+        # Create or use lineage tracker
+        if track_lineage:
+            if lineage is None:
+                tracker = create_minimal_lineage_tracker(
+                    source=path, 
+                    description=f"Loading file {path.name}"
+                )
+                lineage = tracker._tracker
+
+            # Record source in lineage
+            lineage.add_source(path, metadata=item_dict)
+            lineage.add_step("load_file", f"Loading data from {path.name}", {
+                "item_metadata": item_dict
+            })
+
+        # Load data from file 
         obj = read_pickle_any_format(path)
         
+        # If loading failed, return error info
         if obj is None:
-            processing_meta["error"] = "Failed to read file"
+            processing_meta["error"] = "File read successfully but returned None"
             return None, processing_meta
-            
+        
         # Convert to DataFrame if it's a dictionary
         if isinstance(obj, dict):
-            df = _dict_to_dataframe(obj, item_dict, lineage)
+            df_result = _dict_to_dataframe(obj, item_dict, lineage)
+            df = df_result
         elif isinstance(obj, pd.DataFrame):
             df = obj
             if lineage:
@@ -113,7 +114,8 @@ def load_file_into_dataframe(
             return None, processing_meta
             
         # Attach metadata
-        df, overwritten_cols = _attach_metadata(df, item_dict)
+        df_with_meta, overwritten_cols = _attach_metadata(df, item_dict)
+        df, overwritten_cols = df_with_meta, overwritten_cols
         
         # Update processing metadata
         processing_meta["rows_processed"] = len(df)
@@ -134,7 +136,7 @@ def load_file_into_dataframe(
         
         # Apply schema if provided
         if schema:
-            # Transform DataFrame according to schema
+            # Transform DataFrame according to schema 
             df = apply_schema(df, schema)
             
             if lineage:
@@ -157,12 +159,15 @@ def load_file_into_dataframe(
         # Mark processing as successful
         processing_meta["success"] = True
         return df, processing_meta
-        
+    
     except Exception as e:
-        # Log any errors during processing
-        error_msg = str(e)
-        logger.error(f"Error processing {path}: {error_msg}")
-        processing_meta["error"] = error_msg
+        processing_meta = {
+            "timestamp": datetime.now().isoformat(),
+            "success": False,
+            "error": str(e),
+            "error_type": type(e).__name__,
+            "traceback": str(e.__traceback__)
+        }
         return None, processing_meta
 
 
@@ -182,8 +187,6 @@ def _dict_to_dataframe(
     Returns:
         DataFrame with basic structure
     """
-    from ..schema.operations import ensure_1d
-
     # Handle time array, assuming 't' is the standard time key
     if 't' not in data_dict:
         raise ValueError("Data dictionary must contain a 't' array")
@@ -199,64 +202,69 @@ def _dict_to_dataframe(
     }
 
     # Add standard data columns
-    standard_columns = [
-        'trjn', 'x', 'y', 'x_smooth', 'y_smooth', 'theta', 'theta_smooth',
-        'dtheta_smooth', 'vx_smooth', 'vy_smooth', 'spd_smooth',
-        'signal', 'jumps', 'headx_smooth', 'heady_smooth'
-    ]
-
-    # Add each column if it exists
-    for col in standard_columns:
+    standard_cols = ['frame', 'stimulus', 'response', 'trial']
+    for col in standard_cols:
         if col in data_dict:
-            result_dict[col] = ensure_1d(data_dict[col], col)
-        else:
-            # Create empty column filled with NaN
-            import numpy as np
-            result_dict[col] = np.full_like(t, np.nan, dtype=float)
-
-    # Handle special case for signal_disp (which is 2D)
-    if 'signal_disp' in data_dict:
-        # Convert 2D array to list of arrays
-        sd = data_dict['signal_disp']
-        if sd.ndim == 2:
-            # Match to time dimension
-            T = len(t)
-            n, m = sd.shape
-
-            if n == T:
-                # Already in correct orientation
-                pass
-            elif m == T:
-                # Transpose to match time
-                sd = sd.T
-            else:
+            value = data_dict[col]
+            result_dict[col] = ensure_1d(value, col)
+            
+    # Also handle signal if present
+    if 'signal' in data_dict:
+        result_dict['signal'] = ensure_1d(data_dict['signal'], 'signal')
+    
+    # Add any other columns that can be converted to 1D arrays
+    for key, value in data_dict.items():
+        if key not in result_dict and key != 'signal_disp':
+            try:
+                result_dict[key] = ensure_1d(value, key)
+            except (ValueError, TypeError) as e:
                 if lineage:
                     lineage.add_step(
-                        "warning",
-                        f"signal_disp shape {sd.shape} does not match time length {T}"
+                        "skip_column",
+                        f"Skipping column {key}",
+                        {"reason": str(e)}
                     )
-                import numpy as np
-                result_dict['signal_disp'] = pd.Series([[] for _ in range(len(t))], index=range(len(t)))
-
-            # Store as Series of arrays
-            result_dict['signal_disp'] = pd.Series(list(sd), index=range(T), name='signal_disp')
-
+    
+    df = pd.DataFrame(result_dict)
+    
+    # Handle special case for signal_disp (2D array of signal traces)
+    if 'signal_disp' in data_dict and len(t) > 0:
+        signal_disp = data_dict['signal_disp']
+        if signal_disp.ndim == 2:
+            # If signal_disp is 2D, make sure it matches timepoints
+            if signal_disp.shape[0] == len(t):
+                df['signal_traces'] = signal_disp.tolist()
+            elif signal_disp.shape[1] == len(t):
+                df['signal_traces'] = signal_disp.T.tolist()
+            elif lineage:
+                lineage.add_step(
+                    "skip_signal_disp",
+                    "Signal_disp dimensions don't match time array",
+                    {
+                        "signal_disp_shape": signal_disp.shape,
+                        "time_length": len(t)
+                    }
+                )
         elif lineage:
             lineage.add_step(
-                "warning", 
-                f"signal_disp has unexpected shape {sd.shape}, expected 2D array"
+                "skip_signal_disp",
+                "Signal_disp is not 2D",
+                {
+                    "signal_disp_shape": signal_disp.shape,
+                    "time_length": len(t)
+                }
             )
-    # Create the DataFrame
-    df = pd.DataFrame(result_dict)
-
-    # Record in lineage
+                    
     if lineage:
         lineage.add_step(
-            "make_dataframe",
-            "Converting dictionary to DataFrame",
-            {"original_keys": list(data_dict.keys())},
+            "create_dataframe",
+            "Created DataFrame from raw data",
+            {
+                "columns": list(df.columns),
+                "rows": len(df)
+            }
         )
-
+                    
     return df
 
 
@@ -274,22 +282,22 @@ def _attach_metadata(
     Returns:
         Tuple of (modified_dataframe, list_of_overwritten_columns)
     """
-    # Create a copy to avoid modifying the original
-    result_df = df.copy()
-    overwritten_columns = []
+    overwritten_cols = []
     
-    # Add each metadata field as a column
+    # Attach metadata as columns
     for key, value in metadata.items():
-        if key != 'path':
-            # Check if column already exists
-            if key in result_df.columns:
-                overwritten_columns.append(key)
-                logger.warning(f"Metadata column '{key}' is overwriting an existing column")
-                
-            # Add as column
-            result_df[key] = value
+        # Skip the path itself
+        if key == 'path':
+            continue
+            
+        # Check if column already exists
+        if key in df.columns:
+            overwritten_cols.append(key)
+            
+        # Set the column value
+        df[key] = value
     
-    return result_df, overwritten_columns
+    return df, overwritten_cols
 
 
 def combine_dataframes(
@@ -307,25 +315,42 @@ def combine_dataframes(
         Combined DataFrame with merged lineage
     """
     if not dataframes:
-        return pd.DataFrame()
-        
-    # Concatenate all dataframes
-    result_df = pd.concat(dataframes, ignore_index=True)
+        empty_df = pd.DataFrame()
+        if lineage:
+            lineage.add_step(
+                "combine_dataframes",
+                "No DataFrames to combine, returning empty DataFrame"
+            )
+            # Attach lineage to empty DataFrame
+            from ..lineage.unified import attach_lineage_to_dataframe
+            empty_df = attach_lineage_to_dataframe(empty_df, lineage)
+        return empty_df
+    elif len(dataframes) == 1:
+        df = dataframes[0]
+        if lineage:
+            lineage.add_step(
+                "combine_dataframes",
+                "Only one DataFrame to combine, returning it directly",
+                {"rows": len(df), "columns": list(df.columns)}
+            )
+        return df
     
-    # Record in lineage
+    # Combine multiple DataFrames
+    combined_df = pd.concat(dataframes, ignore_index=True)
+    
     if lineage:
         lineage.add_step(
-            "concatenate",
-            "Concatenated all DataFrames",
+            "combine_dataframes",
+            f"Combined {len(dataframes)} DataFrames",
             {
-                "total_dataframes": len(dataframes),
-                "total_rows": len(result_df),
-                "resulting_columns": list(result_df.columns)
+                "input_dataframes": len(dataframes),
+                "total_rows": len(combined_df),
+                "columns": list(combined_df.columns)
             }
         )
         
-        # Attach lineage to DataFrame
-        from ..lineage.tracker import attach_lineage_to_dataframe
-        result_df = attach_lineage_to_dataframe(result_df, lineage)
-        
-    return result_df
+        # Attach consolidated lineage to the combined DataFrame
+        from ..lineage.unified import attach_lineage_to_dataframe
+        combined_df = attach_lineage_to_dataframe(combined_df, lineage)
+    
+    return combined_df

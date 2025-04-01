@@ -5,9 +5,12 @@ This module provides functions to filter a full configuration to focus on
 a specific experiment, with options for how the resulting structure should look.
 """
 
-from typing import Any, Dict, List, Optional, Set, Union
+from typing import Any, Dict, List, Optional, Set, Tuple, Union
 from pathlib import Path
 from loguru import logger
+from datetime import datetime
+
+from ..core.utils import create_metadata, create_error_metadata
 
 
 def filter_config_by_experiment(
@@ -16,7 +19,7 @@ def filter_config_by_experiment(
     transform_structure: bool = False,
     preserve_all_keys: bool = True,
     preserved_keys: Optional[List[str]] = None
-) -> Dict[str, Any]:
+) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     """
     Filter configuration to focus on a specific experiment.
     
@@ -34,33 +37,63 @@ def filter_config_by_experiment(
                        Defaults to ['paths', 'rigs', 'datasets'] if None.
         
     Returns:
-        Filtered configuration dictionary
-        
-    Raises:
-        ValueError: If the specified experiment is not found in the config
+        Tuple of (filtered_config, metadata) where filtered_config is the filtered 
+        configuration dictionary and metadata contains status information and any error details
     """
-    # Set default preserved keys if none provided
-    if preserved_keys is None:
-        preserved_keys = ['paths', 'rigs', 'datasets']
-    
-    # Validate experiment exists
-    _validate_experiment_exists(config, experiment_name)
-    
-    # Create the initial filtered configuration
-    filtered_config = _create_filtered_config(config, experiment_name, transform_structure)
-    
-    # Add other configuration keys based on preserve settings
-    _add_preserved_keys(filtered_config, config, preserve_all_keys, preserved_keys)
-    
-    return filtered_config
+    try:
+        metadata = create_metadata()
+        
+        # Set default preserved keys if none provided
+        if preserved_keys is None:
+            preserved_keys = ['paths', 'rigs', 'datasets']
+        
+        # Validate experiment exists
+        exists, exp_metadata = _validate_experiment_exists(config, experiment_name)
+        if not exists:
+            metadata["error"] = exp_metadata["error"]
+            logger.error(metadata["error"])
+            return {}, metadata
+        
+        # Create the initial filtered configuration
+        filtered_config = _create_filtered_config(config, experiment_name, transform_structure)
+        
+        # Add other configuration keys based on preserve settings
+        _add_preserved_keys(filtered_config, config, preserve_all_keys, preserved_keys)
+        
+        metadata["success"] = True
+        return filtered_config, metadata
+        
+    except Exception as e:
+        logger.error(f"Error filtering config by experiment: {str(e)}")
+        return {}, create_error_metadata(e)
 
 
-def _validate_experiment_exists(config: Dict[str, Any], experiment_name: str) -> None:
-    """Validate that the specified experiment exists in the config."""
-    if experiment_name not in config.get('experiments', {}):
-        error_msg = f"Experiment '{experiment_name}' not found in config['experiments']"
-        logger.error(error_msg)
-        raise ValueError(error_msg)
+def _validate_experiment_exists(config: Dict[str, Any], experiment_name: str) -> Tuple[bool, Dict[str, Any]]:
+    """
+    Validate that the specified experiment exists in the config.
+    
+    Args:
+        config: Configuration dictionary
+        experiment_name: Name of experiment to check
+        
+    Returns:
+        Tuple of (exists, metadata) where exists is a boolean indicating if the 
+        experiment exists and metadata contains status information and any error details
+    """
+    try:
+        metadata = create_metadata()
+        
+        if experiment_name not in config.get('experiments', {}):
+            metadata["error"] = f"Experiment '{experiment_name}' not found in config['experiments']"
+            logger.error(metadata["error"])
+            return False, metadata
+            
+        metadata["success"] = True
+        return True, metadata
+        
+    except Exception as e:
+        logger.error(f"Error validating experiment existence: {str(e)}")
+        return False, create_error_metadata(e)
 
 
 def _create_filtered_config(
@@ -101,17 +134,15 @@ def _add_preserved_keys(
     preserve_all_keys: bool,
     preserved_keys: List[str]
 ) -> None:
-    """Add keys from the original config to the filtered config based on preservation settings."""
-    if preserve_all_keys:
-        # Copy all other keys except those we've already processed
-        for key in original_config:
-            if key != 'experiments' and key not in filtered_config:
-                filtered_config[key] = original_config[key]
-    else:
-        # Copy only specified keys
-        for key in preserved_keys:
-            if key in original_config and key not in filtered_config:
-                filtered_config[key] = original_config[key]
+    """Add preserved keys from the original config to the filtered config."""
+    keys_to_copy = list(original_config.keys()) if preserve_all_keys else preserved_keys
+    
+    # Skip any keys that would overwrite the filtered config keys
+    keys_to_skip = set(filtered_config.keys())
+    
+    for key in keys_to_copy:
+        if key not in keys_to_skip and key in original_config:
+            filtered_config[key] = original_config[key]
 
 
 def get_experiment_config(
@@ -121,7 +152,7 @@ def get_experiment_config(
     structure: str = "transformed",
     include_all_keys: bool = False,
     filter_criteria: Optional[Dict[str, Any]] = None
-) -> Dict[str, Any]:
+) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     """
     Get configuration for a specific experiment with standardized options.
     
@@ -139,47 +170,85 @@ def get_experiment_config(
             - True: Include all keys from the original config (may be verbose)
             - False: Only include essential keys like 'paths', 'rigs', 'datasets' (default)
         filter_criteria: Optional dictionary of additional filtering criteria to apply.
-                         Keys can be 'vials', 'rigs', etc. with values specifying what to include.
-                         Example: {'vials': ['A1', 'B2'], 'rigs': ['rig1', 'rig2']}
+                       Keys can be 'vials', 'rigs', etc. with values specifying what to include.
+                       Example: {'vials': ['A1', 'B2'], 'rigs': ['rig1', 'rig2']}
             
     Returns:
-        Filtered configuration dictionary for the specified experiment
-        
-    Raises:
-        ValueError: If experiment_name is not found in config
-        ValueError: If structure is not one of the valid options
+        Tuple of (filtered_config, metadata) where filtered_config is the filtered 
+        configuration dictionary for the specified experiment and metadata contains 
+        status information and any error details
     """
-    # Validate and map parameters
-    _validate_structure_param(structure)
-    transform_params = _map_config_params(structure, include_all_keys)
+    try:
+        metadata = create_metadata()
+        
+        # Validate structure parameter
+        structure_valid, struct_metadata = _validate_structure_param(structure)
+        if not structure_valid:
+            return {}, struct_metadata
+            
+        # Map user-friendly parameters to implementation parameters
+        transform_structure, preserve_all_keys = _map_config_params(structure, include_all_keys)
+        
+        # Filter config by experiment
+        filtered_config, exp_metadata = filter_config_by_experiment(
+            config, 
+            experiment_name, 
+            transform_structure=transform_structure,
+            preserve_all_keys=preserve_all_keys
+        )
+        
+        if not exp_metadata["success"]:
+            return {}, exp_metadata
+            
+        # Apply additional filtering criteria if provided
+        if filter_criteria:
+            try:
+                filtered_config = _apply_filter_criteria(filtered_config, filter_criteria)
+            except Exception as e:
+                metadata["warning"] = f"Error applying filter criteria: {str(e)}"
+                logger.warning(metadata["warning"])
+        
+        metadata["success"] = True
+        return filtered_config, metadata
+        
+    except Exception as e:
+        logger.error(f"Error getting experiment config: {str(e)}")
+        return {}, create_error_metadata(e)
+
+
+def _validate_structure_param(structure: str) -> Tuple[bool, Dict[str, Any]]:
+    """
+    Validate the structure parameter for get_experiment_config.
     
-    # Get initial filtered config
-    filtered_config = filter_config_by_experiment(
-        config,
-        experiment_name,
-        **transform_params
-    )
-    
-    # Apply additional filtering if specified
-    if filter_criteria:
-        filtered_config = _apply_filter_criteria(filtered_config, filter_criteria)
-    
-    return filtered_config
+    Args:
+        structure: Structure parameter value to validate
+        
+    Returns:
+        Tuple of (is_valid, metadata) where is_valid is a boolean indicating if the
+        parameter is valid and metadata contains status information and any error details
+    """
+    try:
+        metadata = create_metadata()
+        valid_structures = ["transformed", "preserved"]
+        
+        if structure not in valid_structures:
+            metadata["error"] = f"Invalid structure '{structure}'. Must be one of: {valid_structures}"
+            logger.error(metadata["error"])
+            return False, metadata
+            
+        metadata["success"] = True
+        return True, metadata
+        
+    except Exception as e:
+        logger.error(f"Error validating structure parameter: {str(e)}")
+        return False, create_error_metadata(e)
 
 
-def _validate_structure_param(structure: str) -> None:
-    """Validate the structure parameter for get_experiment_config."""
-    valid_structures = ["transformed", "preserved"]
-    if structure not in valid_structures:
-        raise ValueError(f"structure must be one of {valid_structures}")
-
-
-def _map_config_params(structure: str, include_all_keys: bool) -> Dict[str, Any]:
+def _map_config_params(structure: str, include_all_keys: bool) -> tuple:
     """Map user-friendly parameters to the underlying implementation parameters."""
-    return {
-        "transform_structure": structure == "transformed",
-        "preserve_all_keys": include_all_keys
-    }
+    transform_structure = (structure == "transformed")
+    preserve_all_keys = include_all_keys
+    return transform_structure, preserve_all_keys
 
 
 def _apply_filter_criteria(
@@ -199,86 +268,62 @@ def _apply_filter_criteria(
     Returns:
         Filtered configuration dictionary
     """
-    filtered_config = config.copy()
-
-    # Process each filter criterion for simple dictionary filtering
-    for key, allowed_values in filter_criteria.items():
-        # Skip if the key doesn't exist in config
-        if key not in filtered_config:
-            continue
-
-        # If the config item is a dictionary, filter its keys
-        if isinstance(filtered_config[key], dict):
-            filtered_config[key] = {
-                k: v for k, v in filtered_config[key].items()
-                if k in allowed_values
-            }
-
-    # Skip dataset processing if there's no datasets or no relevant criteria
-    if 'datasets' not in filtered_config:
-        return filtered_config
-        
-    has_vial_filter = 'vials' in filter_criteria
-    has_rig_filter = 'rigs' in filter_criteria
+    # Create a shallow copy to avoid modifying the original
+    filtered = dict(config)
     
-    # Skip if no relevant filters for datasets
-    if not (has_vial_filter or has_rig_filter):
-        return filtered_config
+    # Apply experiment-level filtering if we have a 'transformed' structure
+    if 'experiment' in filtered:
+        for key, values in filter_criteria.items():
+            if key in filtered['experiment']:
+                # Handle list values (e.g., vials)
+                if isinstance(filtered['experiment'][key], list):
+                    filtered['experiment'][key] = [
+                        item for item in filtered['experiment'][key] 
+                        if item in values
+                    ]
+                # Handle dict values (e.g., vial_configs)
+                elif isinstance(filtered['experiment'][key], dict):
+                    filtered['experiment'][key] = {
+                        k: v for k, v in filtered['experiment'][key].items()
+                        if k in values
+                    }
     
-    # Process datasets
-    datasets_to_remove = set()
+    # Apply experiment-level filtering if we have a 'preserved' structure
+    elif 'experiments' in filtered:
+        for exp_name, exp_data in filtered['experiments'].items():
+            for key, values in filter_criteria.items():
+                if key in exp_data:
+                    # Handle list values
+                    if isinstance(exp_data[key], list):
+                        filtered['experiments'][exp_name][key] = [
+                            item for item in exp_data[key] 
+                            if item in values
+                        ]
+                    # Handle dict values
+                    elif isinstance(exp_data[key], dict):
+                        filtered['experiments'][exp_name][key] = {
+                            k: v for k, v in exp_data[key].items()
+                            if k in values
+                        }
     
-    # Helper function to filter a list by allowed values
-    def filter_list_by_criteria(items: List, allowed_items: List) -> List:
-        return [item for item in items if item in allowed_items]
+    # Apply rig-level filtering
+    if 'rigs' in filtered and 'rigs' in filter_criteria:
+        filtered['rigs'] = {
+            rig_name: rig_config for rig_name, rig_config in filtered['rigs'].items()
+            if rig_name in filter_criteria['rigs']
+        }
     
-    # Process all datasets
-    for dataset_name, dataset_config in filtered_config['datasets'].items():
-        # Filter dataset by vials if specified
-        if has_vial_filter and 'vials' in dataset_config:
-            dataset_config['vials'] = filter_list_by_criteria(
-                dataset_config['vials'], filter_criteria['vials']
-            )
-            if not dataset_config['vials']:
-                datasets_to_remove.add(dataset_name)
-                continue  # Skip further processing for this dataset
-
-        # Filter dataset by rigs if specified
-        if has_rig_filter and 'rigs' in dataset_config:
-            dataset_config['rigs'] = filter_list_by_criteria(
-                dataset_config['rigs'], filter_criteria['rigs']
-            )
-            if not dataset_config['rigs']:
-                datasets_to_remove.add(dataset_name)
-                continue  # Skip further processing for this dataset
-        
-        # Process dates_vials (only needs vial filtering)
-        if has_vial_filter and 'dates_vials' in dataset_config:
-            dates_to_remove = []
-            
-            for date, vials in dataset_config['dates_vials'].items():
-                filtered_vials = filter_list_by_criteria(vials, filter_criteria['vials'])
-                if filtered_vials:
-                    dataset_config['dates_vials'][date] = filtered_vials
-                else:
-                    dates_to_remove.append(date)
-            
-            # Remove empty dates
-            for date in dates_to_remove:
-                del dataset_config['dates_vials'][date]
-            
-            # Mark dataset for removal if no dates left
-            if not dataset_config['dates_vials']:
-                datasets_to_remove.add(dataset_name)
+    # Apply dataset-level filtering
+    if 'datasets' in filtered and 'datasets' in filter_criteria:
+        filtered['datasets'] = {
+            ds_name: ds_config for ds_name, ds_config in filtered['datasets'].items()
+            if ds_name in filter_criteria['datasets']
+        }
     
-    # Remove datasets that were marked for removal
-    for dataset_name in datasets_to_remove:
-        del filtered_config['datasets'][dataset_name]
-
-    return filtered_config
+    return filtered
 
 
-def extract_experiment_names(config: Dict[str, Any]) -> List[str]:
+def extract_experiment_names(config: Dict[str, Any]) -> Tuple[List[str], Dict[str, Any]]:
     """
     Extract a list of all experiment names from a configuration.
     
@@ -286,16 +331,31 @@ def extract_experiment_names(config: Dict[str, Any]) -> List[str]:
         config: Full configuration dictionary
         
     Returns:
-        List of experiment names
+        Tuple of (experiment_names, metadata) where experiment_names is a list of 
+        experiment names and metadata contains status information and any error details
     """
-    experiments = config.get('experiments', {})
-    return list(experiments.keys())
+    try:
+        metadata = create_metadata()
+        
+        if not config or 'experiments' not in config:
+            metadata["error"] = "No experiments found in configuration"
+            return [], metadata
+            
+        experiment_names = list(config.get('experiments', {}).keys())
+        
+        metadata["success"] = True
+        metadata["count"] = len(experiment_names)
+        return experiment_names, metadata
+        
+    except Exception as e:
+        logger.error(f"Error extracting experiment names: {str(e)}")
+        return [], create_error_metadata(e)
 
 
 def extract_dataset_names(
     config: Dict[str, Any], 
     experiment_name: Optional[str] = None
-) -> List[str]:
+) -> Tuple[List[str], Dict[str, Any]]:
     """
     Extract dataset names from a configuration.
     
@@ -307,13 +367,35 @@ def extract_dataset_names(
         experiment_name: Optional name of experiment to filter by
         
     Returns:
-        List of dataset names
+        Tuple of (dataset_names, metadata) where dataset_names is a list of 
+        dataset names and metadata contains status information and any error details
     """
-    if experiment_name:
-        # Get datasets for specific experiment
-        experiment = config.get('experiments', {}).get(experiment_name, {})
-        return experiment.get('datasets', [])
-    else:
-        # Get all datasets
-        datasets = config.get('datasets', {})
-        return list(datasets.keys())
+    try:
+        metadata = create_metadata()
+        
+        if not config:
+            metadata["error"] = "Empty configuration provided"
+            return [], metadata
+            
+        # If experiment name is provided, get datasets for that experiment
+        if experiment_name:
+            # Check if experiment exists
+            if experiment_name not in config.get('experiments', {}):
+                metadata["error"] = f"Experiment '{experiment_name}' not found"
+                return [], metadata
+                
+            # Get datasets from experiment configuration
+            exp_config = config['experiments'][experiment_name]
+            dataset_names = exp_config.get('datasets', [])
+            
+        # Otherwise, get all datasets in the configuration
+        else:
+            dataset_names = list(config.get('datasets', {}).keys())
+        
+        metadata["success"] = True
+        metadata["count"] = len(dataset_names)
+        return dataset_names, metadata
+        
+    except Exception as e:
+        logger.error(f"Error extracting dataset names: {str(e)}")
+        return [], create_error_metadata(e)

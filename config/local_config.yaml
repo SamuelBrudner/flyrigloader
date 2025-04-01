@@ -1,0 +1,25 @@
+# Local machine-specific configuration for flyrigloader
+# This file contains settings specific to the local environment
+# and overrides both base_config.yaml and hardware_config.yaml
+
+# Local hardware adjustments
+hardware:
+  # Local adjustments to camera settings
+  camera:
+    exposure: 600  # Adjusted for local lighting conditions
+    
+  # Local port assignments
+  co2_valve_port: "/dev/tty.usbserial-AB0CD123"
+  tank_air_port: "/dev/tty.usbserial-AB0CD124"
+
+# Local experiment preferences
+experiment:
+  protocol: "custom_protocol"
+  temperature: 23.5  # Lab temperature
+  humidity: 55.0     # Lab humidity
+
+# Local file locations
+discovery:
+  base_directories:
+    - "/Users/researcher/experiments/data"
+    - "/Volumes/external_drive/flyrig_data"

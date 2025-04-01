@@ -1,0 +1,42 @@
+# Base configuration for flyrigloader
+# This file defines the default values that can be overridden by other config files
+
+# Hardware configuration section
+hardware:
+  # Camera settings
+  camera:
+    model: "default_camera"
+    exposure: 500  # milliseconds
+    gain: 1.0  # linear gain multiplier
+    fps: 30  # frames per second
+    binning: 1  # pixel binning
+    
+  # Motor settings
+  motor:
+    model: "default_motor"
+    steps_per_revolution: 200
+    max_speed: 100.0  # steps/second
+    acceleration: 10.0  # steps/second^2
+    
+  # Other hardware connections
+  co2_valve_port: "/dev/ttyUSB0"
+  tank_air_port: "/dev/ttyUSB1"
+
+# Experiment configuration section
+experiment:
+  protocol: "standard_protocol"
+  duration: 300  # seconds
+  temperature: 25.0  # Celsius
+  humidity: 60.0  # percentage
+  wind: false
+  odor: false
+
+# File discovery configuration
+discovery:
+  base_directories:
+    - "data/raw"
+    - "data/processed"
+  patterns:
+    - "*.csv"
+    - "*.parquet"
+  recursive: true

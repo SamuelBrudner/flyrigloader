@@ -1,0 +1,29 @@
+# Hardware-specific configuration for flyrigloader
+# This file overrides the base configuration with specific hardware settings
+
+hardware:
+  # Specific camera model and settings for this rig
+  camera:
+    model: "FLIR Blackfly S"
+    exposure: 800  # milliseconds
+    gain: 2.0
+    fps: 60
+    binning: 2
+    pixel_format: "Mono8"  # Additional property not in base_config
+    
+  # Specific motor configuration
+  motor:
+    model: "Thorlabs K10CR1"
+    steps_per_revolution: 3600  # Higher precision motor
+    max_speed: 200.0
+    acceleration: 20.0
+    
+  # Hardware-specific port connections
+  co2_valve_port: "/dev/ttyUSB2"
+  tank_air_port: "/dev/ttyUSB3"
+  
+  # Additional hardware components specific to this rig
+  led_controller:
+    port: "/dev/ttyUSB4"
+    channels: 4
+    max_intensity: 255
