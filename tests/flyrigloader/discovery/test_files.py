@@ -139,6 +139,39 @@ class TestFileDiscovery:
             shutil.rmtree(dir1)
             shutil.rmtree(dir2)
     
+    @pytest.fixture
+    def ignore_patterns_dir(self):
+        """Create a directory with files that should be ignored based on patterns."""
+        temp_dir = tempfile.mkdtemp()
+        try:
+            # Create standard files
+            with open(os.path.join(temp_dir, "normal_file.txt"), "w") as f:
+                f.write("Normal file content")
+            with open(os.path.join(temp_dir, "important_data.csv"), "w") as f:
+                f.write("important,data")
+            
+            # Create files that should be ignored
+            with open(os.path.join(temp_dir, "._hidden_file.txt"), "w") as f:
+                f.write("Hidden file that should be ignored")
+            with open(os.path.join(temp_dir, "static_horiz_ribbon_data.csv"), "w") as f:
+                f.write("static,horiz,ribbon,data")
+            with open(os.path.join(temp_dir, "temp_smoke_2a_experiment.json"), "w") as f:
+                f.write('{"type": "smoke_2a", "temp": true}')
+            
+            # Create a subdirectory with more files
+            subdir = os.path.join(temp_dir, "subdir")
+            os.makedirs(subdir)
+            with open(os.path.join(subdir, "subdir_normal.txt"), "w") as f:
+                f.write("Subdir normal file")
+            with open(os.path.join(subdir, "._subdir_hidden.txt"), "w") as f:
+                f.write("Subdir hidden file")
+            
+            yield temp_dir
+        finally:
+            # Clean up after the test
+            import shutil
+            shutil.rmtree(temp_dir)
+    
     def test_basic_file_discovery(self, test_dir):
         """Test basic file discovery with a pattern."""
         # Call the function we want to test
@@ -214,3 +247,43 @@ class TestFileDiscovery:
         
         assert len(txt_files) == 2
         assert len(json_files) == 3
+        
+    def test_ignore_patterns(self, ignore_patterns_dir):
+        """Test file discovery with ignore patterns."""
+        # Test without any ignore patterns first - should find all files
+        all_files = discover_files(ignore_patterns_dir, "**/*.*", recursive=True)
+        assert len(all_files) == 7  # 5 in root + 2 in subdir
+        
+        # Test with single ignore pattern
+        files = discover_files(
+            ignore_patterns_dir, 
+            "**/*.*", 
+            recursive=True,
+            ignore_patterns=["._"]
+        )
+        # Should exclude the 2 hidden files
+        assert len(files) == 5
+        assert all("._" not in f for f in files)
+        
+        # Test with multiple ignore patterns
+        files = discover_files(
+            ignore_patterns_dir, 
+            "**/*.*", 
+            recursive=True,
+            ignore_patterns=["._", "static_horiz_ribbon", "smoke_2a"]
+        )
+        # Should exclude all 4 files matching patterns
+        assert len(files) == 3
+        assert all("._" not in f for f in files)
+        assert all("static_horiz_ribbon" not in f for f in files)
+        assert all("smoke_2a" not in f for f in files)
+        
+        # Test with different pattern and ignore combination
+        files = discover_files(
+            ignore_patterns_dir, 
+            "*.txt", 
+            ignore_patterns=["._"]
+        )
+        # Should find only normal_file.txt in root
+        assert len(files) == 1
+        assert files[0].endswith("normal_file.txt")

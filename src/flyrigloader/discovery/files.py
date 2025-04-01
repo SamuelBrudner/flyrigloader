@@ -11,7 +11,8 @@ def discover_files(
     directory: Union[str, List[str]], 
     pattern: str, 
     recursive: bool = False,
-    extensions: Optional[List[str]] = None
+    extensions: Optional[List[str]] = None,
+    ignore_patterns: Optional[List[str]] = None
 ) -> List[str]:
     """
     Discover files matching a pattern in the specified directory or directories.
@@ -21,9 +22,10 @@ def discover_files(
         pattern: File pattern to match (glob format)
         recursive: If True, search recursively through subdirectories
         extensions: Optional list of file extensions to filter by (without the dot)
+        ignore_patterns: Optional list of substring patterns to ignore
         
     Returns:
-        List of file paths matching the pattern and extensions
+        List of file paths matching the pattern and extensions, excluding ignored patterns
     """
     # Handle single directory or multiple directories
     directories = [directory] if isinstance(directory, str) else directory
@@ -52,5 +54,13 @@ def discover_files(
         ext_filters = [ext if ext.startswith(".") else f".{ext}" for ext in extensions]
         # Filter files by extensions
         all_matched_files = [f for f in all_matched_files if any(f.endswith(ext) for ext in ext_filters)]
+    
+    # Apply ignore patterns if specified
+    if ignore_patterns:
+        # Filter out files matching any ignore pattern
+        all_matched_files = [
+            f for f in all_matched_files
+            if all(pattern not in f for pattern in ignore_patterns)
+        ]
     
     return all_matched_files
