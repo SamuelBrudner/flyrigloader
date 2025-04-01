@@ -59,6 +59,8 @@ The `discovery` module provides utilities for finding and organizing files based
 - **Recursive discovery**: Search through nested subdirectories
 - **Extension filtering**: Filter files by one or more extensions
 - **Pattern filtering**: Include or exclude files based on substring patterns
+- **Metadata extraction**: Extract structured metadata from filenames using regex patterns
+- **Date parsing**: Automatically parse and extract dates from filenames
 
 #### Usage Examples
 
@@ -85,6 +87,42 @@ files = discover_files(
     ignore_patterns=["._", "temp_"],
     mandatory_substrings=["experiment"]
 )
+
+# Extract metadata from filenames
+files_with_metadata = discover_files(
+    "/path/to/data",
+    "exp(?P<experiment_id>\d+)_(?P<animal>\w+).csv",
+    extract_patterns=True
+)
+# Result: {"/path/to/data/exp001_mouse.csv": {"experiment_id": "001", "animal": "mouse"}}
+
+# Parse dates from filenames
+files_with_dates = discover_files(
+    "/path/to/data",
+    "experiment_*.csv",
+    parse_dates=True
+)
+```
+
+#### Pattern Matching System
+
+The file discovery module leverages the `PatternMatcher` class for advanced pattern matching:
+
+```python
+from flyrigloader.discovery.patterns import PatternMatcher
+
+# Create a pattern matcher with one or more regex patterns
+matcher = PatternMatcher([
+    r"exp(?P<experiment_id>\d+)_(?P<animal>\w+)_(?P<condition>\w+).csv",
+    r"(?P<subject>\w+)_trial(?P<trial_num>\d+)_(?P<date>\d{8}).txt"
+])
+
+# Match a filename against the patterns
+result = matcher.match("exp005_fly_control.csv")
+# Result: {"experiment_id": "005", "animal": "fly", "condition": "control"}
+
+# Filter a list of files to only those matching any pattern
+matching_files = matcher.filter_matching(file_list)
 ```
 
 ### YAML Configuration Module
@@ -186,11 +224,26 @@ pytest tests/flyrigloader/discovery/test_files.py
 
 ### Development Approach
 
-The project is developed using Test-Driven Development (TDD):
+The project is developed using:
 
-1. Write failing tests first
-2. Implement code to make tests pass
-3. Refactor as needed while keeping tests passing
+1. **Test-Driven Development (TDD)**:
+   - Write failing tests first
+   - Implement code to make tests pass
+   - Refactor as needed while keeping tests passing
+
+2. **Code Quality Best Practices**:
+   - Modular and maintainable class-based architecture
+   - Use of modern Python features (walrus operator, dictionary union)
+   - Clear separation of concerns between components
+   - Comprehensive test coverage for all functionality
+   - Linting and code quality checks
+
+3. **Refactoring Strategy**:
+   - Break complex functions into smaller, focused methods
+   - Improve error handling and logging
+   - Extract reusable components (like PatternMatcher)
+   - Ensure backward compatibility when enhancing functionality
+   - Use descriptive naming and appropriate documentation
 
 ## License
 

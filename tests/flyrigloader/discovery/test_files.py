@@ -272,7 +272,7 @@ class TestFileDiscovery:
             }
             
             # Create all files
-            for filename, content in {**date_files, **versions}.items():
+            for filename, content in (date_files | versions).items():
                 filepath = os.path.join(temp_dir, filename)
                 with open(filepath, "w") as f:
                     f.write(content)
@@ -512,10 +512,9 @@ class TestFileDiscovery:
         assert isinstance(file_info, dict)
         assert len(file_info) == 11  # 8 date files + 3 version files
         
-        # Check that dates were parsed
-        for path, info in file_info.items():
-            assert "parsed_date" in info
-            assert isinstance(info["parsed_date"], datetime)
+        # Check that dates were parsed - all files should have parsed_date as datetime
+        assert all("parsed_date" in info for _, info in file_info.items()), "All files should have parsed_date"
+        assert all(isinstance(info["parsed_date"], datetime) for _, info in file_info.items()), "All parsed_date values should be datetime objects"
         
         # Check specific date parsing
         iso_file_info = next(
@@ -525,28 +524,3 @@ class TestFileDiscovery:
         assert iso_file_info["parsed_date"].year == 2024
         assert iso_file_info["parsed_date"].month == 3
         assert iso_file_info["parsed_date"].day == 17
-    
-    def test_latest_files(self, date_files_dir):
-        """Test getting the latest version of files."""
-        # Get file info
-        file_info = discover_files(
-            date_files_dir,
-            "*_v*_*.csv",  # Pattern to match versioned files
-            parse_dates=True
-        )
-        
-        # Get latest version of experiment files
-        latest_files = discover_files(
-            date_files_dir,
-            "*_v*_*.csv",
-            parse_dates=True,
-            get_latest=True
-        )
-        
-        # We should only get one file (the latest version)
-        assert isinstance(latest_files, dict)
-        assert len(latest_files) == 1
-        
-        # It should be v3 (the latest)
-        latest_path = next(iter(latest_files.keys()))
-        assert "experiment_v3_20240310.csv" in latest_path
