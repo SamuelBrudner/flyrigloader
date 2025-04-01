@@ -10,7 +10,7 @@ import pickle
 import numpy as np
 import pandas as pd
 from pathlib import Path
-from typing import Dict, Any, Union, Optional, List
+from typing import Dict, Any, Union, Optional, List, Tuple
 from loguru import logger
 
 
@@ -217,6 +217,179 @@ def handle_signal_disp(exp_matrix: Dict[str, Any]) -> pd.Series:
     )
 
 
+def _validate_time_dimension(exp_matrix: Dict[str, Any]) -> None:
+    """
+    Validate that the exp_matrix contains a time dimension.
+    
+    Args:
+        exp_matrix: Dictionary containing experimental data
+        
+    Raises:
+        ValueError: If the exp_matrix is missing the 't' key for time values
+    """
+    if 't' not in exp_matrix:
+        raise ValueError("exp_matrix must contain a 't' key for time values")
+
+
+def _create_dataframe_direct(data_dict: Dict[str, Any]) -> Tuple[pd.DataFrame, bool]:
+    """
+    Attempt to create a DataFrame directly from the data dictionary.
+    
+    Args:
+        data_dict: Dictionary of column data
+        
+    Returns:
+        Tuple of (DataFrame or None, success flag)
+    """
+    try:
+        df = pd.DataFrame(data_dict)
+        logger.debug("Created DataFrame directly from extracted data dictionary")
+        return df, True
+    except ValueError as e:
+        logger.debug(f"Direct DataFrame creation failed: {e}")
+        return None, False
+
+
+def _create_dataframe_from_time_index(data_dict: Dict[str, Any]) -> pd.DataFrame:
+    """
+    Create a DataFrame using time index as reference.
+    
+    Args:
+        data_dict: Dictionary of column data that includes 't' key
+        
+    Returns:
+        DataFrame with proper time indexing
+    """
+    if 't' not in data_dict:
+        return pd.DataFrame({k: [v] for k, v in data_dict.items()})
+    
+    t_length = len(data_dict['t'])
+    
+    # First create a DataFrame with just the time column
+    df = pd.DataFrame({'t': data_dict['t']})
+    
+    # Add each column individually
+    for col, values in data_dict.items():
+        if col == 't':
+            continue  # Already added
+        
+        if isinstance(values, np.ndarray) and values.ndim > 0:
+            try:
+                # Try to add the column directly
+                df[col] = values
+            except ValueError:
+                # If direct addition fails due to length mismatch, handle as object
+                logger.debug(f"Column '{col}' with shape {getattr(values, 'shape', None)} doesn't match time length {t_length}, storing as object array")
+                # Create a Series with objects that can be added to the DataFrame
+                df[col] = pd.Series([values] * t_length, index=df.index)
+        else:
+            # Scalars can be broadcast automatically
+            df[col] = values
+            
+    return df
+
+
+def _create_dataframe_processed(data_dict: Dict[str, Any]) -> pd.DataFrame:
+    """
+    Create a DataFrame with careful processing of arrays.
+    
+    Args:
+        data_dict: Dictionary of column data
+        
+    Returns:
+        DataFrame with processed arrays
+    """
+    if 't' not in data_dict:
+        return pd.DataFrame({k: [v] for k, v in data_dict.items()})
+    
+    t_length = len(data_dict['t'])
+    index = range(t_length)
+    
+    # Pre-process the data to ensure all arrays have the right length
+    processed_data = {}
+    for col, values in data_dict.items():
+        if col == 't':
+            # Time column used directly
+            processed_data[col] = data_dict['t']
+        elif isinstance(values, np.ndarray) and values.ndim > 0:
+            # Check if any dimension matches time length
+            if len(values) == t_length:
+                # First dimension matches, use directly
+                processed_data[col] = values
+            elif values.ndim > 1 and values.shape[1] == t_length:
+                # Second dimension matches, transpose and use
+                processed_data[col] = values.T
+            else:
+                # No dimension matches time, but include anyway as object array
+                # This handles columns explicitly included by the user or test
+                logger.debug(f"Column '{col}' with shape {values.shape} doesn't match time length {t_length}, storing as object")
+                processed_data[col] = [values] * t_length
+        else:
+            # For scalars, broadcast to the entire index
+            processed_data[col] = [values] * t_length
+    
+    # Create DataFrame with the processed data
+    df = pd.DataFrame(index=index)
+    
+    # Add each column individually to handle any potential issues
+    for col, values in processed_data.items():
+        df[col] = values
+    
+    return df
+
+
+def _add_signal_disp_to_dataframe(df: pd.DataFrame, exp_matrix: Dict[str, Any]) -> pd.DataFrame:
+    """
+    Add signal_disp column to DataFrame if available.
+    
+    Args:
+        df: DataFrame to add signal_disp to
+        exp_matrix: Dictionary containing signal_disp data
+        
+    Returns:
+        DataFrame with signal_disp added (if available)
+    """
+    if 'signal_disp' not in exp_matrix:
+        return df
+    
+    try:
+        signal_series = handle_signal_disp(exp_matrix)
+        
+        # Handle different alignment cases
+        if len(df) == 0:
+            return pd.DataFrame({'signal_disp': signal_series})
+        elif len(signal_series) == len(df):
+            df['signal_disp'] = signal_series
+        elif len(df) == 1:
+            df.at[0, 'signal_disp'] = signal_series
+        else:
+            logger.warning(f"signal_disp length {len(signal_series)} doesn't match DataFrame length {len(df)}")
+    except ValueError as e:
+        logger.warning(f"Could not process signal_disp: {e}")
+    
+    return df
+
+
+def _add_metadata_to_dataframe(df: pd.DataFrame, metadata: Optional[Dict[str, Any]]) -> pd.DataFrame:
+    """
+    Add metadata columns to DataFrame.
+    
+    Args:
+        df: DataFrame to add metadata to
+        metadata: Dictionary of metadata to add
+        
+    Returns:
+        DataFrame with metadata added (if provided)
+    """
+    if not metadata:
+        return df
+    
+    for key, value in metadata.items():
+        df[key] = value
+    
+    return df
+
+
 def make_dataframe_from_matrix(
     exp_matrix: Dict[str, Any],
     metadata: Optional[Dict[str, Any]] = None,
@@ -237,108 +410,68 @@ def make_dataframe_from_matrix(
         
     Raises:
         ValueError: If the exp_matrix is missing required keys or has invalid structure
+                   or if arrays don't have a dimension matching the time dimension
         RuntimeError: If the conversion process fails for other reasons
     """
     try:
-        # Get time dimension for validation
-        if 't' not in exp_matrix:
-            raise ValueError("exp_matrix must contain a 't' key for time values")
+        # Validate time dimension
+        _validate_time_dimension(exp_matrix)
         
-        # Extract regular columns with the correct parameter name
+        # Extract data columns
         data_dict = extract_columns_from_matrix(exp_matrix, column_names=column_list, ensure_1d=True)
         
-        # This special handling for test mocking is important
-        # The test is using a patched version of extract_columns_from_matrix
-        # We need to create a DataFrame that preserves the exact structure of data_dict
-        
-        # First, directly try to create a DataFrame from the extracted data
-        # This will work for the test case where a mock returns exactly what's needed
-        try:
-            df = pd.DataFrame(data_dict)
-            logger.debug("Created DataFrame directly from extracted data dictionary")
-            
-            # In test mocking scenarios, we need this to be the exact number of rows
-            # as expected by the test, which is the length of the time array
-            if len(df) == 0 and 't' in data_dict:
-                # If DataFrame ended up empty but we have a time column,
-                # force it to have the correct number of rows
-                t_length = len(data_dict['t'])
-                df = pd.DataFrame(index=range(t_length))
+        # Verify that all array columns match the time dimension
+        if 't' in data_dict:
+            t_length = len(data_dict['t'])
+            for col, values in data_dict.items():
+                if col == 't':
+                    continue
                 
-                # Manually add each column
-                for col, values in data_dict.items():
-                    if isinstance(values, np.ndarray) and values.ndim > 0:
-                        # For array values, ensure proper length
-                        if len(values) == t_length:
-                            df[col] = values
-                        else:
-                            # For mismatched arrays, store as objects to avoid length errors
-                            df[col] = [values] * t_length
-                    else:
-                        # Scalars can be broadcast
-                        df[col] = values
+                if isinstance(values, np.ndarray) and values.ndim > 0 and len(values) != t_length and all(dim != t_length for dim in values.shape):
+                    raise ValueError(
+                        f"Column '{col}' has shape {values.shape} with no dimension "
+                        f"matching time dimension length {t_length}"
+                    )
+        
+        # Try different DataFrame creation strategies
+        try:
+            # First, try direct DataFrame creation
+            df = pd.DataFrame(data_dict)
+            logger.debug("Created DataFrame directly from data dictionary")
         except ValueError as e:
-            logger.debug(f"Direct DataFrame creation failed: {e}. Using index-based approach.")
+            logger.debug(f"Direct DataFrame creation failed: {e}")
             
-            # If direct creation fails, use an index-based approach
-            # Create a DataFrame with the proper number of rows based on time dimension
+            # If direct creation fails, try to create with index
             if 't' in data_dict:
                 t_length = len(data_dict['t'])
-                index = range(t_length)
+                df = pd.DataFrame({'t': data_dict['t']})
                 
-                # Pre-process the data to ensure all arrays have the right length
-                processed_data = {}
+                # Add each column separately, handling dimension mismatches
                 for col, values in data_dict.items():
                     if col == 't':
-                        # Time column used directly
-                        processed_data[col] = data_dict['t']
-                    elif isinstance(values, np.ndarray) and values.ndim > 0:
-                        # If array length doesn't match time dimension, store each as an object
-                        if len(values) != t_length:
-                            processed_data[col] = pd.Series([values] * t_length, index=index)
-                        else:
-                            processed_data[col] = values
+                        continue  # Already added
+                    
+                    # For arrays, check if they can be added directly
+                    if isinstance(values, np.ndarray) and values.ndim > 1 and values.shape[1] == t_length:
+                        df[col] = values.T
                     else:
-                        # For scalars, broadcast to the entire index
-                        processed_data[col] = pd.Series([values] * t_length, index=index)
-                
-                # Create DataFrame with the processed data
-                df = pd.DataFrame(processed_data, index=index)
+                        df[col] = values
             else:
-                # Without a time dimension, create a single-row DataFrame
+                # No time dimension to align with, create simple DataFrame
                 df = pd.DataFrame({k: [v] for k, v in data_dict.items()})
         
-        # Add signal_disp if requested and available
-        if include_signal_disp and 'signal_disp' in exp_matrix:
-            try:
-                signal_series = handle_signal_disp(exp_matrix)
-                # Make sure indices align or handle the mismatch
-                if len(df) == 0:
-                    # If DataFrame is empty, create with signal_disp
-                    df = pd.DataFrame({'signal_disp': signal_series})
-                elif len(signal_series) == len(df):
-                    # Lengths match, direct assignment
-                    df['signal_disp'] = signal_series
-                elif len(df) == 1:
-                    # Single row DataFrame, store signal_disp as an object
-                    df.at[0, 'signal_disp'] = signal_series
-                else:
-                    # For other mismatches, warn but don't add
-                    logger.warning(f"signal_disp length {len(signal_series)} doesn't match DataFrame length {len(df)}")
-            except ValueError as e:
-                logger.warning(f"Could not process signal_disp: {e}")
+        # Add signal_disp if requested
+        if include_signal_disp:
+            df = _add_signal_disp_to_dataframe(df, exp_matrix)
         
-        # Add metadata columns if provided
-        if metadata:
-            for key, value in metadata.items():
-                df[key] = value
+        # Add metadata
+        df = _add_metadata_to_dataframe(df, metadata)
         
         return df
+        
     except ValueError as e:
-        # Re-raise ValueError exceptions with the original message
         logger.error(f"Value error when converting matrix to DataFrame: {e}")
         raise ValueError(f"Invalid matrix structure: {str(e)}") from e
     except Exception as e:
-        # Catch and convert other exceptions to RuntimeError
         logger.error(f"Error converting matrix to DataFrame: {e}")
         raise RuntimeError(f"Failed to convert matrix to DataFrame: {str(e)}") from e

@@ -337,28 +337,61 @@ def test_handle_signal_disp_wrong_dimensions():
 
 def test_make_dataframe_from_matrix_basic(exp_matrix_data):
     """Test basic conversion of an exp_matrix to DataFrame without signal_disp."""
-    # Set up expected columns
-    expected_columns = ['t', 'x', 'multi_dim', 'complex_array', 'scalar', 'string', 'list_data']
-    
-    # Mock the extraction functions to return predictable results
+    # Mock the extraction functions to return only compatible columns
     with patch('flyrigloader.io.pickle.extract_columns_from_matrix') as mock_extract:
-        # Set up the mock to return a subset of columns
-        extracted_data = {k: exp_matrix_data[k] for k in expected_columns if k in exp_matrix_data}
-        mock_extract.return_value = extracted_data
+        # Explicitly define compatible columns - time dimension, scalars, and arrays that match time dimension
+        t_array = exp_matrix_data['t']
+        t_length = len(t_array)
+        
+        # Create list data that matches time dimension length
+        compatible_list = list(range(t_length))
+        
+        mock_extract.return_value = {
+            't': t_array,                      # Time column
+            'x': exp_matrix_data['x'],         # Array with first dimension matching time
+            'scalar': exp_matrix_data['scalar'],   # Scalar value (scalars are always compatible)
+            'string': exp_matrix_data['string'],   # String value (strings are always compatible)
+            # Don't include arrays that don't match the time dimension
+            # Include a list with proper length
+            'list_data': compatible_list
+        }
         
         # Call the function
         result = make_dataframe_from_matrix(exp_matrix_data, include_signal_disp=False)
     
     # Verify result is a DataFrame with expected columns
     assert isinstance(result, pd.DataFrame)
+    expected_columns = ['t', 'x', 'scalar', 'string', 'list_data']
     for col in expected_columns:
         assert col in result.columns
     
     # Verify signal_disp is not included
     assert 'signal_disp' not in result.columns
+    # Verify multi_dim arrays that don't match time dimension are not included
+    assert 'multi_dim' not in result.columns
+    assert 'complex_array' not in result.columns
     
     # Verify number of rows matches time dimension
     assert len(result) == len(exp_matrix_data['t'])
+
+
+def test_make_dataframe_from_matrix_mismatched_dimensions(exp_matrix_data):
+    """Test that attempting to include columns with mismatched dimensions raises an exception."""
+    # Create a modified dictionary with a non-time-matching array
+    t_length = len(exp_matrix_data['t'])
+    
+    # Mock the extraction function to return an array with mismatched dimensions
+    with patch('flyrigloader.io.pickle.extract_columns_from_matrix') as mock_extract:
+        # Include a column with mismatched dimensions
+        mock_data = {
+            't': exp_matrix_data['t'],
+            'mismatched_array': np.ones((t_length-2, 3))  # Deliberately mismatched
+        }
+        mock_extract.return_value = mock_data
+        
+        # Verify that attempting to include this column raises a ValueError
+        with pytest.raises(ValueError, match=".*no dimension matching time dimension.*"):
+            make_dataframe_from_matrix(exp_matrix_data, include_signal_disp=False)
 
 
 def test_make_dataframe_from_matrix_with_signal_disp(exp_matrix_data):
