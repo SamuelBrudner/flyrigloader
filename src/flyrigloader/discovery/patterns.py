@@ -241,37 +241,63 @@ def generate_pattern_from_template(template: str) -> str:
     # Define pattern mapping for common fields
     field_patterns = {
         "animal": r"[a-zA-Z]+",            # Letters
-        "date": r"\d{8}|\d{4}-\d{2}-\d{2}", # YYYYMMDD or YYYY-MM-DD
-        "condition": r"[a-zA-Z0-9_]+",     # Alphanumeric with underscore
+        "date": r"\d+",                    # Any number sequence (more permissive)
+        "condition": r"[a-zA-Z0-9_-]+",    # Alphanumeric with underscore and hyphen
         "replicate": r"\d+",               # Numbers
-        "experiment_id": r"exp\d+",        # exp + number
+        "experiment_id": r"\d+",           # Numbers
+        "sample_id": r"[a-zA-Z0-9_-]+",    # Alphanumeric with underscore and hyphen
     }
     
-    # Replace placeholders with named capture groups
-    pattern = template
-    placeholders = re.findall(r"\{([^}]+)\}", template)
+    # Simple implementation - first escape all regex special characters
+    escaped_template = re.escape(template)
     
-    for field in placeholders:
-        if field in field_patterns:
-            pattern = pattern.replace(
-                f"{{{field}}}", 
-                f"(?P<{field}>{field_patterns[field]})"
-            )
-        else:
-            # Default pattern for unknown fields
-            pattern = pattern.replace(
-                f"{{{field}}}", 
-                f"(?P<{field}>[\\w-]+)"
-            )
+    # Then replace placeholders with regex capture groups
+    pattern = escaped_template
+    for field, field_pattern in field_patterns.items():
+        placeholder = re.escape(f"{{{field}}}")
+        pattern = pattern.replace(placeholder, f"(?P<{field}>{field_pattern})")
     
-    # Escape any special regex characters outside of capture groups
-    for char in ".$^{[(|)*+?\\":
-        pattern = pattern.replace(char, f"\\{char}")
+    # For any remaining placeholders not in our mapping, use a default pattern
+    for field in re.findall(r"\\{([^}]+)\\}", pattern):
+        if not re.search(f"\\(\\?P<{field}>", pattern):  # Check if not already replaced
+            placeholder = re.escape(f"{{{field}}}")
+            pattern = pattern.replace(placeholder, f"(?P<{field}>[\\w-]+)")
     
-    # Fix any double escapes that may have been created
-    pattern = pattern.replace("\\\\", "\\")
+    # Add anchors
+    pattern = f"^{pattern}$"
     
-    # Un-escape named capture groups that we just broke
-    pattern = re.sub(r"\\\(\\\?P<([^>]+)>", r"(?P<\1>", pattern)
+    # For debugging:
+    import logging
+    logger = logging.getLogger(__name__)
+    logger.debug(f"Generated pattern: {pattern}")
     
     return pattern
+
+
+# Add the missing functions used in the tests
+def extract_experiment_info(filepath: str, patterns: List[str]) -> Optional[Dict[str, str]]:
+    """
+    Extract experiment information from a filepath using patterns.
+    
+    Args:
+        filepath: Path to the experiment file
+        patterns: List of regex patterns to match against
+        
+    Returns:
+        Dictionary with extracted experiment metadata or None if not matching
+    """
+    return match_experiment_file(filepath, patterns)
+
+
+def extract_vial_info(filepath: str, patterns: List[str]) -> Optional[Dict[str, str]]:
+    """
+    Extract vial information from a filepath using patterns.
+    
+    Args:
+        filepath: Path to the vial file
+        patterns: List of regex patterns to match against
+        
+    Returns:
+        Dictionary with extracted vial metadata or None if not matching
+    """
+    return match_vial_file(filepath, patterns)

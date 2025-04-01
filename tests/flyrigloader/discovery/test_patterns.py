@@ -72,7 +72,8 @@ class TestPatternMatcher:
         
         # Create a matcher with patterns using named groups
         patterns = [
-            r"vial_(?P<date>\d+)_(?P<condition>\w+)(_(?P<replicate>\d+))?\.csv",
+            # Fix the vial pattern to properly handle replicates
+            r"vial_(?P<date>\d+)_(?P<condition>[a-zA-Z0-9]+)(_(?P<replicate>\d+))?\.csv",
             r"exp(?P<experiment_id>\d+)_(?P<animal>\w+)_(?P<condition>\w+)\.csv"
         ]
         matcher = PatternMatcher(patterns)
@@ -84,16 +85,12 @@ class TestPatternMatcher:
         assert vial_match["condition"] == "control"
         assert "replicate" not in vial_match or vial_match["replicate"] is None
         
-        # Fix the test for vial with replicate - we need to adjust our expectation
-        # since the current regex pattern captures "control_2" as the condition
+        # Test vial pattern with replicate
         vial_rep_match = matcher.match("vial_20240317_control_2.csv")
         assert vial_rep_match is not None
         assert vial_rep_match["date"] == "20240317"
-        
-        # With the current pattern, this would be "control_2"
-        # We'll modify our patterns implementation to fix this
-        assert "control" in vial_rep_match["condition"]
-        assert "2" in vial_rep_match.get("replicate", "")
+        assert vial_rep_match["condition"] == "control"
+        assert vial_rep_match["replicate"] == "2"
         
         # Test experiment pattern
         exp_match = matcher.match("exp001_mouse_control.csv")
@@ -114,8 +111,8 @@ class TestPatternMatcher:
         all_files = glob.glob(os.path.join(pattern_files, "**/*"), recursive=True)
         all_files = [f for f in all_files if os.path.isfile(f)]
         
-        # Create a matcher for vial files - fix the pattern to handle replicates correctly
-        vial_pattern = [r".*vial_(?P<date>\d+)_(?P<condition>\w+)(_(?P<replicate>\d+))?\.csv"]
+        # Create a matcher for vial files
+        vial_pattern = [r".*vial_(?P<date>\d+)_(?P<condition>[a-zA-Z0-9]+)(_(?P<replicate>\d+))?\.csv"]
         vial_matcher = PatternMatcher(vial_pattern)
         
         # Filter files
@@ -128,7 +125,7 @@ class TestPatternMatcher:
         vial_file = os.path.join(pattern_files, "vial_20240315_control.csv")
         assert vial_file in vial_matches
         assert vial_matches[vial_file]["date"] == "20240315"
-        assert "control" in vial_matches[vial_file]["condition"]
+        assert vial_matches[vial_file]["condition"] == "control"
 
     def test_experiment_and_vial_matchers(self, pattern_files):
         """Test creating dedicated matchers for experiments and vials."""
@@ -144,8 +141,8 @@ class TestPatternMatcher:
         all_files = glob.glob(os.path.join(pattern_files, "**/*"), recursive=True)
         all_files = [f for f in all_files if os.path.isfile(f)]
         
-        # Create patterns with fixed vial pattern
-        vial_patterns = [r".*vial_(?P<date>\d+)_(?P<condition>\w+)(_(?P<replicate>\d+))?\.csv"]
+        # Create patterns
+        vial_patterns = [r".*vial_(?P<date>\d+)_(?P<condition>[a-zA-Z0-9]+)(_(?P<replicate>\d+))?\.csv"]
         exp_patterns = [r".*exp(?P<experiment_id>\d+)_(?P<animal>\w+)_(?P<condition>\w+)\.csv"]
         
         # Create matchers
@@ -172,7 +169,7 @@ class TestPatternMatcher:
         vial_info = extract_vial_info(vial_file, vial_patterns)
         assert vial_info is not None
         assert vial_info["date"] == "20240315"
-        assert "control" in vial_info["condition"]
+        assert vial_info["condition"] == "control"
 
     def test_match_files_to_patterns(self, pattern_files):
         """Test matching files against multiple patterns."""
@@ -182,9 +179,9 @@ class TestPatternMatcher:
         # Get all files in the test directory
         all_files = glob.glob(os.path.join(pattern_files, "**/*.csv"), recursive=True)
         
-        # Define patterns with fixed vial pattern
+        # Define patterns
         patterns = [
-            r".*vial_(?P<date>\d+)_(?P<condition>\w+)(_(?P<replicate>\d+))?\.csv",
+            r".*vial_(?P<date>\d+)_(?P<condition>[a-zA-Z0-9]+)(_(?P<replicate>\d+))?\.csv",
             r".*exp(?P<experiment_id>\d+)_(?P<animal>\w+)_(?P<condition>\w+)\.csv"
         ]
         

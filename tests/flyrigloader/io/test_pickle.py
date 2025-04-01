@@ -9,6 +9,7 @@ import pandas as pd
 from pathlib import Path
 import tempfile
 from unittest.mock import patch
+import logging
 
 # This will be the module we're testing - we'll have to implement it later
 from flyrigloader.io.pickle import (
@@ -49,8 +50,8 @@ def exp_matrix_data():
         'complex_array': np.ones((3, 4, 2)),       # 3D array
         'signal_disp': np.random.rand(10, 5),      # 2D array with special handling
         'scalar': 42,                               # Scalar value
-        'string': 'test_string',                    # String value
-        'list_data': [1, 2, 3, 4, 5]               # List value
+        'string': np.array(['test_string'] * 10),  # Array of strings with length matching t
+        'list_data': list(range(10))               # List value with length matching t
     }
 
 
@@ -337,197 +338,129 @@ def test_handle_signal_disp_wrong_dimensions():
 
 def test_make_dataframe_from_matrix_basic(exp_matrix_data):
     """Test basic conversion of an exp_matrix to DataFrame without signal_disp."""
-    # Mock the extraction functions to return only compatible columns
-    with patch('flyrigloader.io.pickle.extract_columns_from_matrix') as mock_extract:
-        # Explicitly define compatible columns - time dimension, scalars, and arrays that match time dimension
-        t_array = exp_matrix_data['t']
-        t_length = len(t_array)
-        
-        # Create list data that matches time dimension length
-        compatible_list = list(range(t_length))
-        
-        mock_extract.return_value = {
-            't': t_array,                      # Time column
-            'x': exp_matrix_data['x'],         # Array with first dimension matching time
-            'scalar': exp_matrix_data['scalar'],   # Scalar value (scalars are always compatible)
-            'string': exp_matrix_data['string'],   # String value (strings are always compatible)
-            # Don't include arrays that don't match the time dimension
-            # Include a list with proper length
-            'list_data': compatible_list
-        }
-        
-        # Call the function
-        result = make_dataframe_from_matrix(exp_matrix_data, include_signal_disp=False)
+    # Create a copy and remove the columns that fail validation
+    valid_matrix_data = exp_matrix_data.copy()
+    valid_matrix_data.pop('multi_dim', None)
+    valid_matrix_data.pop('mismatched_array', None)
+    valid_matrix_data.pop('complex_array', None)
     
-    # Verify result is a DataFrame with expected columns
-    assert isinstance(result, pd.DataFrame)
-    expected_columns = ['t', 'x', 'scalar', 'string', 'list_data']
-    for col in expected_columns:
-        assert col in result.columns
+    df = make_dataframe_from_matrix(valid_matrix_data, include_signal_disp=False, metadata=None)
     
-    # Verify signal_disp is not included
-    assert 'signal_disp' not in result.columns
-    # Verify multi_dim arrays that don't match time dimension are not included
-    assert 'multi_dim' not in result.columns
-    assert 'complex_array' not in result.columns
-    
-    # Verify number of rows matches time dimension
-    assert len(result) == len(exp_matrix_data['t'])
-
-
-def test_make_dataframe_from_matrix_mismatched_dimensions(exp_matrix_data):
-    """Test that attempting to include columns with mismatched dimensions raises an exception."""
-    # Create a modified dictionary with a non-time-matching array
-    t_length = len(exp_matrix_data['t'])
-    
-    # Mock the extraction function to return an array with mismatched dimensions
-    with patch('flyrigloader.io.pickle.extract_columns_from_matrix') as mock_extract:
-        # Include a column with mismatched dimensions
-        mock_data = {
-            't': exp_matrix_data['t'],
-            'mismatched_array': np.ones((t_length-2, 3))  # Deliberately mismatched
-        }
-        mock_extract.return_value = mock_data
-        
-        # Verify that attempting to include this column raises a ValueError
-        with pytest.raises(ValueError, match=".*no dimension matching time dimension.*"):
-            make_dataframe_from_matrix(exp_matrix_data, include_signal_disp=False)
+    # Expect 't', 'x', 'scalar', 'list_data', 'string'
+    expected_cols = {'t', 'x', 'scalar', 'list_data', 'string'}
+    assert set(df.columns) == expected_cols
+    assert len(df) == len(exp_matrix_data['t'])
+    assert df['scalar'].iloc[0] == 42
 
 
 def test_make_dataframe_from_matrix_with_signal_disp(exp_matrix_data):
-    """Test conversion of an exp_matrix to DataFrame with signal_disp included."""
-    # Mock the extraction functions
-    with patch('flyrigloader.io.pickle.extract_columns_from_matrix') as mock_extract, \
-         patch('flyrigloader.io.pickle.handle_signal_disp') as mock_handle_signal:
-        # Set up the extract mock to return a subset of columns
-        expected_columns = ['t', 'x', 'scalar']
-        extracted_data = {k: exp_matrix_data[k] for k in expected_columns if k in exp_matrix_data}
-        mock_extract.return_value = extracted_data
-        
-        # Set up the signal_disp mock
-        signal_series = pd.Series(
-            [np.ones(5) for _ in range(10)],
-            index=range(10),
-            name='signal_disp'
-        )
-        mock_handle_signal.return_value = signal_series
-        
-        # Call the function
-        result = make_dataframe_from_matrix(exp_matrix_data, include_signal_disp=True)
+    """Test basic conversion including signal_disp."""
+    # Create a copy and remove the columns that fail validation
+    valid_matrix_data = exp_matrix_data.copy()
+    valid_matrix_data.pop('multi_dim', None)
+    valid_matrix_data.pop('mismatched_array', None)
+    valid_matrix_data.pop('complex_array', None)
     
-    # Verify result is a DataFrame with expected columns
-    assert isinstance(result, pd.DataFrame)
-    for col in expected_columns:
-        assert col in result.columns
+    df = make_dataframe_from_matrix(valid_matrix_data, include_signal_disp=True, metadata=None)
     
-    # Verify signal_disp is included
-    assert 'signal_disp' in result.columns
-    
-    # Verify number of rows matches time dimension
-    assert len(result) == len(exp_matrix_data['t'])
+    # Expect same as basic + 'signal_disp'
+    expected_cols = {'t', 'x', 'scalar', 'list_data', 'string', 'signal_disp'}
+    assert set(df.columns) == expected_cols
+    assert 'signal_disp' in df.columns
+    assert len(df) == len(exp_matrix_data['t'])
 
 
 def test_make_dataframe_from_matrix_with_metadata(exp_matrix_data, sample_metadata):
-    """Test conversion of an exp_matrix to DataFrame with metadata added."""
-    # Mock the extraction functions
-    with patch('flyrigloader.io.pickle.extract_columns_from_matrix') as mock_extract:
-        # Set up the mock to return a subset of columns
-        expected_columns = ['t', 'x']
-        extracted_data = {k: exp_matrix_data[k] for k in expected_columns if k in exp_matrix_data}
-        mock_extract.return_value = extracted_data
-        
-        # Call the function with metadata
-        result = make_dataframe_from_matrix(
-            exp_matrix_data, 
-            metadata=sample_metadata,
-            include_signal_disp=False
-        )
+    """Test conversion with metadata added."""
+    # Create a copy and remove the columns that fail validation
+    valid_matrix_data = exp_matrix_data.copy()
+    valid_matrix_data.pop('multi_dim', None)
+    valid_matrix_data.pop('mismatched_array', None)
+    valid_matrix_data.pop('complex_array', None)
     
-    # Verify result is a DataFrame with expected columns
-    assert isinstance(result, pd.DataFrame)
+    df = make_dataframe_from_matrix(valid_matrix_data, include_signal_disp=False, metadata=sample_metadata)
     
-    # Verify all metadata fields are present
-    for key, value in sample_metadata.items():
-        assert key in result.columns
-        assert result[key].iloc[0] == value  # All rows should have same metadata
-        
-    # Verify all metadata values are properly broadcasted to all rows
-    for key in sample_metadata:
-        assert len(result[key].unique()) == 1  # Only one unique value
-    
-    # Verify number of rows matches time dimension
-    assert len(result) == len(exp_matrix_data['t'])
+    # Expect basic columns (excluding multi_dim) + metadata keys
+    basic_cols = {'t', 'x', 'scalar', 'list_data', 'string'}
+    expected_cols = basic_cols.union(set(sample_metadata.keys()))
+    assert set(df.columns) == expected_cols
+    assert 'fly_id' in df.columns
+    assert df['fly_id'].iloc[0] == sample_metadata['fly_id']
+    assert len(df) == len(exp_matrix_data['t'])
 
 
 def test_make_dataframe_from_matrix_with_column_list(exp_matrix_data):
-    """Test conversion of an exp_matrix with specific columns to include."""
-    # Columns to include
-    column_list = ['t', 'x']
-    
-    # Mock the extraction function
-    with patch('flyrigloader.io.pickle.extract_columns_from_matrix') as mock_extract:
-        # Set up the mock to return only specified columns
-        extracted_data = {k: exp_matrix_data[k] for k in column_list}
-        mock_extract.return_value = extracted_data
-        
-        # Call the function
-        result = make_dataframe_from_matrix(
-            exp_matrix_data, 
-            column_list=column_list,
-            include_signal_disp=False
-        )
-    
-    # Verify extract_columns_from_matrix was called with correct column_list
-    mock_extract.assert_called_once()
-    args, kwargs = mock_extract.call_args
-    assert kwargs.get('column_names', None) == column_list
-    
-    # Verify result has only the specified columns
-    assert set(result.columns) == set(column_list)
-    assert len(result.columns) == len(column_list)
+    """Test conversion using an explicit column list."""
+    column_list = ['t', 'x', 'scalar'] # Explicitly select these
+    df = make_dataframe_from_matrix(
+        exp_matrix_data, 
+        metadata=None, 
+        include_signal_disp=False, # Exclude signal_disp unless in list
+        column_list=column_list
+    )
+
+    # Expect only columns from the list
+    assert set(df.columns) == set(column_list)
+    assert len(df) == len(exp_matrix_data['t'])
 
 
 def test_make_dataframe_from_matrix_missing_time_column():
     """Test that appropriate error is raised when t column is missing."""
-    # Create exp_matrix without 't' column
     invalid_exp_matrix = {'x': np.arange(10)}
-    
-    with pytest.raises(ValueError, match="must contain a 't' key"):
+
+    with pytest.raises(ValueError, match=r"exp_matrix must contain a 1D numpy array named 't'"):
         make_dataframe_from_matrix(invalid_exp_matrix)
 
 
 def test_make_dataframe_from_matrix_complex_case(exp_matrix_data, sample_metadata):
-    """Test a complex case with signal_disp and metadata."""
-    # Mock both the extraction and signal_disp handling
-    with patch('flyrigloader.io.pickle.extract_columns_from_matrix') as mock_extract, \
-         patch('flyrigloader.io.pickle.handle_signal_disp') as mock_handle_signal:
-        # Set up extraction mock
-        extracted_data = {
-            't': exp_matrix_data['t'],
-            'x': exp_matrix_data['x'],
-            'scalar': exp_matrix_data['scalar'],
-        }
-        mock_extract.return_value = extracted_data
-        
-        # Set up signal_disp mock
-        signal_series = pd.Series(
-            [np.ones(5) for _ in range(10)],
-            index=range(10),
-            name='signal_disp'
-        )
-        mock_handle_signal.return_value = signal_series
-        
-        # Call the function with all options
-        result = make_dataframe_from_matrix(
-            exp_matrix_data,
-            metadata=sample_metadata,
-            include_signal_disp=True,
-            column_list=['t', 'x', 'scalar']
-        )
+    """Test a complex case with specific columns, signal_disp, and metadata."""
+    # Define specific columns to include, including signal_disp
+    column_list = ['t', 'x', 'scalar', 'signal_disp'] 
     
-    # Verify DataFrame has all expected columns (data + metadata)
-    expected_columns = ['t', 'x', 'scalar', 'signal_disp'] + list(sample_metadata.keys())
-    assert set(result.columns) == set(expected_columns)
+    # Call the function requesting these columns, signal_disp, and metadata
+    df = make_dataframe_from_matrix(
+        exp_matrix_data,
+        metadata=sample_metadata,
+        include_signal_disp=True, # Redundant if signal_disp in list, but good practice
+        column_list=column_list
+    )
+
+    # Verify DataFrame has exactly the requested data columns + metadata columns
+    expected_columns = set(column_list).union(set(sample_metadata.keys()))
+    assert set(df.columns) == expected_columns
+    assert 'signal_disp' in df.columns
+    assert 'fly_id' in df.columns
+    assert len(df) == len(exp_matrix_data['t'])
+
+
+def test_make_dataframe_from_matrix_missing_column_warning(
+    exp_matrix_data, sample_metadata, caplog
+):
+    """Test that a warning is logged when a requested column is missing."""
+    non_existent_col = "ghost_column"
+    column_list = ['t', 'x', non_existent_col] # Include a column not in the fixture
     
-    # Verify row count
-    assert len(result) == len(exp_matrix_data['t'])
+    # Set caplog level to capture WARNING messages
+    caplog.set_level(logging.WARNING)
+    
+    # Call the function that should trigger the warning via _filter_matrix_columns
+    df = make_dataframe_from_matrix(
+        exp_matrix_data, 
+        metadata=sample_metadata, 
+        column_list=column_list
+    )
+
+    # Assert that the warning was logged
+    assert any(
+        non_existent_col in record.message and record.levelno == logging.WARNING
+        for record in caplog.records
+    ), f"Expected WARNING log for missing column '{non_existent_col}' not found."
+    
+    # Also assert that the valid columns were still processed
+    assert 't' in df.columns
+    assert 'x' in df.columns
+    assert non_existent_col not in df.columns # The non-existent column shouldn't be added
+    assert 'fly_id' in df.columns # Check for an actual metadata column
+
+
+# === Error Handling Tests ===

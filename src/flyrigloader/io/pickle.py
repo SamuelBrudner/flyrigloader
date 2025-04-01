@@ -390,6 +390,51 @@ def _add_metadata_to_dataframe(df: pd.DataFrame, metadata: Optional[Dict[str, An
     return df
 
 
+def _filter_matrix_columns(
+    exp_matrix: Dict[str, Any],
+    include_signal_disp: bool,
+    column_list: Optional[List[str]] = None,
+) -> Dict[str, Any]:
+    """Filter columns from the exp_matrix based on inclusion criteria."""
+    filtered_matrix = {}
+    
+    # Determine the columns to process
+    columns_to_process = column_list if column_list is not None else exp_matrix.keys()
+
+    for col in columns_to_process:
+        if col not in exp_matrix:
+            logger.warning(f"Column '{col}' not found in exp_matrix.") 
+            continue
+
+        # Handle signal_disp exclusion
+        if col == 'signal_disp' and not include_signal_disp:
+            continue
+            
+        filtered_matrix[col] = exp_matrix[col]
+        
+    return filtered_matrix
+
+
+def _validate_column_dimension(col: str, values: Any, t_length: int) -> None:
+    """Validate the dimension of a column against the time dimension length."""
+    if (
+        isinstance(values, np.ndarray)
+        and values.ndim > 0
+        and all(dim != t_length for dim in values.shape)
+        and (values.ndim != 1 or len(values) != t_length)
+    ):
+        if values.ndim == 1:
+            raise ValueError(
+               f"1D Column '{col}' has length {len(values)}, which does not "
+               f"match time dimension length {t_length}"
+            )
+        elif all(dim != t_length for dim in values.shape):
+            raise ValueError(
+               f"Column '{col}' has shape {values.shape} with no dimension "
+               f"matching time dimension length {t_length}"
+            )
+
+
 def make_dataframe_from_matrix(
     exp_matrix: Dict[str, Any],
     metadata: Optional[Dict[str, Any]] = None,
@@ -397,81 +442,65 @@ def make_dataframe_from_matrix(
     column_list: Optional[List[str]] = None
 ) -> pd.DataFrame:
     """
-    Convert an exp_matrix dictionary to a DataFrame with metadata.
-    
+    Convert an exp_matrix dictionary to a DataFrame with metadata, validating dimensions.
+
     Args:
-        exp_matrix: Dictionary containing experimental data
-        metadata: Dictionary with metadata to add as columns
-        include_signal_disp: Whether to include the signal_disp column
-        column_list: Optional list of specific columns to include
-        
+        exp_matrix: Dictionary containing experimental data.
+        metadata: Dictionary with metadata to add as columns.
+        include_signal_disp: Whether to include the 'signal_disp' column if it exists.
+        column_list: Optional list of columns to include. If None, all columns are considered.
+
     Returns:
-        DataFrame with time series and metadata columns
-        
+        pandas.DataFrame: DataFrame containing the selected and validated data and metadata.
+
     Raises:
-        ValueError: If the exp_matrix is missing required keys or has invalid structure
-                   or if arrays don't have a dimension matching the time dimension
-        RuntimeError: If the conversion process fails for other reasons
+        ValueError: If 't' column is missing or not a 1D array.
+        ValueError: If any included array column has no dimension matching the length of 't'.
+        UserWarning: If a column specified in column_list is not found in exp_matrix.
     """
+    if 't' not in exp_matrix or not isinstance(exp_matrix['t'], np.ndarray) or exp_matrix['t'].ndim != 1:
+        raise ValueError("exp_matrix must contain a 1D numpy array named 't'.")
+    t_length = len(exp_matrix['t'])
+
+    # Filter columns first
+    filtered_exp_matrix = _filter_matrix_columns(
+        exp_matrix, include_signal_disp, column_list
+    )
+
+    df_data = {}
+    # Validate dimensions and prepare data for DataFrame
+    for col, values in filtered_exp_matrix.items():
+        # Skip validation for 't' as it's already checked and defines the length
+        if col != 't':
+             _validate_column_dimension(col, values, t_length)
+
+        # Ensure data added to df_data is suitable for DataFrame construction
+        # Convert multi-dimensional arrays into a list of arrays along the first axis
+        # This allows pandas to handle them as an object-dtype column.
+        if isinstance(values, np.ndarray) and values.ndim > 1:
+            # Assuming the validation ensured the first dimension matches t_length
+            df_data[col] = list(values)
+        else:
+            # Use scalars, 1D arrays, or other types directly
+            df_data[col] = values
+
+    # Create DataFrame from validated data
+    # Handle potential length mismatches if validation missed something
     try:
-        # Validate time dimension
-        _validate_time_dimension(exp_matrix)
-        
-        # Extract data columns
-        data_dict = extract_columns_from_matrix(exp_matrix, column_names=column_list, ensure_1d=True)
-        
-        # Verify that all array columns match the time dimension
-        if 't' in data_dict:
-            t_length = len(data_dict['t'])
-            for col, values in data_dict.items():
-                if col == 't':
-                    continue
-                
-                if isinstance(values, np.ndarray) and values.ndim > 0 and len(values) != t_length and all(dim != t_length for dim in values.shape):
-                    raise ValueError(
-                        f"Column '{col}' has shape {values.shape} with no dimension "
-                        f"matching time dimension length {t_length}"
-                    )
-        
-        # Try different DataFrame creation strategies
-        try:
-            # First, try direct DataFrame creation
-            df = pd.DataFrame(data_dict)
-            logger.debug("Created DataFrame directly from data dictionary")
-        except ValueError as e:
-            logger.debug(f"Direct DataFrame creation failed: {e}")
-            
-            # If direct creation fails, try to create with index
-            if 't' in data_dict:
-                t_length = len(data_dict['t'])
-                df = pd.DataFrame({'t': data_dict['t']})
-                
-                # Add each column separately, handling dimension mismatches
-                for col, values in data_dict.items():
-                    if col == 't':
-                        continue  # Already added
-                    
-                    # For arrays, check if they can be added directly
-                    if isinstance(values, np.ndarray) and values.ndim > 1 and values.shape[1] == t_length:
-                        df[col] = values.T
-                    else:
-                        df[col] = values
-            else:
-                # No time dimension to align with, create simple DataFrame
-                df = pd.DataFrame({k: [v] for k, v in data_dict.items()})
-        
-        # Add signal_disp if requested
-        if include_signal_disp:
-            df = _add_signal_disp_to_dataframe(df, exp_matrix)
-        
-        # Add metadata
-        df = _add_metadata_to_dataframe(df, metadata)
-        
-        return df
-        
+        df = pd.DataFrame(df_data)
     except ValueError as e:
-        logger.error(f"Value error when converting matrix to DataFrame: {e}")
-        raise ValueError(f"Invalid matrix structure: {str(e)}") from e
-    except Exception as e:
-        logger.error(f"Error converting matrix to DataFrame: {e}")
-        raise RuntimeError(f"Failed to convert matrix to DataFrame: {str(e)}") from e
+        # Add context to the pandas error if it's about length mismatch
+        if "All arrays must be of the same length" in str(e):
+            lengths = {k: len(v) if hasattr(v, '__len__') else 'scalar' for k, v in df_data.items()}
+            raise ValueError(
+                f"Error creating DataFrame: Mismatched lengths detected after validation. "
+                f"Column lengths: {lengths}. Original error: {e}"
+            ) from e
+        else:
+            raise # Re-raise other ValueErrors
+
+    # Add metadata if provided
+    if metadata:
+        df = _add_metadata_to_dataframe(df, metadata)
+
+    return df
