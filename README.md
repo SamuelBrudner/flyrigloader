@@ -11,42 +11,44 @@ flyrigloader/
 ├── src/
 │   └── flyrigloader/    # Main package code
 │       ├── discovery/   # File discovery module
-│       └── config/      # Configuration handling module
+│       ├── config/      # Configuration handling module
+│       └── io/          # Input/output utilities
 ├── tests/               # Test directory matching package structure
 ├── docs/                # Documentation
+├── logs/                # Log files (auto-created)
 ├── config/              # Configuration files
 └── pyproject.toml       # Project metadata and dependencies
 ```
 
-## Using as a Library in External Projects
+## Features
 
-`flyrigloader` is designed to be easily integrated into external data analysis projects. The high-level API provides simple entry points for loading experiment data based on configuration files:
+### Logging System
+
+`flyrigloader` includes a comprehensive logging system built with `loguru` that provides:
+
+- **Console logging**: INFO-level logs with colored output for better readability
+- **File logging**: DEBUG-level logs with automatic file rotation
+- **Automatic setup**: Log directory is created automatically on import
+- **Structured output**: Includes timestamps, log levels, file/function info
+
+Example usage:
 
 ```python
-from flyrigloader.api import load_experiment_files, get_experiment_parameters
+from loguru import logger
 
-# Load all CSV files for a specific experiment defined in your config
-files = load_experiment_files(
-    config_path="/path/to/your/config.yaml",
-    experiment_name="plume_navigation_analysis",
-    extensions=["csv"]
-)
+# These will go to both console and log file
+logger.info("Processing experiment data")
 
-# Get experiment-specific parameters for analysis
-parameters = get_experiment_parameters(
-    config_path="/path/to/your/config.yaml",
-    experiment_name="plume_navigation_analysis"
-)
+# These will only go to the log file (DEBUG level)
+logger.debug("Detailed variable state: {}", variable)
 
-# Process the files using the parameters
-for file in files:
-    # Your analysis code here
-    analyze_data(file, parameters)
+# Error handling with rich context
+try:
+    process_data(file)
+except Exception as e:
+    logger.exception(f"Error processing {file}")
+    # Full traceback is automatically included
 ```
-
-See the [examples directory](examples/external_project) for a complete demonstration of integrating `flyrigloader` into an external analysis project.
-
-## Modules
 
 ### File Discovery Module
 
@@ -104,27 +106,6 @@ files_with_dates = discover_files(
 )
 ```
 
-#### Pattern Matching System
-
-The file discovery module leverages the `PatternMatcher` class for advanced pattern matching:
-
-```python
-from flyrigloader.discovery.patterns import PatternMatcher
-
-# Create a pattern matcher with one or more regex patterns
-matcher = PatternMatcher([
-    r"exp(?P<experiment_id>\d+)_(?P<animal>\w+)_(?P<condition>\w+).csv",
-    r"(?P<subject>\w+)_trial(?P<trial_num>\d+)_(?P<date>\d{8}).txt"
-])
-
-# Match a filename against the patterns
-result = matcher.match("exp005_fly_control.csv")
-# Result: {"experiment_id": "005", "animal": "fly", "condition": "control"}
-
-# Filter a list of files to only those matching any pattern
-matching_files = matcher.filter_matching(file_list)
-```
-
 ### YAML Configuration Module
 
 The `config` module provides utilities for loading, parsing, and working with hierarchical YAML configuration files:
@@ -164,6 +145,64 @@ files = discover_dataset_files(
     base_directory="/path/to/data"
 )
 ```
+
+### Data Processing
+
+The `io` module provides utilities for loading and processing experimental data:
+
+#### Features
+
+- **Multiple pickle formats**: Support for regular, gzipped, and pandas pickle formats
+- **Automatic format detection**: Automatically detects and loads the appropriate format
+- **Multi-dimensional array handling**: Properly processes arrays of various dimensions
+- **Metadata integration**: Combines experimental data with metadata
+- **Column filtering**: Select specific columns to extract
+- **Validation**: Validates data dimensions and structure
+
+#### Usage Examples
+
+```python
+from flyrigloader.io.pickle import read_pickle_any_format, make_dataframe_from_matrix
+
+# Load a pickle file (auto-detects format)
+data = read_pickle_any_format("/path/to/data.pkl")
+
+# Convert experimental matrix to DataFrame
+df = make_dataframe_from_matrix(
+    exp_matrix=data,
+    metadata={"date": "2025-04-01", "fly_id": "fly-123"},
+    include_signal_disp=True,  # Include special signal_disp column
+    column_list=["t", "x", "y"]  # Only include specified columns
+)
+```
+
+## Using as a Library in External Projects
+
+`flyrigloader` is designed to be easily integrated into external data analysis projects. The high-level API provides simple entry points for loading experiment data based on configuration files:
+
+```python
+from flyrigloader.api import load_experiment_files, get_experiment_parameters
+
+# Load all CSV files for a specific experiment defined in your config
+files = load_experiment_files(
+    config_path="/path/to/your/config.yaml",
+    experiment_name="plume_navigation_analysis",
+    extensions=["csv"]
+)
+
+# Get experiment-specific parameters for analysis
+parameters = get_experiment_parameters(
+    config_path="/path/to/your/config.yaml",
+    experiment_name="plume_navigation_analysis"
+)
+
+# Process the files using the parameters
+for file in files:
+    # Your analysis code here
+    analyze_data(file, parameters)
+```
+
+See the [examples directory](examples/external_project) for a complete demonstration of integrating `flyrigloader` into an external analysis project.
 
 ## Configuration Structure
 
