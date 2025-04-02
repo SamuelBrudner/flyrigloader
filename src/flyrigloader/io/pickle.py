@@ -710,7 +710,7 @@ def _process_column(exp_matrix, col_name, col_config, special_handlers):
 
     if special_handler := col_config.get('special_handling'):
         handler_name = special_handlers.get(special_handler)
-        value = _apply_special_handler(exp_matrix, col_name, value, special_handler, handler_name)
+        value = _apply_special_handler(exp_matrix, col_name, value, handler_name, special_handler)
 
     # Ensure correct dimensionality for numpy arrays
     if isinstance(value, np.ndarray) and col_config.get('dimension'):
@@ -762,7 +762,7 @@ def make_dataframe_from_config(
             - A string path to a YAML configuration file
             - A dictionary containing configuration data
             - A ColumnConfigDict instance
-            - None (will use the default pydantic_column_config.yaml)
+            - None (will use the default column_config.yaml)
         metadata: Optional dictionary with metadata to add to the DataFrame.
     
     Returns:

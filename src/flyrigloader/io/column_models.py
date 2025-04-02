@@ -128,7 +128,7 @@ class ColumnConfigDict(BaseModel):
 
 
 # Constants for default configuration
-DEFAULT_CONFIG_FILENAME = "pydantic_column_config.yaml"
+DEFAULT_CONFIG_FILENAME = "column_config.yaml"
 
 
 def get_default_config_path() -> str:

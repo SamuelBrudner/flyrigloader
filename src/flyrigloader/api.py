@@ -20,6 +20,19 @@ from flyrigloader.config.discovery import (
     discover_dataset_files
 )
 from flyrigloader.discovery.files import discover_files
+from flyrigloader.io.pickle import (
+    read_pickle_any_format,
+    make_dataframe_from_matrix,
+    make_dataframe_from_config
+)
+from flyrigloader.io.column_models import (
+    ColumnConfig,
+    ColumnConfigDict,
+    ColumnDimension,
+    get_config_from_source,
+    get_default_config_path,
+    load_column_config
+)
 
 
 def load_experiment_files(
@@ -148,5 +161,48 @@ def get_experiment_parameters(
     # Get experiment info
     experiment_info = get_experiment_info(config, experiment_name)
     
-    # Extract analysis parameters if they exist
-    return experiment_info.get("analysis_params", {})
+    # Extract parameters
+    return experiment_info.get("parameters", {})
+
+
+def process_experiment_data(
+    data_path: Union[str, Path],
+    column_config_path: Optional[Union[str, Path, Dict[str, Any], ColumnConfigDict]] = None,
+    metadata: Optional[Dict[str, Any]] = None
+) -> Any:
+    """
+    Process experimental data using column configuration.
+    
+    Args:
+        data_path: Path to the pickle file containing experimental data
+        column_config_path: Path to column configuration file, configuration dictionary,
+                            or ColumnConfigDict instance. If None, uses default configuration.
+        metadata: Optional dictionary of metadata to add to the DataFrame
+        
+    Returns:
+        DataFrame with processed experimental data
+        
+    Raises:
+        FileNotFoundError: If the data or config file doesn't exist
+        ValueError: If required columns are missing from the data
+    """
+    # Read the experimental data
+    exp_matrix = read_pickle_any_format(data_path)
+    
+    # Create DataFrame using column configuration
+    return make_dataframe_from_config(
+        exp_matrix=exp_matrix,
+        config_source=column_config_path,
+        metadata=metadata
+    )
+
+
+def get_default_column_config() -> ColumnConfigDict:
+    """
+    Get the default column configuration.
+    
+    Returns:
+        ColumnConfigDict with the default configuration
+    """
+    # Load the default configuration
+    return get_config_from_source(None)

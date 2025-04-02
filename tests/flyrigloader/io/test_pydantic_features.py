@@ -1,5 +1,8 @@
 """
 Tests for Pydantic-based data processing functions.
+
+These tests verify the functionality of the Pydantic-based column configuration and
+data processing implementation in the consolidated pickle.py module.
 """
 
 import os
@@ -10,7 +13,8 @@ import pytest
 import yaml
 from pydantic import ValidationError
 
-from flyrigloader.io.pydantic_pickle import make_dataframe_from_pydantic_config
+# Import from the consolidated implementation
+from flyrigloader.io.pickle import make_dataframe_from_config
 
 
 def create_test_config(temp_file):
@@ -42,8 +46,8 @@ def create_test_config(temp_file):
     return test_config
 
 
-def test_make_dataframe_from_pydantic_config_basic():
-    """Test basic functionality of make_dataframe_from_pydantic_config."""
+def test_make_dataframe_from_config_basic():
+    """Test basic functionality of make_dataframe_from_config."""
     # Create test data
     exp_matrix = {
         't': np.linspace(0, 10, 100),
@@ -57,7 +61,7 @@ def test_make_dataframe_from_pydantic_config_basic():
     create_test_config(temp_file)
     
     # Test function with basic config
-    df = make_dataframe_from_pydantic_config(exp_matrix, config_path)
+    df = make_dataframe_from_config(exp_matrix, config_path)
     
     # Verify result
     assert isinstance(df, pd.DataFrame)
@@ -70,7 +74,7 @@ def test_make_dataframe_from_pydantic_config_basic():
     os.unlink(config_path)
 
 
-def test_make_dataframe_from_pydantic_config_missing_required():
+def test_make_dataframe_from_config_missing_required():
     """Test validation of required columns."""
     # Create test data missing a required column
     exp_matrix = {
@@ -86,7 +90,7 @@ def test_make_dataframe_from_pydantic_config_missing_required():
     
     # Function should raise ValueError due to missing required column
     with pytest.raises(ValueError) as excinfo:
-        make_dataframe_from_pydantic_config(exp_matrix, config_path)
+        make_dataframe_from_config(exp_matrix, config_path)
     
     # Verify error message
     assert "Missing required columns: x" in str(excinfo.value)
@@ -95,7 +99,7 @@ def test_make_dataframe_from_pydantic_config_missing_required():
     os.unlink(config_path)
 
 
-def test_make_dataframe_from_pydantic_config_with_aliases():
+def test_make_dataframe_from_config_with_aliases():
     """Test handling of column aliases."""
     # Create test data with aliased column names
     exp_matrix = {
@@ -136,7 +140,7 @@ def test_make_dataframe_from_pydantic_config_with_aliases():
     temp_file.close()
     
     # Test function with aliased columns
-    df = make_dataframe_from_pydantic_config(exp_matrix, config_path)
+    df = make_dataframe_from_config(exp_matrix, config_path)
     
     # Verify result
     assert isinstance(df, pd.DataFrame)
@@ -149,7 +153,7 @@ def test_make_dataframe_from_pydantic_config_with_aliases():
     os.unlink(config_path)
 
 
-def test_make_dataframe_from_pydantic_config_with_metadata():
+def test_make_dataframe_from_config_with_metadata():
     """Test adding metadata to DataFrame."""
     # Create test data
     exp_matrix = {
@@ -214,7 +218,7 @@ def test_make_dataframe_from_pydantic_config_with_metadata():
     temp_file.close()
     
     # Test function with metadata
-    df = make_dataframe_from_pydantic_config(exp_matrix, config_path, metadata=metadata)
+    df = make_dataframe_from_config(exp_matrix, config_path, metadata=metadata)
     
     # Verify result
     assert isinstance(df, pd.DataFrame)
@@ -229,7 +233,7 @@ def test_make_dataframe_from_pydantic_config_with_metadata():
     os.unlink(config_path)
 
 
-def test_make_dataframe_from_pydantic_config_with_signal_disp():
+def test_make_dataframe_from_config_with_signal_disp():
     """Test handling of signal_disp special column."""
     # Create test data with signal_disp
     t = np.linspace(0, 10, 100)
@@ -281,7 +285,7 @@ def test_make_dataframe_from_pydantic_config_with_signal_disp():
     temp_file.close()
     
     # Test function with signal_disp
-    df = make_dataframe_from_pydantic_config(exp_matrix, config_path)
+    df = make_dataframe_from_config(exp_matrix, config_path)
     
     # Verify result
     assert isinstance(df, pd.DataFrame)
@@ -296,7 +300,7 @@ def test_make_dataframe_from_pydantic_config_with_signal_disp():
     os.unlink(config_path)
 
 
-def test_make_dataframe_from_pydantic_config_with_default_values():
+def test_make_dataframe_from_config_with_default_values():
     """Test using default values for missing optional columns."""
     # Create test data missing an optional column
     exp_matrix = {
@@ -344,7 +348,7 @@ def test_make_dataframe_from_pydantic_config_with_default_values():
     temp_file.close()
     
     # Test function with missing optional column
-    df = make_dataframe_from_pydantic_config(exp_matrix, config_path)
+    df = make_dataframe_from_config(exp_matrix, config_path)
     
     # Verify result
     assert isinstance(df, pd.DataFrame)
@@ -355,7 +359,7 @@ def test_make_dataframe_from_pydantic_config_with_default_values():
     os.unlink(config_path)
 
 
-def test_make_dataframe_from_pydantic_config_with_invalid_config():
+def test_make_dataframe_from_config_with_invalid_config():
     """Test validation of invalid configuration."""
     # Create test data
     exp_matrix = {
@@ -384,7 +388,7 @@ def test_make_dataframe_from_pydantic_config_with_invalid_config():
     
     # Function should raise ValidationError due to invalid dimension
     with pytest.raises(ValidationError) as excinfo:
-        make_dataframe_from_pydantic_config(exp_matrix, config_path)
+        make_dataframe_from_config(exp_matrix, config_path)
     
     # Verify error contains information about invalid dimension
     assert "Dimension must be 1, 2, or 3" in str(excinfo.value)
