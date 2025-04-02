@@ -16,7 +16,8 @@ from flyrigloader.io.column_models import (
     load_column_config, 
     ColumnConfigDict, 
     ColumnConfig, 
-    SpecialHandlerType
+    SpecialHandlerType,
+    get_config_from_source
 )
 
 
@@ -749,7 +750,7 @@ def _add_metadata_columns(df, metadata, column_config):
 
 def make_dataframe_from_config(
     exp_matrix: Dict[str, Any], 
-    config_path: str, 
+    config_source: Union[str, Dict[str, Any], ColumnConfigDict], 
     metadata: Optional[Dict[str, Any]] = None
 ) -> pd.DataFrame:
     """
@@ -757,7 +758,10 @@ def make_dataframe_from_config(
     
     Args:
         exp_matrix: Dictionary containing experimental data.
-        config_path: Path to the column configuration YAML file.
+        config_source: Configuration source, which can be:
+            - A string path to a YAML configuration file
+            - A dictionary containing configuration data
+            - A ColumnConfigDict instance
         metadata: Optional dictionary with metadata to add to the DataFrame.
     
     Returns:
@@ -766,9 +770,10 @@ def make_dataframe_from_config(
     Raises:
         ValueError: If required columns are missing.
         ValidationError: If the configuration is invalid.
+        TypeError: If the config_source type is invalid.
     """
     # Load and validate configuration
-    config = load_column_config(config_path)
+    config = get_config_from_source(config_source)
     
     # Validate required columns
     if missing_columns := _validate_required_columns(exp_matrix, config.columns):

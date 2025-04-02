@@ -58,8 +58,8 @@ class ColumnConfig(BaseModel):
         if isinstance(v, int):
             try:
                 return ColumnDimension(v)
-            except ValueError:
-                raise ValueError(f"Dimension must be 1, 2, or 3, got {v}")
+            except ValueError as e:
+                raise ValueError(f"Dimension must be 1, 2, or 3, got {v}") from e
         return v
     
     @field_validator('special_handling', mode='before')
@@ -71,9 +71,11 @@ class ColumnConfig(BaseModel):
         if isinstance(v, str):
             try:
                 return SpecialHandlerType(v)
-            except ValueError:
+            except ValueError as e:
                 valid_handlers = [h.value for h in SpecialHandlerType]
-                raise ValueError(f"Special handler must be one of {valid_handlers}, got {v}")
+                raise ValueError(
+                    f"Special handler must be one of {valid_handlers}, got {v}"
+                ) from e
         return v
     
     @model_validator(mode='after')
@@ -142,3 +144,43 @@ def load_column_config(config_path: str) -> ColumnConfigDict:
         config_data = yaml.safe_load(f)
     
     return ColumnConfigDict.model_validate(config_data)
+
+
+def get_config_from_source(config_source: Union[str, Dict[str, Any], ColumnConfigDict]) -> ColumnConfigDict:
+    """
+    Get a validated ColumnConfigDict from different types of configuration sources.
+    
+    Args:
+        config_source: The configuration source, which can be:
+            - A string path to a YAML configuration file
+            - A dictionary containing configuration data
+            - A ColumnConfigDict instance
+            
+    Returns:
+        ColumnConfigDict: Validated column configuration model.
+        
+    Raises:
+        TypeError: If the config_source type is invalid.
+        ValidationError: If the configuration is invalid.
+    """
+    from loguru import logger
+    
+    if isinstance(config_source, str):
+        # Treat as a path to a configuration file
+        return load_column_config(config_source)
+    
+    elif isinstance(config_source, dict):
+        # Treat as a configuration dictionary
+        logger.debug("Loading column configuration from dictionary")
+        return ColumnConfigDict.model_validate(config_source)
+    
+    elif isinstance(config_source, ColumnConfigDict):
+        # Already a validated ColumnConfigDict
+        logger.debug("Using provided ColumnConfigDict instance")
+        return config_source
+    
+    else:
+        raise TypeError(
+            "config_source must be a path to a YAML file, a configuration dictionary, "
+            f"or a ColumnConfigDict instance, got {type(config_source)}"
+        )

@@ -8,14 +8,17 @@ import yaml
 import pytest
 import numpy as np
 from pydantic import ValidationError
+import pandas as pd
 
 from flyrigloader.io.column_models import (
     ColumnConfig, 
     ColumnConfigDict, 
     ColumnDimension, 
     SpecialHandlerType,
-    load_column_config
+    load_column_config,
+    get_config_from_source
 )
+from flyrigloader.io.pickle import make_dataframe_from_config
 
 
 def test_column_config_validation():
@@ -216,3 +219,176 @@ def test_load_column_config_with_invalid_yaml():
     finally:
         # Clean up
         os.unlink(config_path)
+
+
+def test_get_config_from_source_with_path():
+    """Test loading configuration from a file path."""
+    # Create a test configuration file
+    with tempfile.NamedTemporaryFile(suffix='.yaml', mode='w', delete=False) as temp_file:
+        config_path = temp_file.name
+        
+        test_config = {
+            'columns': {
+                't': {
+                    'type': 'numpy.ndarray',
+                    'dimension': 1,
+                    'required': True,
+                    'description': 'Time values'
+                }
+            }
+        }
+        
+        yaml.dump(test_config, temp_file)
+    
+    try:
+        # Load configuration from path
+        config = get_config_from_source(config_path)
+        
+        # Verify the configuration
+        assert isinstance(config, ColumnConfigDict)
+        assert "t" in config.columns
+        assert config.columns["t"].dimension == ColumnDimension.ONE_D
+    finally:
+        # Clean up
+        os.unlink(config_path)
+
+
+def test_get_config_from_source_with_dict():
+    """Test loading configuration from a dictionary."""
+    # Create a test configuration dictionary
+    test_config = {
+        'columns': {
+            't': {
+                'type': 'numpy.ndarray',
+                'dimension': 1,
+                'required': True,
+                'description': 'Time values'
+            }
+        }
+    }
+    
+    # Load configuration from dictionary
+    config = get_config_from_source(test_config)
+    
+    # Verify the configuration
+    assert isinstance(config, ColumnConfigDict)
+    assert "t" in config.columns
+    assert config.columns["t"].dimension == ColumnDimension.ONE_D
+
+
+def test_get_config_from_source_with_model():
+    """Test loading configuration from a ColumnConfigDict instance."""
+    # Create a test ColumnConfigDict instance
+    original_config = ColumnConfigDict(
+        columns={
+            't': ColumnConfig(
+                type="numpy.ndarray",
+                dimension=1,
+                required=True,
+                description="Time values"
+            )
+        }
+    )
+    
+    # Pass the instance through get_config_from_source
+    config = get_config_from_source(original_config)
+    
+    # Verify it's the same instance
+    assert config is original_config
+    assert "t" in config.columns
+    assert config.columns["t"].dimension == ColumnDimension.ONE_D
+
+
+def test_get_config_from_source_with_invalid_type():
+    """Test error handling with invalid configuration source type."""
+    # Try to load configuration from an invalid type (list)
+    with pytest.raises(TypeError):
+        get_config_from_source([1, 2, 3])
+
+
+def test_make_dataframe_with_dict_config():
+    """Test make_dataframe_from_config with a dictionary configuration."""
+    # Create test data
+    exp_matrix = {
+        't': np.linspace(0, 10, 100),
+        'x': np.random.rand(100),
+        'y': np.random.rand(100)
+    }
+    
+    # Test configuration as a dictionary
+    config_dict = {
+        'columns': {
+            't': {
+                'type': 'numpy.ndarray',
+                'dimension': 1,
+                'required': True,
+                'description': 'Time values'
+            },
+            'x': {
+                'type': 'numpy.ndarray',
+                'dimension': 1,
+                'required': True,
+                'description': 'X position'
+            },
+            'y': {
+                'type': 'numpy.ndarray',
+                'dimension': 1,
+                'required': True,
+                'description': 'Y position'
+            }
+        }
+    }
+    
+    # Test function with dictionary config
+    df = make_dataframe_from_config(exp_matrix, config_dict)
+    
+    # Verify result
+    assert isinstance(df, pd.DataFrame)
+    assert 't' in df.columns
+    assert 'x' in df.columns
+    assert 'y' in df.columns
+    assert len(df) == 100
+
+
+def test_make_dataframe_with_model_config():
+    """Test make_dataframe_from_config with a ColumnConfigDict instance."""
+    # Create test data
+    exp_matrix = {
+        't': np.linspace(0, 10, 100),
+        'x': np.random.rand(100),
+        'y': np.random.rand(100)
+    }
+    
+    # Create a test ColumnConfigDict instance
+    config_model = ColumnConfigDict(
+        columns={
+            't': ColumnConfig(
+                type="numpy.ndarray",
+                dimension=1,
+                required=True,
+                description="Time values"
+            ),
+            'x': ColumnConfig(
+                type="numpy.ndarray",
+                dimension=1,
+                required=True,
+                description="X position"
+            ),
+            'y': ColumnConfig(
+                type="numpy.ndarray",
+                dimension=1,
+                required=True,
+                description="Y position"
+            )
+        }
+    )
+    
+    # Test function with model config
+    df = make_dataframe_from_config(exp_matrix, config_model)
+    
+    # Verify result
+    assert isinstance(df, pd.DataFrame)
+    assert 't' in df.columns
+    assert 'x' in df.columns
+    assert 'y' in df.columns
+    assert len(df) == 100
