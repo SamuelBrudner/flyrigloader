@@ -6,7 +6,7 @@ Utilities for working with regex patterns to extract metadata from filenames.
 from typing import Any, Dict, List, Optional, Pattern, Union, Tuple
 import re
 import os
-import logging
+from loguru import logger
 from pathlib import Path
 
 
@@ -29,8 +29,7 @@ class PatternMatcher:
         self.patterns = patterns  # Store original patterns for debugging
         
         # Configure logging - only do this once per application
-        logging.basicConfig(level=logging.INFO)
-        self.logger = logging.getLogger(__name__)
+        logger.level("INFO")
     
     def _get_field_names_for_pattern(self, pattern_idx: int) -> Optional[List[str]]:
         """
@@ -114,26 +113,26 @@ class PatternMatcher:
         Returns:
             Dictionary with extracted metadata from the first matching pattern, or None if no match
         """
-        self.logger.debug(f"Attempting to match patterns against: {filename}")
+        logger.debug(f"Attempting to match patterns against: {filename}")
         
         # Try each pattern until we find a match
         for i, pattern in enumerate(self.compiled_patterns):
-            self.logger.debug(f"Trying pattern {i}: {self.patterns[i]}")
+            logger.debug(f"Trying pattern {i}: {self.patterns[i]}")
             
             # Search for the pattern in the filename
             if (match := pattern.search(filename)):
-                self.logger.debug(f"Match found with pattern {i}")
+                logger.debug(f"Match found with pattern {i}")
                 
                 # Extract fields from the match
                 result = self._extract_groups_from_match(match, i)
-                self.logger.debug(f"Extracted groups: {result}")
+                logger.debug(f"Extracted groups: {result}")
                 
                 # Handle special cases
                 result = self._process_special_cases(result, filename)
                 
                 return result
         
-        self.logger.debug(f"No match found for {filename}")
+        logger.debug(f"No match found for {filename}")
         return None
     
     def filter_files(self, files: List[str]) -> Dict[str, Dict[str, str]]:
@@ -266,9 +265,7 @@ def generate_pattern_from_template(template: str) -> str:
     # Add anchors
     pattern = f"^{pattern}$"
     
-    # For debugging:
-    import logging
-    logger = logging.getLogger(__name__)
+    # For debugging
     logger.debug(f"Generated pattern: {pattern}")
     
     return pattern

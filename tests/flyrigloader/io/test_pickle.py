@@ -9,7 +9,8 @@ import pandas as pd
 from pathlib import Path
 import tempfile
 from unittest.mock import patch
-import logging
+import logging  # Keep for log level constants used with pytest caplog
+from loguru import logger
 
 # This will be the module we're testing - we'll have to implement it later
 from flyrigloader.io.pickle import (
