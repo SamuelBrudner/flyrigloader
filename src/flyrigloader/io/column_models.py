@@ -10,7 +10,7 @@ from typing import Dict, List, Optional, Union, Any, Literal
 
 import numpy as np
 from loguru import logger
-from pydantic import BaseModel, Field, validator, root_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 class ColumnDimension(int, Enum):
@@ -49,7 +49,8 @@ class ColumnConfig(BaseModel):
     default_value: Optional[Any] = None
     special_handling: Optional[SpecialHandlerType] = None
     
-    @validator('dimension', pre=True)
+    @field_validator('dimension', mode='before')
+    @classmethod
     def validate_dimension(cls, v):
         """Convert integer dimension to enum."""
         if v is None:
@@ -57,11 +58,12 @@ class ColumnConfig(BaseModel):
         if isinstance(v, int):
             try:
                 return ColumnDimension(v)
-            except ValueError as e:
-                raise ValueError(f"Dimension must be 1, 2, or 3, got {v}") from e
+            except ValueError:
+                raise ValueError(f"Dimension must be 1, 2, or 3, got {v}")
         return v
     
-    @validator('special_handling', pre=True)
+    @field_validator('special_handling', mode='before')
+    @classmethod
     def validate_special_handling(cls, v):
         """Convert string handler types to enum."""
         if v is None:
@@ -69,14 +71,15 @@ class ColumnConfig(BaseModel):
         if isinstance(v, str):
             try:
                 return SpecialHandlerType(v)
-            except ValueError as e:
+            except ValueError:
                 valid_handlers = [h.value for h in SpecialHandlerType]
-                raise ValueError(f"Special handler must be one of {valid_handlers}, got {v}") from e
+                raise ValueError(f"Special handler must be one of {valid_handlers}, got {v}")
         return v
     
-    @root_validator
-    def validate_configuration(cls, values):
+    @model_validator(mode='after')
+    def validate_configuration(self):
         """Validate the overall configuration for consistency."""
+        values = self.model_dump()
         # If we have a dimension, ensure type is compatible
         if values.get('dimension') and not values.get('type', '').startswith('numpy'):
             logger.warning(f"Dimension specified for non-numpy type {values.get('type')}")
@@ -86,7 +89,7 @@ class ColumnConfig(BaseModel):
                 values.get('dimension') != ColumnDimension.TWO_D):
             logger.warning("transform_to_match_time_dimension should be used with 2D arrays")
             
-        return values
+        return self
         
 
 class ColumnConfigDict(BaseModel):
@@ -99,19 +102,25 @@ class ColumnConfigDict(BaseModel):
     columns: Dict[str, ColumnConfig]
     special_handlers: Dict[str, str] = Field(default_factory=dict)
     
-    @validator('special_handlers')
-    def validate_special_handlers(cls, v, values):
+    @field_validator('special_handlers')
+    @classmethod
+    def validate_special_handlers(cls, v, info):
         """Ensure all referenced handlers have an implementation."""
+        # Get values from context
+        values = info.data
+        
+        # Get all special handler types being used as a set comprehension
         required_handlers = {
-            col.special_handling.value
-            for col in values.get('columns', {}).values()
+            col.special_handling.value 
+            for col in values.get('columns', {}).values() 
             if col.special_handling
         }
+        
         # Check that all required handlers are defined
         for handler in required_handlers:
             if handler not in v:
                 logger.warning(f"Special handler '{handler}' is used but not defined in special_handlers")
-
+        
         return v
 
 
