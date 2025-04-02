@@ -43,26 +43,53 @@ def get_ignore_patterns(
     Get ignore patterns from the configuration.
     
     This combines project-level ignore patterns with any experiment-specific patterns.
+    The patterns from the config are converted to glob patterns if they don't already
+    contain wildcard characters.
     
     Args:
         config: The loaded configuration dictionary
         experiment: Optional experiment name to get experiment-specific patterns
         
     Returns:
-        List of ignore patterns
+        List of glob-formatted ignore patterns
     """
     # Start with project-level ignore patterns
     patterns = []
     if "project" in config and "ignore_substrings" in config["project"]:
-        patterns.extend(config["project"]["ignore_substrings"])
+        # Convert simple substrings to glob patterns
+        patterns.extend(
+            _convert_to_glob_pattern(pattern) 
+            for pattern in config["project"]["ignore_substrings"]
+        )
     
     # Add experiment-specific patterns if specified
     if experiment and "experiments" in config and experiment in config["experiments"]:
         experiment_config = config["experiments"][experiment]
         if "filters" in experiment_config and "ignore_substrings" in experiment_config["filters"]:
-            patterns.extend(experiment_config["filters"]["ignore_substrings"])
+            # Convert experiment-specific substrings to glob patterns
+            patterns.extend(
+                _convert_to_glob_pattern(pattern) 
+                for pattern in experiment_config["filters"]["ignore_substrings"]
+            )
     
     return patterns
+
+
+def _convert_to_glob_pattern(pattern: str) -> str:
+    """
+    Convert a simple substring pattern to a glob pattern if needed.
+    
+    If the pattern already has glob wildcards (* or ?), leave it as is.
+    Otherwise, wrap it with * on both sides for substring matching.
+    
+    Args:
+        pattern: The original pattern string
+        
+    Returns:
+        A glob pattern that will match the original substring
+    """
+    # Return pattern as-is if it already contains wildcards, otherwise wrap with asterisks
+    return pattern if ('*' in pattern or '?' in pattern) else f"*{pattern}*"
 
 
 def get_mandatory_substrings(

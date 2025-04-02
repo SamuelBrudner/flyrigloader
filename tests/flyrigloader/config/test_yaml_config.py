@@ -147,20 +147,20 @@ class TestYamlConfig:
         
         # Get project-level ignore patterns
         project_patterns = get_ignore_patterns(config)
-        assert "static_horiz_ribbon" in project_patterns
-        assert "._" in project_patterns
+        assert "*static_horiz_ribbon*" in project_patterns
+        assert "*._*" in project_patterns
         
         # Get experiment-level ignore patterns (inherits project patterns)
         multi_plume_patterns = get_ignore_patterns(config, experiment="multi_plume")
-        assert "static_horiz_ribbon" in multi_plume_patterns
-        assert "._" in multi_plume_patterns
-        assert "smoke_2a" in multi_plume_patterns  # Experiment-specific pattern
+        assert "*static_horiz_ribbon*" in multi_plume_patterns
+        assert "*._*" in multi_plume_patterns
+        assert "*smoke_2a*" in multi_plume_patterns  # Experiment-specific pattern
         
         # Experiment without specific patterns should just return project patterns
         first_nirag_patterns = get_ignore_patterns(config, experiment="first_nirag_expt")
-        assert "static_horiz_ribbon" in first_nirag_patterns
-        assert "._" in first_nirag_patterns
-        assert "smoke_2a" not in first_nirag_patterns
+        assert "*static_horiz_ribbon*" in first_nirag_patterns
+        assert "*._*" in first_nirag_patterns
+        assert "*smoke_2a*" not in first_nirag_patterns
     
     def test_get_mandatory_substrings(self, sample_config_file):
         """Test extracting mandatory substrings from config."""

@@ -7,6 +7,7 @@ from typing import List, Optional, Iterable, Union, Dict, Any, Tuple, Set
 from pathlib import Path
 import re
 from datetime import datetime
+import fnmatch
 
 from flyrigloader.discovery.patterns import PatternMatcher, match_files_to_patterns
 
@@ -167,7 +168,7 @@ class FileDiscoverer:
         Args:
             files: List of file paths to filter
             extensions: Optional list of file extensions to filter by (without the dot)
-            ignore_patterns: Optional list of substring patterns to ignore
+            ignore_patterns: Optional list of glob patterns to ignore (e.g., "*temp*", "backup_*")
             mandatory_substrings: Optional list of substrings that must be present in files
             
         Returns:
@@ -184,11 +185,12 @@ class FileDiscoverer:
 
         # Apply ignore patterns if specified
         if ignore_patterns:
-            # Filter out files matching any ignore pattern
+            # Filter out files matching any ignore pattern using glob pattern matching
             filtered_files = [
                 f
                 for f in filtered_files
-                if all(pattern not in f for pattern in ignore_patterns)
+                # Check if file path does NOT match any of the ignore patterns
+                if all(not fnmatch.fnmatch(Path(f).name, pattern) for pattern in ignore_patterns)
             ]
 
         # Apply mandatory substrings if specified
@@ -302,7 +304,7 @@ class FileDiscoverer:
             pattern: File pattern to match (glob format)
             recursive: If True, search recursively through subdirectories
             extensions: Optional list of file extensions to filter by (without the dot)
-            ignore_patterns: Optional list of substring patterns to ignore
+            ignore_patterns: Optional list of glob patterns to ignore (e.g., "*temp*", "backup_*")
             mandatory_substrings: Optional list of substrings that must be present in files
             
         Returns:
@@ -358,7 +360,7 @@ def discover_files(
         pattern: Glob pattern to match
         recursive: Whether to search recursively
         extensions: Optional list of file extensions to filter by
-        ignore_patterns: Optional list of substrings to exclude
+        ignore_patterns: Optional list of glob patterns to ignore (e.g., "*temp*", "backup_*")
         mandatory_substrings: Optional list of substrings that must be present
         extract_patterns: Optional list of regex patterns to extract metadata
         parse_dates: If True, attempt to parse dates from filenames

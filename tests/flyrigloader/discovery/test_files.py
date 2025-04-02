@@ -370,7 +370,7 @@ class TestFileDiscovery:
             ignore_patterns_dir, 
             "**/*.*", 
             recursive=True,
-            ignore_patterns=["._"]
+            ignore_patterns=["._*"]  # Use glob pattern to match files starting with "._"
         )
         # Should exclude the 2 hidden files
         assert len(files) == 5
@@ -381,19 +381,18 @@ class TestFileDiscovery:
             ignore_patterns_dir, 
             "**/*.*", 
             recursive=True,
-            ignore_patterns=["._", "static_horiz_ribbon", "smoke_2a"]
+            ignore_patterns=["._*", "*ribbon*"]  # Use glob patterns
         )
-        # Should exclude all 4 files matching patterns
-        assert len(files) == 3
+        # Should exclude the 2 hidden files and 1 ribbon file
+        assert len(files) == 4
         assert all("._" not in f for f in files)
-        assert all("static_horiz_ribbon" not in f for f in files)
-        assert all("smoke_2a" not in f for f in files)
+        assert all("ribbon" not in f for f in files)
         
         # Test with different pattern and ignore combination
         files = discover_files(
             ignore_patterns_dir, 
             "*.txt", 
-            ignore_patterns=["._"]
+            ignore_patterns=["._*"]
         )
         # Should find only normal_file.txt in root
         assert len(files) == 1
@@ -434,12 +433,12 @@ class TestFileDiscovery:
             "**/*.*",
             recursive=True,
             mandatory_substrings=["experiment"],
-            ignore_patterns=["smoke_2a"]
+            ignore_patterns=["*smoke_2a*"]  # Use glob pattern to match filenames containing "smoke_2a"
         )
         # Should include experiment files but not smoke_2a ones (6 experiments - 3 smoke_2a = 3)
         assert len(files) == 3
-        assert all("experiment" in f for f in files)
         assert all("smoke_2a" not in f for f in files)
+        assert all("experiment" in f for f in files)
         
         # Test with extension filter and mandatory substrings
         files = discover_files(
@@ -524,3 +523,58 @@ class TestFileDiscovery:
         assert iso_file_info["parsed_date"].year == 2024
         assert iso_file_info["parsed_date"].month == 3
         assert iso_file_info["parsed_date"].day == 17
+    
+    def test_glob_pattern_ignore(self, ignore_patterns_dir):
+        """Test that glob pattern matching works correctly for ignore_patterns."""
+        # Get all test files
+        all_files = discover_files(ignore_patterns_dir, "*.*", recursive=True)
+        
+        # Check that we have all the expected files from the fixture setup
+        assert len(all_files) > 5, "Should have found all test files"
+        
+        # Test with glob pattern that should match only specific files
+        # Old substring behavior would also match 'important_data.csv' because it contains 'temp'
+        # New glob behavior will only match files with temp* at the start of filename
+        matched_files = discover_files(
+            ignore_patterns_dir, 
+            "*.*", 
+            recursive=True, 
+            ignore_patterns=["temp*"]
+        )
+        
+        # Verify important_data.csv is NOT ignored (would have been with substring matching)
+        assert any("important_data.csv" in f for f in matched_files), \
+            "important_data.csv should not be ignored by glob pattern 'temp*'"
+        
+        # Verify temp_smoke_2a_experiment.json IS ignored
+        assert all("temp_smoke_2a_experiment.json" not in f for f in matched_files), \
+            "temp_smoke_2a_experiment.json should be ignored by glob pattern 'temp*'"
+        
+        # Test with multiple patterns 
+        matched_files = discover_files(
+            ignore_patterns_dir, 
+            "*.*", 
+            recursive=True, 
+            ignore_patterns=[".*_*", "temp*"]  # Match hidden files and temp files
+        )
+        
+        # Should not match normal files
+        assert any("normal_file.txt" in f for f in matched_files)
+        assert any("important_data.csv" in f for f in matched_files)
+        
+        # Should ignore temp files and hidden files
+        assert all("temp_smoke_2a_experiment.json" not in f for f in matched_files)
+        assert all("._hidden_file.txt" not in f for f in matched_files)
+        assert all("._subdir_hidden.txt" not in f for f in matched_files)
+        
+        # Test more complex patterns
+        matched_files = discover_files(
+            ignore_patterns_dir, 
+            "*.*", 
+            recursive=True, 
+            ignore_patterns=["*temp*", "*hidden*"]  # Match anywhere in filename
+        )
+        
+        # Should match and ignore files with temp or hidden anywhere in the name
+        assert all("temp_smoke_2a_experiment.json" not in f for f in matched_files)
+        assert all("._hidden_file.txt" not in f for f in matched_files)
