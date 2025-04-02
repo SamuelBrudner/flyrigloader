@@ -22,7 +22,6 @@ from flyrigloader.config.discovery import (
 from flyrigloader.discovery.files import discover_files
 from flyrigloader.io.pickle import (
     read_pickle_any_format,
-    make_dataframe_from_matrix,
     make_dataframe_from_config
 )
 from flyrigloader.io.column_models import (

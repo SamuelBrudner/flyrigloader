@@ -397,133 +397,73 @@ def _add_metadata_to_dataframe(df: pd.DataFrame, metadata: Optional[Dict[str, An
     return df
 
 
-def _filter_matrix_columns(
-    exp_matrix: Dict[str, Any],
-    include_signal_disp: bool,
-    column_list: Optional[List[str]] = None,
-) -> Dict[str, Any]:
-    """Filter columns from the exp_matrix based on inclusion criteria."""
-    filtered_matrix = {}
-    
-    # Determine the columns to process
-    columns_to_process = column_list if column_list is not None else exp_matrix.keys()
-
-    for col in columns_to_process:
-        if col not in exp_matrix:
-            logger.warning(f"Column '{col}' not found in exp_matrix.") 
-            continue
-
-        # Handle signal_disp exclusion
-        if col == 'signal_disp' and not include_signal_disp:
-            continue
-            
-        filtered_matrix[col] = exp_matrix[col]
-        
-    return filtered_matrix
-
-
 def _validate_column_dimension(col: str, values: Any, t_length: int) -> None:
-    """Validate the dimension of a column against the time dimension length."""
-    if (
-        isinstance(values, np.ndarray)
-        and values.ndim > 0
-        and all(dim != t_length for dim in values.shape)
-        and (values.ndim != 1 or len(values) != t_length)
-    ):
-        if values.ndim == 1:
-            raise ValueError(
-               f"1D Column '{col}' has length {len(values)}, which does not "
-               f"match time dimension length {t_length}"
-            )
-        elif all(dim != t_length for dim in values.shape):
-            raise ValueError(
-               f"Column '{col}' has shape {values.shape} with no dimension "
-               f"matching time dimension length {t_length}"
-            )
-
-
-def make_dataframe_from_matrix(
-    exp_matrix: Dict[str, Any],
-    metadata: Optional[Dict[str, Any]] = None,
-    include_signal_disp: bool = True,
-    column_list: Optional[List[str]] = None
-) -> pd.DataFrame:
     """
-    Convert an exp_matrix dictionary to a DataFrame with metadata, validating dimensions.
-
+    Validate the dimension of a column against the time dimension length.
+    
     Args:
-        exp_matrix: Dictionary containing experimental data.
-        metadata: Dictionary with metadata to add as columns.
-        include_signal_disp: Whether to include the 'signal_disp' column if it exists.
-        column_list: Optional list of columns to include. If None, all columns are considered.
-
-    Returns:
-        pandas.DataFrame: DataFrame containing the selected and validated data and metadata.
-
+        col: Column name
+        values: Column data
+        t_length: Length of the time dimension
+        
     Raises:
-        ValueError: If 't' column is missing or not a 1D array.
-        ValueError: If any included array column has no dimension matching the length of 't'.
-        UserWarning: If a column specified in column_list is not found in exp_matrix.
+        ValueError: If the column cannot be validated against time dimension
     """
-    if 't' not in exp_matrix or not isinstance(exp_matrix['t'], np.ndarray) or exp_matrix['t'].ndim != 1:
-        raise ValueError("exp_matrix must contain a 1D numpy array named 't'.")
-    t_length = len(exp_matrix['t'])
-
-    # Filter columns first
-    filtered_exp_matrix = _filter_matrix_columns(
-        exp_matrix, include_signal_disp, column_list
-    )
-
-    df_data = {}
-    # Validate dimensions and prepare data for DataFrame
-    for col, values in filtered_exp_matrix.items():
-        # Skip validation for 't' as it's already checked and defines the length
-        if col != 't':
-             _validate_column_dimension(col, values, t_length)
-
-        # Ensure data added to df_data is suitable for DataFrame construction
-        # Convert multi-dimensional arrays into a list of arrays along the first axis
-        # This allows pandas to handle them as an object-dtype column.
-        if isinstance(values, np.ndarray) and values.ndim > 1:
-            # Assuming the validation ensured the first dimension matches t_length
-            df_data[col] = list(values)
-        else:
-            # Use scalars, 1D arrays, or other types directly
-            df_data[col] = values
-
-    # Create DataFrame from validated data
-    # Handle potential length mismatches if validation missed something
-    try:
-        df = pd.DataFrame(df_data)
-    except ValueError as e:
-        if "All arrays must be of the same length" not in str(e):
-            raise # Re-raise other ValueErrors
-
-        lengths = {k: len(v) if hasattr(v, '__len__') else 'scalar' for k, v in df_data.items()}
+    # Handle scalar values (integers, floats, strings, etc.)
+    if not hasattr(values, '__len__'):
+        return  # Scalar values are valid
+    
+    # Handle array-like objects (numpy arrays, pandas Series, lists, etc.)
+    if hasattr(values, 'ndim') and values.ndim > 0:
+        # Multi-dimensional arrays
+        if values.ndim > 1:
+            if values.shape[0] != t_length and values.shape[1] != t_length:
+                raise ValueError(
+                    f"Column '{col}' has shape {values.shape}, but time dimension has length {t_length}. "
+                    f"One dimension must match time dimension."
+                )
+        # 1D arrays
+        elif len(values) != t_length:
+            raise ValueError(
+                f"Column '{col}' has length {len(values)}, but time dimension has length {t_length}. "
+                f"Must match time dimension."
+            )
+    # Handle lists, tuples, and other length-supporting objects
+    elif len(values) != t_length:
         raise ValueError(
-            f"Error creating DataFrame: Mismatched lengths detected after validation. "
-            f"Column lengths: {lengths}. Original error: {e}"
-        ) from e
-    # Add metadata if provided
-    if metadata:
-        df = _add_metadata_to_dataframe(df, metadata)
-
-    return df
+            f"Column '{col}' has length {len(values)}, but time dimension has length {t_length}. "
+            f"Must match time dimension."
+        )
 
 
-def _extract_first_column(array):
-    """Extract the first column from a 2D array."""
-    import numpy as np
-    arr = np.asarray(array)
-    return arr[:, 0] if arr.ndim == 2 and arr.shape[1] > 1 else arr
+def _extract_first_column(array: np.ndarray) -> np.ndarray:
+    """
+    Extract the first column from a 2D array.
+    
+    Args:
+        array: NumPy array to process.
+        
+    Returns:
+        np.ndarray: First column of the array if 2D, otherwise the original array.
+    """
+    return array[:, 0] if array.ndim == 2 else array
 
 
-def _ensure_1d(array, name):
+def _ensure_1d(array: np.ndarray, name: str) -> np.ndarray:
     """
     Convert array to a 1D NumPy array if possible. 
     Raises ValueError if the array has more than 1 column.
+    
+    Args:
+        array: NumPy array to process.
+        name: Name of the column being processed.
+        
+    Returns:
+        np.ndarray: 1D array.
+        
+    Raises:
+        ValueError: If the array cannot be converted to 1D.
     """
-    import numpy as np
     arr = np.asarray(array)
     # If shape is (N, 1) or (1, N), ravel to (N,)
     if arr.ndim == 2 and 1 in arr.shape:
@@ -800,49 +740,6 @@ def make_dataframe_from_config(
     return df
 
 
-def _extract_first_column(array: np.ndarray) -> np.ndarray:
-    """
-    Extract the first column from a 2D array.
-    
-    Args:
-        array: NumPy array to process.
-        
-    Returns:
-        np.ndarray: First column of the array if 2D, otherwise the original array.
-    """
-    arr = np.asarray(array)
-    return arr[:, 0] if arr.ndim == 2 and arr.shape[1] > 1 else arr
-
-
-def _ensure_1d(array: np.ndarray, name: str) -> np.ndarray:
-    """
-    Convert array to a 1D NumPy array if possible. 
-    Raises ValueError if the array has more than 1 column.
-    
-    Args:
-        array: NumPy array to process.
-        name: Name of the column being processed.
-        
-    Returns:
-        np.ndarray: 1D array.
-        
-    Raises:
-        ValueError: If the array cannot be converted to 1D.
-    """
-    arr = np.asarray(array)
-    # If shape is (N, 1) or (1, N), ravel to (N,)
-    if arr.ndim == 2 and 1 in arr.shape:
-        return arr.ravel()
-    # If it's 1D, just return it
-    elif arr.ndim == 1:
-        return arr
-    else:
-        raise ValueError(
-            f"Column '{name}' has shape {arr.shape}, which is not strictly 1D. "
-            "If you need NxM data, store each column separately or flatten the data explicitly."
-        )
-
-
 def _validate_required_columns(exp_matrix: Dict[str, Any], columns: Dict[str, ColumnConfig]) -> List[str]:
     """
     Validate that all required columns are present in the exp_matrix.
@@ -955,7 +852,7 @@ def _process_column(
             
     # Get the value from the exp_matrix
     value = exp_matrix[source_col]
-    
+
     # Apply any special handling
     if col_config.special_handling:
         handler_name = special_handlers.get(col_config.special_handling.value)

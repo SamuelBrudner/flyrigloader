@@ -11,14 +11,16 @@ import tempfile
 from unittest.mock import patch
 import logging  # Keep for log level constants used with pytest caplog
 from loguru import logger
+import contextlib
 
-# This will be the module we're testing - we'll have to implement it later
+# This will be the module we're testing
 from flyrigloader.io.pickle import (
     read_pickle_any_format, 
     extract_columns_from_matrix, 
     handle_signal_disp,
-    make_dataframe_from_matrix
+    make_dataframe_from_config
 )
+from flyrigloader.io.column_models import ColumnDimension, get_default_config_path, load_column_config
 
 
 @pytest.fixture
@@ -337,7 +339,7 @@ def test_handle_signal_disp_wrong_dimensions():
         handle_signal_disp({'t': np.arange(10), 'signal_disp': np.ones((15, 20))})
 
 
-def test_make_dataframe_from_matrix_basic(exp_matrix_data):
+def test_make_dataframe_from_config_basic(exp_matrix_data):
     """Test basic conversion of an exp_matrix to DataFrame without signal_disp."""
     # Create a copy and remove the columns that fail validation
     valid_matrix_data = exp_matrix_data.copy()
@@ -345,16 +347,40 @@ def test_make_dataframe_from_matrix_basic(exp_matrix_data):
     valid_matrix_data.pop('mismatched_array', None)
     valid_matrix_data.pop('complex_array', None)
     
-    df = make_dataframe_from_matrix(valid_matrix_data, include_signal_disp=False, metadata=None)
+    # Create minimal custom config with all required fields
+    custom_config = {
+        "columns": {
+            "t": {
+                "type": "numpy.ndarray",
+                "dimension": 1,
+                "required": True,
+                "description": "Time values"
+            },
+            "x": {
+                "type": "numpy.ndarray",
+                "dimension": 1,
+                "required": False,
+                "description": "X position"
+            },
+            "scalar": {
+                "type": "int",
+                "required": False,
+                "description": "Scalar value"
+            }
+        },
+        "special_handlers": {}
+    }
     
-    # Expect 't', 'x', 'scalar', 'list_data', 'string'
-    expected_cols = {'t', 'x', 'scalar', 'list_data', 'string'}
-    assert set(df.columns) == expected_cols
+    df = make_dataframe_from_config(valid_matrix_data, config_source=custom_config, metadata=None)
+    
+    # Verify the DataFrame has expected columns and properties
+    assert 't' in df.columns
+    assert 'x' in df.columns
     assert len(df) == len(exp_matrix_data['t'])
-    assert df['scalar'].iloc[0] == 42
+    assert 'scalar' in df.columns and df['scalar'].iloc[0] == 42
 
 
-def test_make_dataframe_from_matrix_with_signal_disp(exp_matrix_data):
+def test_make_dataframe_from_config_with_signal_disp(exp_matrix_data):
     """Test basic conversion including signal_disp."""
     # Create a copy and remove the columns that fail validation
     valid_matrix_data = exp_matrix_data.copy()
@@ -362,16 +388,42 @@ def test_make_dataframe_from_matrix_with_signal_disp(exp_matrix_data):
     valid_matrix_data.pop('mismatched_array', None)
     valid_matrix_data.pop('complex_array', None)
     
-    df = make_dataframe_from_matrix(valid_matrix_data, include_signal_disp=True, metadata=None)
+    # Create a config that includes signal_disp
+    custom_config = {
+        "columns": {
+            "t": {
+                "type": "numpy.ndarray",
+                "dimension": 1,
+                "required": True,
+                "description": "Time values"
+            },
+            "x": {
+                "type": "numpy.ndarray",
+                "dimension": 1,
+                "required": False,
+                "description": "X position"
+            },
+            "signal_disp": {
+                "type": "numpy.ndarray",
+                "dimension": 2,
+                "required": False,
+                "description": "Signal display data",
+                "special_handling": "transform_to_match_time_dimension"
+            }
+        },
+        "special_handlers": {
+            "transform_to_match_time_dimension": "signal_disp"
+        }
+    }
     
-    # Expect same as basic + 'signal_disp'
-    expected_cols = {'t', 'x', 'scalar', 'list_data', 'string', 'signal_disp'}
-    assert set(df.columns) == expected_cols
+    df = make_dataframe_from_config(valid_matrix_data, config_source=custom_config, metadata=None)
+    
+    # Verify signal_disp is included
     assert 'signal_disp' in df.columns
     assert len(df) == len(exp_matrix_data['t'])
 
 
-def test_make_dataframe_from_matrix_with_metadata(exp_matrix_data, sample_metadata):
+def test_make_dataframe_from_config_with_metadata(exp_matrix_data, sample_metadata):
     """Test conversion with metadata added."""
     # Create a copy and remove the columns that fail validation
     valid_matrix_data = exp_matrix_data.copy()
@@ -379,89 +431,232 @@ def test_make_dataframe_from_matrix_with_metadata(exp_matrix_data, sample_metada
     valid_matrix_data.pop('mismatched_array', None)
     valid_matrix_data.pop('complex_array', None)
     
-    df = make_dataframe_from_matrix(valid_matrix_data, include_signal_disp=False, metadata=sample_metadata)
+    # Create a config with metadata fields
+    custom_config = {
+        "columns": {
+            "t": {
+                "type": "numpy.ndarray",
+                "dimension": 1,
+                "required": True,
+                "description": "Time values"
+            },
+            "x": {
+                "type": "numpy.ndarray",
+                "dimension": 1,
+                "required": False,
+                "description": "X position"
+            },
+            "fly_id": {  # Match name to sample_metadata key
+                "type": "str",
+                "required": False,
+                "description": "Fly ID",
+                "is_metadata": True
+            }
+        },
+        "special_handlers": {}
+    }
     
-    # Expect basic columns (excluding multi_dim) + metadata keys
-    basic_cols = {'t', 'x', 'scalar', 'list_data', 'string'}
-    expected_cols = basic_cols.union(set(sample_metadata.keys()))
-    assert set(df.columns) == expected_cols
+    df = make_dataframe_from_config(valid_matrix_data, config_source=custom_config, metadata=sample_metadata)
+    
+    # Verify metadata fields are added to the DataFrame for those defined in config
     assert 'fly_id' in df.columns
     assert df['fly_id'].iloc[0] == sample_metadata['fly_id']
-    assert len(df) == len(exp_matrix_data['t'])
 
 
-def test_make_dataframe_from_matrix_with_column_list(exp_matrix_data):
-    """Test conversion using an explicit column list."""
-    column_list = ['t', 'x', 'scalar'] # Explicitly select these
-    df = make_dataframe_from_matrix(
-        exp_matrix_data, 
-        metadata=None, 
-        include_signal_disp=False, # Exclude signal_disp unless in list
-        column_list=column_list
-    )
-
-    # Expect only columns from the list
-    assert set(df.columns) == set(column_list)
-    assert len(df) == len(exp_matrix_data['t'])
-
-
-def test_make_dataframe_from_matrix_missing_time_column():
-    """Test that appropriate error is raised when t column is missing."""
-    invalid_exp_matrix = {'x': np.arange(10)}
-
-    with pytest.raises(ValueError, match=r"exp_matrix must contain a 1D numpy array named 't'"):
-        make_dataframe_from_matrix(invalid_exp_matrix)
-
-
-def test_make_dataframe_from_matrix_complex_case(exp_matrix_data, sample_metadata):
-    """Test a complex case with specific columns, signal_disp, and metadata."""
-    # Define specific columns to include, including signal_disp
-    column_list = ['t', 'x', 'scalar', 'signal_disp'] 
+def test_make_dataframe_from_config_with_custom_config(exp_matrix_data):
+    """Test conversion with custom column selection."""
+    # Create a copy and remove the columns that fail validation
+    valid_matrix_data = exp_matrix_data.copy()
+    valid_matrix_data.pop('multi_dim', None)
+    valid_matrix_data.pop('mismatched_array', None)
+    valid_matrix_data.pop('complex_array', None)
     
-    # Call the function requesting these columns, signal_disp, and metadata
-    df = make_dataframe_from_matrix(
-        exp_matrix_data,
-        metadata=sample_metadata,
-        include_signal_disp=True, # Redundant if signal_disp in list, but good practice
-        column_list=column_list
-    )
-
-    # Verify DataFrame has exactly the requested data columns + metadata columns
-    expected_columns = set(column_list).union(set(sample_metadata.keys()))
-    assert set(df.columns) == expected_columns
-    assert 'signal_disp' in df.columns
-    assert 'fly_id' in df.columns
-    assert len(df) == len(exp_matrix_data['t'])
-
-
-def test_make_dataframe_from_matrix_missing_column_warning(
-    exp_matrix_data, sample_metadata, caplog
-):
-    """Test that a warning is logged when a requested column is missing."""
-    non_existent_col = "ghost_column"
-    column_list = ['t', 'x', non_existent_col] # Include a column not in the fixture
+    # Create minimal custom config that only includes certain columns
+    custom_config = {
+        "columns": {
+            "t": {
+                "type": "numpy.ndarray",
+                "dimension": 1,
+                "required": True,
+                "description": "Time values"
+            },
+            "x": {
+                "type": "numpy.ndarray",
+                "dimension": 1,
+                "required": False,
+                "description": "X position"
+            },
+            "scalar": {
+                "type": "int",
+                "required": False,
+                "description": "Scalar value"
+            }
+        },
+        "special_handlers": {}
+    }
     
-    # Set caplog level to capture WARNING messages
-    caplog.set_level(logging.WARNING)
+    df = make_dataframe_from_config(valid_matrix_data, config_source=custom_config, metadata=None)
     
-    # Call the function that should trigger the warning via _filter_matrix_columns
-    df = make_dataframe_from_matrix(
-        exp_matrix_data, 
-        metadata=sample_metadata, 
-        column_list=column_list
-    )
-
-    # Assert that the warning was logged
-    assert any(
-        non_existent_col in record.message and record.levelno == logging.WARNING
-        for record in caplog.records
-    ), f"Expected WARNING log for missing column '{non_existent_col}' not found."
-    
-    # Also assert that the valid columns were still processed
+    # Verify only specified columns are included
+    # Note: only columns in both the config and the data will be included
     assert 't' in df.columns
     assert 'x' in df.columns
-    assert non_existent_col not in df.columns # The non-existent column shouldn't be added
-    assert 'fly_id' in df.columns # Check for an actual metadata column
+    assert 'scalar' in df.columns
+    assert len(df) == len(exp_matrix_data['t'])
 
 
-# === Error Handling Tests ===
+def test_make_dataframe_from_config_missing_time_column():
+    """Test handling of missing required time column."""
+    # Create a matrix without the required 't' column
+    invalid_exp_matrix = {
+        'x': np.array([1, 2, 3])
+    }
+    
+    # Use a minimal config that requires 't'
+    custom_config = {
+        "columns": {
+            "t": {
+                "type": "numpy.ndarray",
+                "dimension": 1,
+                "required": True,
+                "description": "Time values"
+            },
+            "x": {
+                "type": "numpy.ndarray",
+                "dimension": 1,
+                "required": False,
+                "description": "X position"
+            }
+        },
+        "special_handlers": {}
+    }
+    
+    # This should raise ValueError due to missing required 't' column
+    with pytest.raises(ValueError, match="Missing required columns: t"):
+        make_dataframe_from_config(invalid_exp_matrix, config_source=custom_config)
+
+
+def test_make_dataframe_from_config_complex_case(exp_matrix_data, sample_metadata):
+    """Test conversion with complex combinations of options."""
+    # Create a copy and remove the columns that fail validation
+    valid_matrix_data = exp_matrix_data.copy()
+    valid_matrix_data.pop('multi_dim', None)
+    valid_matrix_data.pop('mismatched_array', None)
+    valid_matrix_data.pop('complex_array', None)
+    
+    # Create a detailed custom config
+    custom_config = {
+        "columns": {
+            "t": {
+                "type": "numpy.ndarray",
+                "dimension": 1,
+                "required": True,
+                "description": "Time values"
+            },
+            "x": {
+                "type": "numpy.ndarray",
+                "dimension": 1,
+                "required": True,
+                "description": "X position"
+            },
+            "signal_disp": {
+                "type": "numpy.ndarray",
+                "dimension": 2,
+                "required": False,
+                "description": "Signal display data",
+                "special_handling": "transform_to_match_time_dimension"
+            },
+            "scalar": {
+                "type": "int",
+                "required": False,
+                "description": "Scalar value"
+            },
+            "experiment_id": {
+                "type": "str",
+                "required": False,
+                "description": "Experiment ID",
+                "is_metadata": True
+            },
+            "date": {
+                "type": "str",
+                "required": False,
+                "description": "Experiment date",
+                "is_metadata": True
+            }
+        },
+        "special_handlers": {
+            "transform_to_match_time_dimension": "signal_disp"
+        }
+    }
+    
+    df = make_dataframe_from_config(
+        valid_matrix_data,
+        config_source=custom_config,
+        metadata=sample_metadata
+    )
+    
+    # Verify DataFrame has expected structure
+    assert 't' in df.columns
+    assert 'x' in df.columns
+    assert 'signal_disp' in df.columns
+    assert 'scalar' in df.columns
+    
+    # Verify metadata fields
+    for key, value in sample_metadata.items():
+        if key in custom_config["columns"] and custom_config["columns"][key].get("is_metadata", False):
+            assert key in df.columns
+            assert df[key].iloc[0] == value
+
+
+def test_make_dataframe_from_config_missing_columns(exp_matrix_data, caplog):
+    """Test warning for non-existent columns in config."""
+    # Create a copy with standard columns
+    valid_matrix_data = exp_matrix_data.copy()
+    valid_matrix_data.pop('multi_dim', None)
+    valid_matrix_data.pop('mismatched_array', None)
+    valid_matrix_data.pop('complex_array', None)
+    
+    # Create a config referencing a non-existent column
+    non_existent_col = "this_column_does_not_exist"
+    custom_config = {
+        "columns": {
+            "t": {
+                "type": "numpy.ndarray",
+                "dimension": 1,
+                "required": True,
+                "description": "Time values"
+            },
+            "x": {
+                "type": "numpy.ndarray",
+                "dimension": 1,
+                "required": True,
+                "description": "X position"
+            },
+            non_existent_col: {
+                "type": "numpy.ndarray", 
+                "dimension": 1,
+                "required": False,
+                "description": "Non-existent column"
+            }
+        },
+        "special_handlers": {}
+    }
+    
+    # Set logging level to capture all messages including DEBUG
+    caplog.set_level(logging.DEBUG)
+    
+    # Function should run but log a warning
+    df = make_dataframe_from_config(
+        valid_matrix_data,
+        config_source=custom_config
+    )
+    
+    # Verify the non-existent column is added with NULL values
+    assert non_existent_col in df.columns
+    assert df[non_existent_col].isna().all(), "Expected non-existent column to contain NULL values"
+    
+    # Verify debug message about using default value was logged
+    assert any(
+        (non_existent_col in record.message and "Using default value" in record.message)
+        for record in caplog.records
+    ), "Expected debug message about using default value for missing column"
