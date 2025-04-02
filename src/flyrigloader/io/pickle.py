@@ -489,18 +489,293 @@ def make_dataframe_from_matrix(
     try:
         df = pd.DataFrame(df_data)
     except ValueError as e:
-        # Add context to the pandas error if it's about length mismatch
-        if "All arrays must be of the same length" in str(e):
-            lengths = {k: len(v) if hasattr(v, '__len__') else 'scalar' for k, v in df_data.items()}
-            raise ValueError(
-                f"Error creating DataFrame: Mismatched lengths detected after validation. "
-                f"Column lengths: {lengths}. Original error: {e}"
-            ) from e
-        else:
+        if "All arrays must be of the same length" not in str(e):
             raise # Re-raise other ValueErrors
 
+        lengths = {k: len(v) if hasattr(v, '__len__') else 'scalar' for k, v in df_data.items()}
+        raise ValueError(
+            f"Error creating DataFrame: Mismatched lengths detected after validation. "
+            f"Column lengths: {lengths}. Original error: {e}"
+        ) from e
     # Add metadata if provided
     if metadata:
         df = _add_metadata_to_dataframe(df, metadata)
+
+    return df
+
+
+def _extract_first_column(array):
+    """Extract the first column from a 2D array."""
+    import numpy as np
+    arr = np.asarray(array)
+    return arr[:, 0] if arr.ndim == 2 and arr.shape[1] > 1 else arr
+
+
+def _ensure_1d(array, name):
+    """
+    Convert array to a 1D NumPy array if possible. 
+    Raises ValueError if the array has more than 1 column.
+    """
+    import numpy as np
+    arr = np.asarray(array)
+    # If shape is (N, 1) or (1, N), ravel to (N,)
+    if arr.ndim == 2 and 1 in arr.shape:
+        return arr.ravel()
+    # If it's 1D, just return it
+    elif arr.ndim == 1:
+        return arr
+    else:
+        raise ValueError(
+            f"Column '{name}' has shape {arr.shape}, which is not strictly 1D. "
+            "If you need NxM data, store each column separately or flatten the data explicitly."
+        )
+
+
+def _handle_signal_disp(exp_matrix, col_name=None):
+    """
+    Return a pd.Series of length len(t), where each entry is an array
+    from exp_matrix['signal_disp'].
+    
+    We detect which axis matches the time dimension, transpose if necessary,
+    and store the 'other' axis as a small array. For example, if shape is
+    (15, 54953), we transpose to (54953, 15). The resulting Series has 54953
+    entries, each of which is an array of length 15.
+    """
+    import numpy as np
+    import pandas as pd
+    from loguru import logger
+    
+    col_name = col_name or "signal_disp"
+    sd = exp_matrix[col_name]
+    t = exp_matrix['t']
+    T = len(t)
+
+    if sd.ndim != 2:
+        logger.warning(f"Expected 2D data for '{col_name}', got shape {sd.shape}. Attempting to convert.")
+        sd = np.atleast_2d(sd)
+        
+    n, m = sd.shape
+    if n == T:
+        # shape is (T, leftover), which is already correct
+        pass
+    elif m == T:
+        # shape is (leftover, T) -> transpose so time is the first axis
+        logger.debug(f"Transposing {col_name} to match time dimension")
+        sd = sd.T
+    else:
+        raise ValueError(
+            f"Neither dimension matches t.size={T} for '{col_name}'. "
+            f"Shape is {sd.shape}."
+        )
+
+    # Now sd has shape (T, leftover) or (T,). We create a Series of length T,
+    # each entry is an array from that row.
+    if sd.ndim == 2:
+        return pd.Series(list(sd), index=range(T), name=col_name)
+    else:
+        return pd.Series(sd, index=range(T), name=col_name)
+
+
+def _load_column_config(config_path):
+    """
+    Load column configuration from a YAML file.
+    
+    Args:
+        config_path: Path to the YAML configuration file.
+        
+    Returns:
+        tuple: (column_config, special_handlers)
+    """
+    import yaml
+    from loguru import logger
+    
+    logger.debug(f"Loading column configuration from {config_path}")
+    with open(config_path, 'r') as f:
+        config = yaml.safe_load(f)
+    
+    return config['columns'], config.get('special_handlers', {})
+
+
+def _validate_required_columns(exp_matrix, column_config):
+    """
+    Validate that all required columns are present in the exp_matrix.
+    
+    Args:
+        exp_matrix: Dictionary containing experimental data.
+        column_config: Dictionary of column configurations.
+        
+    Returns:
+        list: Missing required columns.
+    """
+    from loguru import logger
+    
+    missing_columns = []
+    for col, settings in column_config.items():
+        if not settings.get('required', False) or settings.get('is_metadata', False):
+            continue
+            
+        if col in exp_matrix:
+            continue
+            
+        # Check if there's an alias for this column
+        alias = settings.get('alias')
+        if alias and alias in exp_matrix:
+            logger.debug(f"Required column '{col}' found via alias '{alias}'")
+            continue
+            
+        missing_columns.append(col)
+    
+    return missing_columns
+
+
+def _apply_special_handler(exp_matrix, col, value, handler_name, special_handler):
+    """
+    Apply a special handler function to a column value.
+    
+    Args:
+        exp_matrix: Dictionary containing experimental data.
+        col: Column name.
+        value: Current value for the column.
+        handler_name: Name of handler function.
+        special_handler: Type of special handling to apply.
+        
+    Returns:
+        Processed value.
+    """
+    from loguru import logger
+
+    if handler_name and handler_name.startswith('_'):
+        if handler_func := globals().get(handler_name):
+            logger.debug(f"Applying special handler '{handler_name}' to column '{col}'")
+            if handler_name == '_handle_signal_disp':
+                return handler_func(exp_matrix, col)
+            return handler_func(value)
+        else:
+            logger.warning(f"Special handler '{handler_name}' not found, using raw value for '{col}'")
+            return value
+
+    # Apply built-in handlers by name
+    if special_handler == 'extract_first_column_if_2d':
+        logger.debug(f"Extracting first column from 2D array for '{col}'")
+        return _extract_first_column(value)
+    elif special_handler == 'transform_to_match_time_dimension':
+        logger.debug(f"Transforming '{col}' to match time dimension")
+        return _handle_signal_disp(exp_matrix, col)
+
+    return value
+
+
+def _process_column(exp_matrix, col, settings, special_handlers):
+    """
+    Process a single column according to its configuration.
+    
+    Args:
+        exp_matrix: Dictionary containing experimental data.
+        col: Column name to process.
+        settings: Configuration settings for this column.
+        special_handlers: Dictionary of special handler functions.
+        
+    Returns:
+        tuple: (column_name, processed_value) or None if column should be skipped.
+    """
+    import numpy as np
+    from loguru import logger
+
+    # Skip metadata columns
+    if settings.get('is_metadata', False):
+        return None
+
+    # Handle aliases (e.g., dtheta_smooth -> dtheta)
+    source_col = col
+    if settings.get('alias') and settings.get('alias') in exp_matrix:
+        source_col = settings.get('alias')
+        logger.debug(f"Using alias '{source_col}' for column '{col}'")
+
+    # If column is not in the matrix
+    if source_col not in exp_matrix:
+        if not settings.get('required', True) and 'default_value' in settings:
+            logger.debug(f"Using default value for missing column '{col}'")
+            return col, settings['default_value']
+        return None
+
+    # Get the value from the exp_matrix
+    value = exp_matrix[source_col]
+
+    if special_handler := settings.get('special_handling'):
+        handler_name = special_handlers.get(special_handler)
+        value = _apply_special_handler(exp_matrix, col, value, handler_name, special_handler)
+
+    # Ensure correct dimensionality for numpy arrays
+    if isinstance(value, np.ndarray) and settings.get('dimension') == 1:
+        try:
+            value = _ensure_1d(value, col)
+        except ValueError as e:
+            logger.warning(f"Could not ensure 1D for column '{col}': {e}")
+
+    return col, value
+
+
+def _add_metadata_columns(df, metadata, column_config):
+    """
+    Add metadata fields to the DataFrame based on configuration.
+    
+    Args:
+        df: DataFrame to update.
+        metadata: Dictionary of metadata values.
+        column_config: Dictionary of column configurations.
+        
+    Returns:
+        DataFrame with metadata added.
+    """
+    from loguru import logger
+    
+    if not metadata:
+        return df
+        
+    for key, value in metadata.items():
+        if key in column_config and column_config[key].get('is_metadata', False):
+            logger.debug(f"Adding metadata field '{key}'")
+            df[key] = value
+    
+    return df
+
+
+def make_dataframe_from_config(exp_matrix, config_path, metadata=None):
+    """
+    Convert an exp_matrix dictionary to a DataFrame based on column configuration.
+    
+    Args:
+        exp_matrix: Dictionary containing experimental data.
+        config_path: Path to the column configuration YAML file.
+        metadata: Optional dictionary with metadata to add to the DataFrame.
+    
+    Returns:
+        pandas.DataFrame: DataFrame containing the data with correct types.
+    """
+    import pandas as pd
+    from loguru import logger
+
+    # Load configuration
+    column_config, special_handlers = _load_column_config(config_path)
+
+    if missing_columns := _validate_required_columns(
+        exp_matrix, column_config
+    ):
+        raise ValueError(f"Missing required columns: {', '.join(missing_columns)}")
+
+    # Process columns
+    data_dict = {}
+    for col, settings in column_config.items():
+        if result := _process_column(
+            exp_matrix, col, settings, special_handlers
+        ):
+            col_name, value = result
+            data_dict[col_name] = value
+
+    # Create DataFrame
+    df = pd.DataFrame(data_dict)
+
+    # Add metadata
+    df = _add_metadata_columns(df, metadata, column_config)
 
     return df

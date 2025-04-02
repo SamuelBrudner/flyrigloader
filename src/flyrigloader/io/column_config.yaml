@@ -1,0 +1,128 @@
+# Default column configuration for flyrigloader experiment data
+columns:
+  # Time dimension (required)
+  t:
+    type: numpy.ndarray
+    dimension: 1
+    required: true
+    description: Time values
+
+  # Position and tracking
+  trjn:
+    type: numpy.ndarray
+    dimension: 1
+    required: true
+    description: Trajectory number
+  
+  x:
+    type: numpy.ndarray
+    dimension: 1
+    required: true 
+    description: X position
+  
+  y:
+    type: numpy.ndarray
+    dimension: 1
+    required: true
+    description: Y position
+  
+  x_smooth:
+    type: numpy.ndarray
+    dimension: 1
+    required: true
+    description: Smoothed X position
+  
+  y_smooth:
+    type: numpy.ndarray
+    dimension: 1
+    required: true
+    description: Smoothed Y position
+  
+  # Orientation and movement
+  theta:
+    type: numpy.ndarray
+    dimension: 1
+    required: true
+    description: Orientation angle
+  
+  theta_smooth:
+    type: numpy.ndarray
+    dimension: 1
+    required: true
+    description: Smoothed orientation angle
+  
+  dtheta:
+    type: numpy.ndarray
+    dimension: 1
+    required: true
+    description: Smoothed angular velocity
+    alias: dtheta_smooth
+  
+  vx:
+    type: numpy.ndarray
+    dimension: 1
+    required: true
+    description: Smoothed X velocity
+    alias: vx_smooth
+  
+  vy:
+    type: numpy.ndarray
+    dimension: 1
+    required: true
+    description: Smoothed Y velocity
+    alias: vy_smooth
+  
+  spd:
+    type: numpy.ndarray
+    dimension: 1
+    required: true
+    description: Smoothed speed
+    alias: spd_smooth
+  
+  # Signal data
+  signal:
+    type: numpy.ndarray
+    dimension: 1
+    required: false
+    description: Primary signal
+    default_value: null
+    special_handling: extract_first_column_if_2d
+  
+  signal_disp:
+    type: numpy.ndarray
+    dimension: 2
+    required: false
+    description: Signal display data
+    special_handling: transform_to_match_time_dimension
+  
+  # Event markers
+  jump:
+    type: numpy.ndarray
+    dimension: 1
+    required: true
+    description: Jump event markers
+    alias: jumps
+  
+  # Metadata (added during processing)
+  date:
+    type: str
+    required: false
+    description: Experiment date
+    is_metadata: true
+  
+  exp_name:
+    type: str
+    required: false
+    description: Experiment name
+    is_metadata: true
+    
+  rig:
+    type: str
+    required: false
+    description: Rig name
+    is_metadata: true
+
+# Special handling functions
+special_handlers:
+  transform_to_match_time_dimension: "_handle_signal_disp"
+  extract_first_column_if_2d: "_extract_first_column"
