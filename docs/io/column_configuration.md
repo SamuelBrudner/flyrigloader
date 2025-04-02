@@ -97,6 +97,33 @@ df = make_dataframe_from_config(
 )
 ```
 
+### 4. Using the Default Configuration
+
+If no configuration is specified, the system will automatically use the built-in default configuration:
+
+```python
+from flyrigloader.io.pickle import make_dataframe_from_config
+
+# Load experimental data
+exp_matrix = {...}  # Your experimental data dictionary with required columns
+
+# Create DataFrame using the default configuration (pydantic_column_config.yaml)
+df = make_dataframe_from_config(
+    exp_matrix=exp_matrix,
+    metadata={"date": "2025-04-01"}
+)
+```
+
+The default configuration is located at `src/flyrigloader/io/pydantic_column_config.yaml` and can be accessed programmatically:
+
+```python
+from flyrigloader.io.column_models import get_default_config_path
+
+# Get the path to the default configuration
+default_config_path = get_default_config_path()
+print(f"Default configuration is at: {default_config_path}")
+```
+
 ## Configuration Options
 
 Each column configuration can include the following properties:

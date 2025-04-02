@@ -299,6 +299,24 @@ def test_get_config_from_source_with_model():
     assert config.columns["t"].dimension == ColumnDimension.ONE_D
 
 
+def test_get_config_from_source_with_none():
+    """Test that get_config_from_source uses default config when None is provided."""
+    from flyrigloader.io.column_models import get_config_from_source, get_default_config_path
+    
+    # Get the default configuration
+    default_config_path = get_default_config_path()
+    
+    # Load config with None (should use default)
+    config = get_config_from_source(None)
+    
+    # Manually load default config for comparison
+    expected_config = get_config_from_source(default_config_path)
+    
+    # Verify that the configs are equivalent (same columns)
+    assert set(config.columns.keys()) == set(expected_config.columns.keys())
+    assert config.special_handlers == expected_config.special_handlers
+
+
 def test_get_config_from_source_with_invalid_type():
     """Test error handling with invalid configuration source type."""
     # Try to load configuration from an invalid type (list)
@@ -392,3 +410,54 @@ def test_make_dataframe_with_model_config():
     assert 'x' in df.columns
     assert 'y' in df.columns
     assert len(df) == 100
+
+
+def test_make_dataframe_with_default_config():
+    """Test that make_dataframe_from_config works with default configuration."""
+    from flyrigloader.io.pickle import make_dataframe_from_config
+    
+    # Create a simple test matrix with all required columns from default config
+    time_values = np.array([0, 1, 2, 3, 4])
+    exp_matrix = {
+        # Time dimension
+        "t": time_values,
+        
+        # Position and tracking
+        "trjn": np.array([1, 1, 1, 1, 1]),
+        "x": np.array([10, 11, 12, 13, 14]),
+        "y": np.array([20, 21, 22, 23, 24]),
+        
+        # Orientation and movement
+        "theta": np.array([0.1, 0.2, 0.3, 0.4, 0.5]),
+        "theta_smooth": np.array([0.1, 0.2, 0.3, 0.4, 0.5]),
+        "dtheta": np.array([0.01, 0.01, 0.01, 0.01, 0.01]),
+        "vx": np.array([1.0, 1.1, 1.2, 1.3, 1.4]),
+        "vy": np.array([2.0, 2.1, 2.2, 2.3, 2.4]),
+        "spd": np.array([2.2, 2.4, 2.5, 2.6, 2.8]),
+        
+        # Event markers
+        "jump": np.array([0, 0, 1, 0, 0])
+    }
+    
+    # Create DataFrame without specifying config (should use default)
+    df = make_dataframe_from_config(exp_matrix)
+    
+    # Verify DataFrame has expected columns
+    assert "t" in df.columns
+    assert "x" in df.columns
+    assert "y" in df.columns
+    assert "trjn" in df.columns
+    assert "theta" in df.columns
+    assert "theta_smooth" in df.columns
+    assert "dtheta" in df.columns
+    assert "vx" in df.columns
+    assert "vy" in df.columns
+    assert "spd" in df.columns
+    assert "jump" in df.columns
+    
+    # Check data values
+    np.testing.assert_array_equal(df["t"].values, exp_matrix["t"])
+    np.testing.assert_array_equal(df["x"].values, exp_matrix["x"])
+    
+    # Verify row count matches the time dimension
+    assert len(df) == len(time_values)

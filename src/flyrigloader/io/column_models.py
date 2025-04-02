@@ -11,6 +11,7 @@ from typing import Dict, List, Optional, Union, Any, Literal
 import numpy as np
 from loguru import logger
 from pydantic import BaseModel, Field, field_validator, model_validator
+import os
 
 
 class ColumnDimension(int, Enum):
@@ -126,6 +127,23 @@ class ColumnConfigDict(BaseModel):
         return v
 
 
+# Constants for default configuration
+DEFAULT_CONFIG_FILENAME = "pydantic_column_config.yaml"
+
+
+def get_default_config_path() -> str:
+    """
+    Get the path to the default column configuration file.
+    
+    Returns:
+        str: Absolute path to the default configuration file.
+    """
+    # Get the directory where this file is located
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    # Return the path to the default config file in the same directory
+    return os.path.join(current_dir, DEFAULT_CONFIG_FILENAME)
+
+
 def load_column_config(config_path: str) -> ColumnConfigDict:
     """
     Load and validate column configuration from a YAML file.
@@ -146,7 +164,7 @@ def load_column_config(config_path: str) -> ColumnConfigDict:
     return ColumnConfigDict.model_validate(config_data)
 
 
-def get_config_from_source(config_source: Union[str, Dict[str, Any], ColumnConfigDict]) -> ColumnConfigDict:
+def get_config_from_source(config_source: Union[str, Dict[str, Any], ColumnConfigDict, None] = None) -> ColumnConfigDict:
     """
     Get a validated ColumnConfigDict from different types of configuration sources.
     
@@ -179,8 +197,12 @@ def get_config_from_source(config_source: Union[str, Dict[str, Any], ColumnConfi
         logger.debug("Using provided ColumnConfigDict instance")
         return config_source
     
+    elif config_source is None:
+        # Use default configuration
+        return load_column_config(get_default_config_path())
+    
     else:
         raise TypeError(
             "config_source must be a path to a YAML file, a configuration dictionary, "
-            f"or a ColumnConfigDict instance, got {type(config_source)}"
+            f"a ColumnConfigDict instance, or None, got {type(config_source)}"
         )

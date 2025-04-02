@@ -750,7 +750,7 @@ def _add_metadata_columns(df, metadata, column_config):
 
 def make_dataframe_from_config(
     exp_matrix: Dict[str, Any], 
-    config_source: Union[str, Dict[str, Any], ColumnConfigDict], 
+    config_source: Union[str, Dict[str, Any], ColumnConfigDict, None] = None, 
     metadata: Optional[Dict[str, Any]] = None
 ) -> pd.DataFrame:
     """
@@ -762,6 +762,7 @@ def make_dataframe_from_config(
             - A string path to a YAML configuration file
             - A dictionary containing configuration data
             - A ColumnConfigDict instance
+            - None (will use the default pydantic_column_config.yaml)
         metadata: Optional dictionary with metadata to add to the DataFrame.
     
     Returns:
