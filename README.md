@@ -158,11 +158,12 @@ The `io` module provides utilities for loading and processing experimental data:
 - **Metadata integration**: Combines experimental data with metadata
 - **Column filtering**: Select specific columns to extract
 - **Validation**: Validates data dimensions and structure
+- **Pydantic Column Configuration**: Flexible configuration system with strong validation ([documentation](docs/io/column_configuration.md))
 
 #### Usage Examples
 
 ```python
-from flyrigloader.io.pickle import read_pickle_any_format, make_dataframe_from_matrix
+from flyrigloader.io.pickle import read_pickle_any_format, make_dataframe_from_matrix, make_dataframe_from_config
 
 # Load a pickle file (auto-detects format)
 data = read_pickle_any_format("/path/to/data.pkl")
@@ -173,6 +174,13 @@ df = make_dataframe_from_matrix(
     metadata={"date": "2025-04-01", "fly_id": "fly-123"},
     include_signal_disp=True,  # Include special signal_disp column
     column_list=["t", "x", "y"]  # Only include specified columns
+)
+
+# Convert experimental matrix using column configurations (recommended approach)
+df = make_dataframe_from_config(
+    exp_matrix=data,
+    config_source="path/to/column_config.yaml",  # Can also accept dictionary or Pydantic model
+    metadata={"date": "2025-04-01", "fly_id": "fly-123"}
 )
 ```
 

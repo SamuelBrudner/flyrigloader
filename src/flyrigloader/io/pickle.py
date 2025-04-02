@@ -810,9 +810,7 @@ def _extract_first_column(array: np.ndarray) -> np.ndarray:
         np.ndarray: First column of the array if 2D, otherwise the original array.
     """
     arr = np.asarray(array)
-    if arr.ndim == 2 and arr.shape[1] > 1:
-        return arr[:, 0]
-    return arr
+    return arr[:, 0] if arr.ndim == 2 and arr.shape[1] > 1 else arr
 
 
 def _ensure_1d(array: np.ndarray, name: str) -> np.ndarray:
@@ -899,9 +897,7 @@ def _apply_special_handler(
         # Try to find a handler function in this module
         import sys
         current_module = sys.modules[__name__]
-        handler_func = getattr(current_module, handler_name, None)
-        
-        if handler_func:
+        if handler_func := getattr(current_module, handler_name, None):
             logger.debug(f"Applying special handler '{handler_name}' to column '{col_name}'")
             return handler_func(exp_matrix, col_name) if handler_name == '_handle_signal_disp' else handler_func(value)
         else:
