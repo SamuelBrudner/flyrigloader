@@ -35,33 +35,46 @@ from flyrigloader.io.column_models import (
 
 
 def load_experiment_files(
-    config_path: Union[str, Path],
-    experiment_name: str,
+    config_path: Optional[Union[str, Path]] = None,
+    config: Optional[Dict[str, Any]] = None,
+    experiment_name: str = "",
     data_directory: Optional[Union[str, Path]] = None,
     file_pattern: str = "*.*",
     recursive: bool = True,
-    extensions: Optional[List[str]] = None
-) -> List[str]:
+    extensions: Optional[List[str]] = None,
+    extract_metadata: bool = False,
+    parse_dates: bool = False
+) -> Union[List[str], Dict[str, Dict[str, Any]]]:
     """
     High-level function to load files for a specific experiment.
     
     Args:
         config_path: Path to the YAML configuration file
+        config: Pre-loaded configuration dictionary
         experiment_name: Name of the experiment to load files for
         data_directory: Optional override for the data directory (if not specified, uses config)
-        file_pattern: File pattern to search for (defaults to all files)
+        file_pattern: File pattern to search for in glob format (e.g., "*.csv", "data_*.pkl")
         recursive: Whether to search recursively (defaults to True)
         extensions: Optional list of file extensions to filter by
+        extract_metadata: If True, extract metadata from filenames using config patterns
+        parse_dates: If True, attempt to parse dates from filenames
         
     Returns:
-        List of file paths for the experiment
+        If extract_metadata or parse_dates is True: Dictionary mapping file paths to metadata
+        Otherwise: List of file paths for the experiment
         
     Raises:
         FileNotFoundError: If the config file doesn't exist
         KeyError: If the experiment doesn't exist in the config
+        ValueError: If neither config_path nor config is provided, or if both are provided
     """
-    # Load the configuration
-    config = load_config(config_path)
+    # Validate config parameters
+    if (config_path is None and config is None) or (config_path is not None and config is not None):
+        raise ValueError("Exactly one of 'config_path' or 'config' must be provided")
+    
+    # Load the configuration if path is provided
+    if config_path is not None:
+        config = load_config(config_path)
     
     # Determine the data directory
     if data_directory is None:
@@ -81,38 +94,53 @@ def load_experiment_files(
         base_directory=data_directory,
         pattern=file_pattern,
         recursive=recursive,
-        extensions=extensions
+        extensions=extensions,
+        extract_metadata=extract_metadata,
+        parse_dates=parse_dates
     )
 
 
 def load_dataset_files(
-    config_path: Union[str, Path],
-    dataset_name: str,
+    config_path: Optional[Union[str, Path]] = None,
+    config: Optional[Dict[str, Any]] = None,
+    dataset_name: str = "",
     data_directory: Optional[Union[str, Path]] = None,
     file_pattern: str = "*.*",
     recursive: bool = True,
-    extensions: Optional[List[str]] = None
-) -> List[str]:
+    extensions: Optional[List[str]] = None,
+    extract_metadata: bool = False,
+    parse_dates: bool = False
+) -> Union[List[str], Dict[str, Dict[str, Any]]]:
     """
     High-level function to load files for a specific dataset.
     
     Args:
         config_path: Path to the YAML configuration file
+        config: Pre-loaded configuration dictionary
         dataset_name: Name of the dataset to load files for
         data_directory: Optional override for the data directory (if not specified, uses config)
-        file_pattern: File pattern to search for (defaults to all files)
+        file_pattern: File pattern to search for in glob format (e.g., "*.csv", "data_*.pkl") 
         recursive: Whether to search recursively (defaults to True)
         extensions: Optional list of file extensions to filter by
+        extract_metadata: If True, extract metadata from filenames using config patterns
+        parse_dates: If True, attempt to parse dates from filenames
         
     Returns:
-        List of file paths for the dataset
+        If extract_metadata or parse_dates is True: Dictionary mapping file paths to metadata
+        Otherwise: List of file paths for the dataset
         
     Raises:
         FileNotFoundError: If the config file doesn't exist
         KeyError: If the dataset doesn't exist in the config
+        ValueError: If neither config_path nor config is provided, or if both are provided
     """
-    # Load the configuration
-    config = load_config(config_path)
+    # Validate config parameters
+    if (config_path is None and config is None) or (config_path is not None and config is not None):
+        raise ValueError("Exactly one of 'config_path' or 'config' must be provided")
+    
+    # Load the configuration if path is provided
+    if config_path is not None:
+        config = load_config(config_path)
     
     # Determine the data directory
     if data_directory is None:
@@ -132,19 +160,23 @@ def load_dataset_files(
         base_directory=data_directory,
         pattern=file_pattern,
         recursive=recursive,
-        extensions=extensions
+        extensions=extensions,
+        extract_metadata=extract_metadata,
+        parse_dates=parse_dates
     )
 
 
 def get_experiment_parameters(
-    config_path: Union[str, Path],
-    experiment_name: str
+    config_path: Optional[Union[str, Path]] = None,
+    config: Optional[Dict[str, Any]] = None,
+    experiment_name: str = ""
 ) -> Dict[str, Any]:
     """
     Get parameters for a specific experiment.
     
     Args:
         config_path: Path to the YAML configuration file
+        config: Pre-loaded configuration dictionary
         experiment_name: Name of the experiment to get parameters for
         
     Returns:
@@ -153,9 +185,15 @@ def get_experiment_parameters(
     Raises:
         FileNotFoundError: If the config file doesn't exist
         KeyError: If the experiment doesn't exist in the config
+        ValueError: If neither config_path nor config is provided, or if both are provided
     """
-    # Load the configuration
-    config = load_config(config_path)
+    # Validate config parameters
+    if (config_path is None and config is None) or (config_path is not None and config is not None):
+        raise ValueError("Exactly one of 'config_path' or 'config' must be provided")
+    
+    # Load the configuration if path is provided
+    if config_path is not None:
+        config = load_config(config_path)
     
     # Get experiment info
     experiment_info = get_experiment_info(config, experiment_name)

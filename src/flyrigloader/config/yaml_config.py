@@ -166,3 +166,48 @@ def get_experiment_info(
         raise KeyError(f"Experiment '{experiment_name}' not found in configuration")
     
     return config["experiments"][experiment_name]
+
+
+def get_extraction_patterns(
+    config: Dict[str, Any],
+    experiment: Optional[str] = None,
+    dataset_name: Optional[str] = None
+) -> Optional[List[str]]:
+    """
+    Get patterns for extracting metadata from filenames.
+    
+    This function combines:
+    1. Project-level extraction patterns
+    2. Experiment-specific extraction patterns (if experiment is provided)
+    3. Dataset-specific extraction patterns (if dataset_name is provided)
+    
+    Only one of experiment or dataset_name should be provided.
+    
+    Args:
+        config: The loaded configuration dictionary
+        experiment: Optional experiment name to get extraction patterns for
+        dataset_name: Optional dataset name to get extraction patterns for
+        
+    Returns:
+        List of regex patterns for extracting metadata, or None if no patterns are defined
+    """
+    patterns = []
+    
+    # Get project-level extraction patterns
+    if "project" in config and "extraction_patterns" in config["project"]:
+        patterns.extend(config["project"]["extraction_patterns"])
+    
+    # Get experiment-specific extraction patterns
+    if experiment and "experiments" in config and experiment in config["experiments"]:
+        experiment_config = config["experiments"][experiment]
+        if "metadata" in experiment_config and "extraction_patterns" in experiment_config["metadata"]:
+            patterns.extend(experiment_config["metadata"]["extraction_patterns"])
+    
+    # Get dataset-specific extraction patterns
+    if dataset_name and "datasets" in config and dataset_name in config["datasets"]:
+        dataset_config = config["datasets"][dataset_name]
+        if "metadata" in dataset_config and "extraction_patterns" in dataset_config["metadata"]:
+            patterns.extend(dataset_config["metadata"]["extraction_patterns"])
+    
+    # Return patterns if not empty, or None
+    return patterns or None

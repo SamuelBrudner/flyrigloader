@@ -12,7 +12,8 @@ from flyrigloader.config.yaml_config import (
     get_ignore_patterns,
     get_mandatory_substrings,
     get_dataset_info,
-    get_experiment_info
+    get_experiment_info,
+    get_extraction_patterns
 )
 
 
@@ -22,8 +23,10 @@ def discover_files_with_config(
     pattern: str,
     recursive: bool = False,
     extensions: Optional[List[str]] = None,
-    experiment: Optional[str] = None
-) -> List[str]:
+    experiment: Optional[str] = None,
+    extract_metadata: bool = False,
+    parse_dates: bool = False
+) -> Union[List[str], Dict[str, Dict[str, Any]]]:
     """
     Discover files using configuration-aware filtering.
     
@@ -37,15 +40,23 @@ def discover_files_with_config(
         recursive: If True, search recursively through subdirectories
         extensions: Optional list of file extensions to filter by (without the dot)
         experiment: Optional experiment name to use experiment-specific filters
+        extract_metadata: If True, extract metadata using patterns from config
+        parse_dates: If True, attempt to parse dates from filenames
         
     Returns:
-        List of file paths matching the criteria
+        If extract_metadata or parse_dates is True: Dictionary mapping file paths to metadata
+        Otherwise: List of file paths matching the criteria
     """
     # Get ignore patterns from config (project + experiment level)
     ignore_patterns = get_ignore_patterns(config, experiment)
     
     # Get mandatory substrings from config (project + experiment level)
     mandatory_substrings = get_mandatory_substrings(config, experiment)
+    
+    # Get extraction patterns from config (if requested)
+    extract_patterns = None
+    if extract_metadata:
+        extract_patterns = get_extraction_patterns(config, experiment)
     
     # Use the core discovery function with config-derived filters
     return discover_files(
@@ -54,7 +65,9 @@ def discover_files_with_config(
         recursive=recursive,
         extensions=extensions,
         ignore_patterns=ignore_patterns,
-        mandatory_substrings=mandatory_substrings
+        mandatory_substrings=mandatory_substrings,
+        extract_patterns=extract_patterns,
+        parse_dates=parse_dates
     )
 
 
@@ -64,8 +77,10 @@ def discover_experiment_files(
     base_directory: Union[str, Path],
     pattern: str = "*.*",
     recursive: bool = True,
-    extensions: Optional[List[str]] = None
-) -> List[str]:
+    extensions: Optional[List[str]] = None,
+    extract_metadata: bool = False,
+    parse_dates: bool = False
+) -> Union[List[str], Dict[str, Dict[str, Any]]]:
     """
     Discover files related to a specific experiment.
     
@@ -79,9 +94,12 @@ def discover_experiment_files(
         pattern: File pattern to match (glob format), defaults to all files
         recursive: If True, search recursively through subdirectories
         extensions: Optional list of file extensions to filter by
+        extract_metadata: If True, extract metadata using patterns from config
+        parse_dates: If True, attempt to parse dates from filenames
         
     Returns:
-        List of file paths relevant to the experiment
+        If extract_metadata or parse_dates is True: Dictionary mapping file paths to metadata
+        Otherwise: List of file paths relevant to the experiment
         
     Raises:
         KeyError: If the experiment does not exist in the configuration
@@ -118,7 +136,9 @@ def discover_experiment_files(
         pattern=pattern,
         recursive=recursive,
         extensions=extensions,
-        experiment=experiment_name
+        experiment=experiment_name,
+        extract_metadata=extract_metadata,
+        parse_dates=parse_dates
     )
 
 
@@ -128,8 +148,10 @@ def discover_dataset_files(
     base_directory: Union[str, Path],
     pattern: str = "*.*",
     recursive: bool = True,
-    extensions: Optional[List[str]] = None
-) -> List[str]:
+    extensions: Optional[List[str]] = None,
+    extract_metadata: bool = False,
+    parse_dates: bool = False
+) -> Union[List[str], Dict[str, Dict[str, Any]]]:
     """
     Discover files related to a specific dataset.
     
@@ -142,9 +164,12 @@ def discover_dataset_files(
         pattern: File pattern to match (glob format), defaults to all files
         recursive: If True, search recursively through subdirectories
         extensions: Optional list of file extensions to filter by
+        extract_metadata: If True, extract metadata using patterns from config
+        parse_dates: If True, attempt to parse dates from filenames
         
     Returns:
-        List of file paths relevant to the dataset
+        If extract_metadata or parse_dates is True: Dictionary mapping file paths to metadata
+        Otherwise: List of file paths relevant to the dataset
         
     Raises:
         KeyError: If the dataset does not exist in the configuration
@@ -172,6 +197,11 @@ def discover_dataset_files(
     # Get project-level mandatory substrings (no experiment-specific ones)
     mandatory_substrings = get_mandatory_substrings(config)
     
+    # Get extraction patterns from config (if requested)
+    extract_patterns = None
+    if extract_metadata:
+        extract_patterns = get_extraction_patterns(config, dataset_name=dataset_name)
+    
     # Use the core discovery function with dataset-specific directories
     return discover_files(
         directory=search_dirs,
@@ -179,5 +209,7 @@ def discover_dataset_files(
         recursive=recursive,
         extensions=extensions,
         ignore_patterns=ignore_patterns,
-        mandatory_substrings=mandatory_substrings
+        mandatory_substrings=mandatory_substrings,
+        extract_patterns=extract_patterns,
+        parse_dates=parse_dates
     )

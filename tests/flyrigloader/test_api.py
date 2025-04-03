@@ -34,7 +34,7 @@ def test_load_experiment_files(mock_discover_files, mock_load_config):
     mock_load_config.return_value = mock_config
     mock_discover_files.return_value = ["file1.txt", "file2.txt"]
     
-    # Call the function
+    # Call the function with config_path
     result = load_experiment_files(
         config_path="config.yaml",
         experiment_name="test_experiment",
@@ -58,6 +58,57 @@ def test_load_experiment_files(mock_discover_files, mock_load_config):
     assert result == ["file1.txt", "file2.txt"]
 
 
+@patch('flyrigloader.api.discover_experiment_files')
+def test_load_experiment_files_with_config(mock_discover_files):
+    """Test that load_experiment_files works with a pre-loaded config dictionary."""
+    # Set up mocks
+    mock_config = {
+        "project": {
+            "directories": {
+                "major_data_directory": "/path/to/data"
+            }
+        }
+    }
+    mock_discover_files.return_value = ["file1.txt", "file2.txt"]
+    
+    # Call the function with pre-loaded config
+    result = load_experiment_files(
+        config=mock_config,
+        experiment_name="test_experiment",
+        file_pattern="*.csv",
+        recursive=True,
+        extensions=["csv"]
+    )
+    
+    # Verify correct calls were made (no load_config call)
+    mock_discover_files.assert_called_once_with(
+        config=mock_config,
+        experiment_name="test_experiment",
+        base_directory="/path/to/data",
+        pattern="*.csv",
+        recursive=True,
+        extensions=["csv"]
+    )
+    
+    # Verify result
+    assert result == ["file1.txt", "file2.txt"]
+
+
+def test_load_experiment_files_validation():
+    """Test that load_experiment_files validates config parameters correctly."""
+    # Test with neither config_path nor config provided
+    with pytest.raises(ValueError, match="Exactly one of 'config_path' or 'config' must be provided"):
+        load_experiment_files(experiment_name="test_experiment")
+    
+    # Test with both config_path and config provided
+    with pytest.raises(ValueError, match="Exactly one of 'config_path' or 'config' must be provided"):
+        load_experiment_files(
+            config_path="config.yaml",
+            config={"test": "config"},
+            experiment_name="test_experiment"
+        )
+
+
 @patch('flyrigloader.api.load_config')
 @patch('flyrigloader.api.discover_dataset_files')
 def test_load_dataset_files(mock_discover_files, mock_load_config):
@@ -73,7 +124,7 @@ def test_load_dataset_files(mock_discover_files, mock_load_config):
     mock_load_config.return_value = mock_config
     mock_discover_files.return_value = ["file1.txt", "file2.txt"]
     
-    # Call the function
+    # Call the function with config_path
     result = load_dataset_files(
         config_path="config.yaml",
         dataset_name="test_dataset",
@@ -97,6 +148,57 @@ def test_load_dataset_files(mock_discover_files, mock_load_config):
     assert result == ["file1.txt", "file2.txt"]
 
 
+@patch('flyrigloader.api.discover_dataset_files')
+def test_load_dataset_files_with_config(mock_discover_files):
+    """Test that load_dataset_files works with a pre-loaded config dictionary."""
+    # Set up mocks
+    mock_config = {
+        "project": {
+            "directories": {
+                "major_data_directory": "/path/to/data"
+            }
+        }
+    }
+    mock_discover_files.return_value = ["file1.txt", "file2.txt"]
+    
+    # Call the function with pre-loaded config
+    result = load_dataset_files(
+        config=mock_config,
+        dataset_name="test_dataset",
+        file_pattern="*.csv",
+        recursive=True,
+        extensions=["csv"]
+    )
+    
+    # Verify correct calls were made (no load_config call)
+    mock_discover_files.assert_called_once_with(
+        config=mock_config,
+        dataset_name="test_dataset",
+        base_directory="/path/to/data",
+        pattern="*.csv",
+        recursive=True,
+        extensions=["csv"]
+    )
+    
+    # Verify result
+    assert result == ["file1.txt", "file2.txt"]
+
+
+def test_load_dataset_files_validation():
+    """Test that load_dataset_files validates config parameters correctly."""
+    # Test with neither config_path nor config provided
+    with pytest.raises(ValueError, match="Exactly one of 'config_path' or 'config' must be provided"):
+        load_dataset_files(dataset_name="test_dataset")
+    
+    # Test with both config_path and config provided
+    with pytest.raises(ValueError, match="Exactly one of 'config_path' or 'config' must be provided"):
+        load_dataset_files(
+            config_path="config.yaml",
+            config={"test": "config"},
+            dataset_name="test_dataset"
+        )
+
+
 @patch('flyrigloader.api.load_config')
 @patch('flyrigloader.api.get_experiment_info')
 def test_get_experiment_parameters(mock_get_experiment_info, mock_load_config):
@@ -110,7 +212,7 @@ def test_get_experiment_parameters(mock_get_experiment_info, mock_load_config):
         }
     }
     
-    # Call the function
+    # Call the function with config_path
     result = get_experiment_parameters(
         config_path="config.yaml",
         experiment_name="test_experiment"
@@ -125,6 +227,49 @@ def test_get_experiment_parameters(mock_get_experiment_info, mock_load_config):
     
     # Verify result
     assert result == {"param1": "value1", "param2": 42}
+
+
+@patch('flyrigloader.api.get_experiment_info')
+def test_get_experiment_parameters_with_config(mock_get_experiment_info):
+    """Test that get_experiment_parameters works with a pre-loaded config dictionary."""
+    # Set up mocks
+    mock_config = {"experiments": {"test_experiment": {}}}
+    mock_get_experiment_info.return_value = {
+        "parameters": {
+            "param1": "value1",
+            "param2": 42
+        }
+    }
+    
+    # Call the function with pre-loaded config
+    result = get_experiment_parameters(
+        config=mock_config,
+        experiment_name="test_experiment"
+    )
+    
+    # Verify correct calls were made
+    mock_get_experiment_info.assert_called_once_with(
+        mock_config, 
+        "test_experiment"
+    )
+    
+    # Verify result
+    assert result == {"param1": "value1", "param2": 42}
+
+
+def test_get_experiment_parameters_validation():
+    """Test that get_experiment_parameters validates config parameters correctly."""
+    # Test with neither config_path nor config provided
+    with pytest.raises(ValueError, match="Exactly one of 'config_path' or 'config' must be provided"):
+        get_experiment_parameters(experiment_name="test_experiment")
+    
+    # Test with both config_path and config provided
+    with pytest.raises(ValueError, match="Exactly one of 'config_path' or 'config' must be provided"):
+        get_experiment_parameters(
+            config_path="config.yaml",
+            config={"test": "config"},
+            experiment_name="test_experiment"
+        )
 
 
 def test_process_experiment_data():
@@ -280,7 +425,10 @@ experiments:
     try:
         # Create test data with all required columns from default config
         exp_matrix = create_test_exp_matrix()
-        _run_integration_test(config_path, data_path, exp_matrix)
+        # Test with config path
+        _run_integration_test(config_path, data_path, exp_matrix, use_config_path=True)
+        # Test with pre-loaded config
+        _run_integration_test(config_path, data_path, exp_matrix, use_config_path=False)
     
     finally:
         # Clean up
@@ -288,8 +436,36 @@ experiments:
         os.unlink(data_path)
 
 
-def _run_integration_test(config_path, data_path, exp_matrix):
+def _run_integration_test(config_path, data_path, exp_matrix, use_config_path=True):
     """Run the integration test workflow."""
+    # Load the config if testing with pre-loaded config
+    config = None
+    if not use_config_path:
+        with patch('flyrigloader.api.load_config') as mock_load_config:
+            mock_config = {
+                "project": {
+                    "directories": {
+                        "major_data_directory": "/tmp"
+                    }
+                },
+                "datasets": {
+                    "test_dataset": {
+                        "patterns": ["*_test_*"]
+                    }
+                },
+                "experiments": {
+                    "test_experiment": {
+                        "dataset": "test_dataset",
+                        "parameters": {
+                            "param1": "value1",
+                            "param2": 42
+                        }
+                    }
+                }
+            }
+            mock_load_config.return_value = mock_config
+            config = mock_config
+    
     # Set up patches
     with patch('flyrigloader.api.discover_experiment_files') as mock_discover:
         mock_discover.return_value = [data_path]
@@ -300,10 +476,13 @@ def _run_integration_test(config_path, data_path, exp_matrix):
             # Run the complete workflow a calling project would use
             
             # 1. Get experiment files
-            files = load_experiment_files(
-                config_path=config_path,
-                experiment_name="test_experiment"
-            )
+            args = {"experiment_name": "test_experiment"}
+            if use_config_path:
+                args["config_path"] = config_path
+            else:
+                args["config"] = config
+                
+            files = load_experiment_files(**args)
             assert data_path in files
             
             # 2. Get experiment parameters
@@ -312,10 +491,7 @@ def _run_integration_test(config_path, data_path, exp_matrix):
                     "parameters": {"param1": "value1", "param2": 42}
                 }
                 
-                params = get_experiment_parameters(
-                    config_path=config_path,
-                    experiment_name="test_experiment"
-                )
+                params = get_experiment_parameters(**args)
                 assert params["param1"] == "value1"
                 assert params["param2"] == 42
             
