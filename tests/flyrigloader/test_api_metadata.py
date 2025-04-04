@@ -13,146 +13,86 @@ from flyrigloader.api import (
 )
 
 
-@patch('flyrigloader.api.discover_experiment_files')
-@patch('flyrigloader.api.load_config')
-def test_metadata_extraction_with_config_path(mock_load_config, mock_discover_experiment_files):
-    """Test metadata extraction using a path to a config file."""
-    # Set up mocks
-    mock_config = {
-        "project": {
-            "directories": {
-                "major_data_directory": "/path/to/data"
-            },
-            "extraction_patterns": [
-                r".*_(?P<date>\d{8})_(?P<condition>\w+)_(?P<replicate>\d+)\.pkl"
-            ]
-        },
-        "experiments": {
-            "test_experiment": {
-                "datasets": ["test_dataset"],
-                "metadata": {
-                    "extraction_patterns": [
-                        r".*_(?P<experiment>\w+)_(?P<date>\d{8})\.pkl"
-                    ]
-                }
-            }
-        },
-        "datasets": {
-            "test_dataset": {
-                "patterns": ["*_test_*"]
-            }
-        }
-    }
-    mock_load_config.return_value = mock_config
+def test_metadata_extraction_with_experiment_files(mock_config_and_discovery):
+    """Test metadata extraction using a path to a config file with experiment files."""
+    mock_load_config, mock_discover_experiment_files, _ = mock_config_and_discovery
     
-    # Mock experiment file discovery with metadata
+    # Configure mock to return files with metadata
     mock_discover_experiment_files.return_value = {
-        "/path/to/data/file_20230101_test_1.pkl": {
+        "/path/to/data/file_20230101_test_1.csv": {
             "date": "20230101",
             "condition": "test",
             "replicate": "1"
         },
-        "/path/to/data/file_20230102_control_2.pkl": {
+        "/path/to/data/file_20230102_control_2.csv": {
             "date": "20230102",
             "condition": "control",
             "replicate": "2"
         }
     }
     
-    # Create a temporary config file
-    with tempfile.NamedTemporaryFile(suffix=".yaml", delete=False) as config_file:
-        config_file.write(b"""
-project:
-  name: test_project
-  directories:
-    major_data_directory: /path/to/data
-  extraction_patterns:
-    - .*_(?P<date>\\d{8})_(?P<condition>\\w+)_(?P<replicate>\\d+)\\.pkl
-
-experiments:
-  test_experiment:
-    datasets: ["test_dataset"]
-    metadata:
-      extraction_patterns:
-        - .*_(?P<experiment>\\w+)_(?P<date>\\d{8})\\.pkl
-
-datasets:
-  test_dataset:
-    patterns:
-      - "*_test_*"
-""")
-        config_path = config_file.name
+    # Call the function with config_path
+    result = load_experiment_files(
+        config_path="/path/to/config.yaml",
+        experiment_name="test_experiment",
+        extract_metadata=True
+    )
     
-    try:
-        # Call the function with config_path
-        result = load_experiment_files(
-            config_path=config_path,
-            experiment_name="test_experiment",
-            extract_metadata=True
-        )
-        
-        # Verify mock calls
-        mock_load_config.assert_called_once_with(config_path)
-        mock_discover_experiment_files.assert_called_once_with(
-            config=mock_config,
-            experiment_name="test_experiment",
-            base_directory="/path/to/data",
-            pattern="*.*",
-            recursive=True,
-            extensions=None,
-            extract_metadata=True,
-            parse_dates=False
-        )
-        
-        # Verify results structure
-        assert isinstance(result, dict)
-        assert "/path/to/data/file_20230101_test_1.pkl" in result
-        assert result["/path/to/data/file_20230101_test_1.pkl"]["date"] == "20230101"
-        assert result["/path/to/data/file_20230101_test_1.pkl"]["condition"] == "test"
+    # Verify mock calls
+    mock_load_config.assert_called_once_with("/path/to/config.yaml")
+    mock_discover_experiment_files.assert_called_once_with(
+        config=mock_load_config.return_value,
+        experiment_name="test_experiment",
+        base_directory="/path/to/data",
+        pattern="*.*",
+        recursive=True,
+        extensions=None,
+        extract_metadata=True,
+        parse_dates=False
+    )
     
-    finally:
-        # Clean up
-        os.unlink(config_path)
+    # Verify results structure
+    assert isinstance(result, dict)
+    assert "/path/to/data/file_20230101_test_1.csv" in result
+    assert result["/path/to/data/file_20230101_test_1.csv"]["date"] == "20230101"
+    assert result["/path/to/data/file_20230101_test_1.csv"]["condition"] == "test"
+    assert result["/path/to/data/file_20230101_test_1.csv"]["replicate"] == "1"
 
 
-@patch('flyrigloader.api.discover_dataset_files')
-def test_metadata_extraction_with_preloaded_config(mock_discover_dataset_files):
-    """Test metadata extraction using a pre-loaded config dictionary."""
+def test_metadata_extraction_with_dataset_files(mock_config_and_discovery):
+    """Test metadata extraction using a pre-loaded config dictionary with dataset files."""
+    _, _, mock_discover_dataset_files = mock_config_and_discovery
+    
     # Mock dataset file discovery with metadata
     mock_discover_dataset_files.return_value = {
-        "/path/to/data/file_20230101_test_1.pkl": {
+        "/path/to/data/file_20230101_test_1.csv": {
             "date": "20230101",
-            "condition": "test",
+            "dataset": "test",
             "replicate": "1"
         },
-        "/path/to/data/file_20230102_control_2.pkl": {
+        "/path/to/data/file_20230102_control_2.csv": {
             "date": "20230102",
-            "condition": "control",
+            "dataset": "control",
             "replicate": "2"
         }
     }
     
-    # Pre-loaded config
+    # Pre-loaded config from our fixture
     config = {
         "project": {
             "directories": {
                 "major_data_directory": "/path/to/data"
             },
             "extraction_patterns": [
-                r".*_(?P<date>\d{8})_(?P<condition>\w+)_(?P<replicate>\d+)\.pkl"
+                r".*_(?P<date>\d{8})_(?P<condition>\w+)_(?P<replicate>\d+)\.csv"
             ]
-        },
-        "experiments": {
-            "test_experiment": {
-                "datasets": ["test_dataset"]
-            }
         },
         "datasets": {
             "test_dataset": {
                 "patterns": ["*_test_*"],
                 "metadata": {
                     "extraction_patterns": [
-                        r".*_(?P<dataset>\w+)_(?P<date>\d{8})\.pkl"
+                        r".*_(?P<dataset>\w+)_(?P<date>\d{8})\.csv"
                     ]
                 }
             }
@@ -180,23 +120,24 @@ def test_metadata_extraction_with_preloaded_config(mock_discover_dataset_files):
     
     # Verify results structure
     assert isinstance(result, dict)
-    assert "/path/to/data/file_20230101_test_1.pkl" in result
-    assert result["/path/to/data/file_20230101_test_1.pkl"]["date"] == "20230101"
-    assert result["/path/to/data/file_20230101_test_1.pkl"]["condition"] == "test"
+    assert "/path/to/data/file_20230101_test_1.csv" in result
+    assert result["/path/to/data/file_20230101_test_1.csv"]["date"] == "20230101"
+    assert result["/path/to/data/file_20230101_test_1.csv"]["dataset"] == "test"
 
 
-@patch('flyrigloader.api.discover_experiment_files')
-def test_date_parsing_functionality(mock_discover_experiment_files):
+def test_date_parsing_functionality(mock_config_and_discovery):
     """Test date parsing functionality."""
+    _, mock_discover_experiment_files, _ = mock_config_and_discovery
+    
     # Mock file discovery with parsed dates
     mock_discover_experiment_files.return_value = {
-        "/path/to/data/file_20230101_test_1.pkl": {
+        "/path/to/data/file_20230101_test_1.csv": {
             "date": "20230101",
             "condition": "test",
             "replicate": "1",
             "parsed_date": "2023-01-01"  # This would be a datetime object in reality
         },
-        "/path/to/data/file_20230102_control_2.pkl": {
+        "/path/to/data/file_20230102_control_2.csv": {
             "date": "20230102",
             "condition": "control",
             "replicate": "2",
@@ -204,7 +145,7 @@ def test_date_parsing_functionality(mock_discover_experiment_files):
         }
     }
     
-    # Pre-loaded config
+    # Pre-loaded config from our fixture
     config = {
         "project": {
             "directories": {
@@ -215,11 +156,6 @@ def test_date_parsing_functionality(mock_discover_experiment_files):
             "test_experiment": {
                 "datasets": ["test_dataset"]
             }
-        },
-        "datasets": {
-            "test_dataset": {
-                "patterns": ["*_test_*"]
-            }
         }
     }
     
@@ -227,6 +163,7 @@ def test_date_parsing_functionality(mock_discover_experiment_files):
     result = load_experiment_files(
         config=config,
         experiment_name="test_experiment",
+        extract_metadata=True,
         parse_dates=True
     )
     
@@ -238,15 +175,15 @@ def test_date_parsing_functionality(mock_discover_experiment_files):
         pattern="*.*",
         recursive=True,
         extensions=None,
-        extract_metadata=False,
+        extract_metadata=True,
         parse_dates=True
     )
     
     # Verify results structure
     assert isinstance(result, dict)
-    assert "/path/to/data/file_20230101_test_1.pkl" in result
-    assert "parsed_date" in result["/path/to/data/file_20230101_test_1.pkl"]
-    assert result["/path/to/data/file_20230101_test_1.pkl"]["parsed_date"] == "2023-01-01"
+    assert "/path/to/data/file_20230101_test_1.csv" in result
+    assert "parsed_date" in result["/path/to/data/file_20230101_test_1.csv"]
+    assert result["/path/to/data/file_20230101_test_1.csv"]["parsed_date"] == "2023-01-01"
 
 
 def test_config_validation_with_metadata():

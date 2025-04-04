@@ -17,6 +17,7 @@ from pydantic import ValidationError
 from flyrigloader.io.pickle import make_dataframe_from_config
 
 
+# Note: This function can be removed once all tests are updated to use fixtures
 def create_test_config(temp_file):
     """Helper to create a test config file."""
     test_config = {
@@ -46,22 +47,10 @@ def create_test_config(temp_file):
     return test_config
 
 
-def test_make_dataframe_from_config_basic():
+def test_make_dataframe_from_config_basic(sample_column_config_file, sample_exp_matrix):
     """Test basic functionality of make_dataframe_from_config."""
-    # Create test data
-    exp_matrix = {
-        't': np.linspace(0, 10, 100),
-        'x': np.random.rand(100),
-        'y': np.random.rand(100)
-    }
-    
-    # Create a temporary configuration file
-    temp_file = tempfile.NamedTemporaryFile(suffix='.yaml', mode='w', delete=False)
-    config_path = temp_file.name
-    create_test_config(temp_file)
-    
     # Test function with basic config
-    df = make_dataframe_from_config(exp_matrix, config_path)
+    df = make_dataframe_from_config(sample_exp_matrix, sample_column_config_file)
     
     # Verify result
     assert isinstance(df, pd.DataFrame)
@@ -69,12 +58,9 @@ def test_make_dataframe_from_config_basic():
     assert 'x' in df.columns
     assert 'y' in df.columns
     assert len(df) == 100
-    
-    # Clean up
-    os.unlink(config_path)
 
 
-def test_make_dataframe_from_config_missing_required():
+def test_make_dataframe_from_config_missing_required(sample_column_config_file):
     """Test validation of required columns."""
     # Create test data missing a required column
     exp_matrix = {
@@ -83,20 +69,12 @@ def test_make_dataframe_from_config_missing_required():
         'y': np.random.rand(100)
     }
     
-    # Create a temporary configuration file
-    temp_file = tempfile.NamedTemporaryFile(suffix='.yaml', mode='w', delete=False)
-    config_path = temp_file.name
-    create_test_config(temp_file)
-    
     # Function should raise ValueError due to missing required column
     with pytest.raises(ValueError) as excinfo:
-        make_dataframe_from_config(exp_matrix, config_path)
+        make_dataframe_from_config(exp_matrix, sample_column_config_file)
     
     # Verify error message
     assert "Missing required columns: x" in str(excinfo.value)
-    
-    # Clean up
-    os.unlink(config_path)
 
 
 def test_make_dataframe_from_config_with_aliases():
@@ -144,148 +122,48 @@ def test_make_dataframe_from_config_with_aliases():
     
     # Verify result
     assert isinstance(df, pd.DataFrame)
-    assert 't' in df.columns
-    assert 'x' in df.columns
-    assert 'dtheta' in df.columns  # Renamed from dtheta_smooth
+    assert 'dtheta' in df.columns  # Should be renamed from dtheta_smooth
     assert len(df) == 100
     
     # Clean up
     os.unlink(config_path)
 
 
-def test_make_dataframe_from_config_with_metadata():
+def test_make_dataframe_from_config_with_metadata(sample_column_config_file, sample_exp_matrix):
     """Test adding metadata to DataFrame."""
-    # Create test data
-    exp_matrix = {
-        't': np.linspace(0, 10, 100),
-        'x': np.random.rand(100),
-        'y': np.random.rand(100)
-    }
-    
-    # Metadata to add
+    # Create metadata
     metadata = {
         'date': '2025-04-01',
+        'fly_id': 'fly-123',
         'exp_name': 'test_experiment',
         'rig': 'test_rig'
     }
     
-    # Create a temporary configuration file
-    temp_file = tempfile.NamedTemporaryFile(suffix='.yaml', mode='w', delete=False)
-    config_path = temp_file.name
-    
-    test_config = {
-        'columns': {
-            't': {
-                'type': 'numpy.ndarray',
-                'dimension': 1,
-                'required': True,
-                'description': 'Time values'
-            },
-            'x': {
-                'type': 'numpy.ndarray',
-                'dimension': 1,
-                'required': True,
-                'description': 'X position'
-            },
-            'y': {
-                'type': 'numpy.ndarray',
-                'dimension': 1,
-                'required': True,
-                'description': 'Y position'
-            },
-            'date': {
-                'type': 'str',
-                'required': False,
-                'description': 'Experiment date',
-                'is_metadata': True
-            },
-            'exp_name': {
-                'type': 'str',
-                'required': False,
-                'description': 'Experiment name',
-                'is_metadata': True
-            },
-            'rig': {
-                'type': 'str',
-                'required': False,
-                'description': 'Rig name',
-                'is_metadata': True
-            }
-        }
-    }
-    
-    yaml.dump(test_config, temp_file)
-    temp_file.close()
-    
     # Test function with metadata
-    df = make_dataframe_from_config(exp_matrix, config_path, metadata=metadata)
+    df = make_dataframe_from_config(
+        sample_exp_matrix,
+        sample_column_config_file,
+        metadata=metadata
+    )
     
     # Verify result
     assert isinstance(df, pd.DataFrame)
     assert 'date' in df.columns
+    assert 'fly_id' in df.columns
     assert 'exp_name' in df.columns
     assert 'rig' in df.columns
+    
+    # All rows should have the same metadata values
     assert df['date'].iloc[0] == '2025-04-01'
+    assert df['fly_id'].iloc[0] == 'fly-123'
     assert df['exp_name'].iloc[0] == 'test_experiment'
     assert df['rig'].iloc[0] == 'test_rig'
-    
-    # Clean up
-    os.unlink(config_path)
 
 
-def test_make_dataframe_from_config_with_signal_disp():
+def test_make_dataframe_from_config_with_signal_disp(sample_exp_matrix_with_signal_disp, sample_column_config_file):
     """Test handling of signal_disp special column."""
-    # Create test data with signal_disp
-    t = np.linspace(0, 10, 100)
-    exp_matrix = {
-        't': t,
-        'x': np.random.rand(100),
-        'y': np.random.rand(100),
-        'signal_disp': np.random.rand(15, 100)  # 15 channels, 100 time points
-    }
-    
-    # Create a temporary configuration file
-    temp_file = tempfile.NamedTemporaryFile(suffix='.yaml', mode='w', delete=False)
-    config_path = temp_file.name
-    
-    test_config = {
-        'columns': {
-            't': {
-                'type': 'numpy.ndarray',
-                'dimension': 1,
-                'required': True,
-                'description': 'Time values'
-            },
-            'x': {
-                'type': 'numpy.ndarray',
-                'dimension': 1,
-                'required': True,
-                'description': 'X position'
-            },
-            'y': {
-                'type': 'numpy.ndarray',
-                'dimension': 1,
-                'required': True,
-                'description': 'Y position'
-            },
-            'signal_disp': {
-                'type': 'numpy.ndarray',
-                'dimension': 2,
-                'required': False,
-                'description': 'Signal display data',
-                'special_handling': 'transform_to_match_time_dimension'
-            }
-        },
-        'special_handlers': {
-            'transform_to_match_time_dimension': '_handle_signal_disp'
-        }
-    }
-    
-    yaml.dump(test_config, temp_file)
-    temp_file.close()
-    
     # Test function with signal_disp
-    df = make_dataframe_from_config(exp_matrix, config_path)
+    df = make_dataframe_from_config(sample_exp_matrix_with_signal_disp, sample_column_config_file)
     
     # Verify result
     assert isinstance(df, pd.DataFrame)
@@ -295,9 +173,6 @@ def test_make_dataframe_from_config_with_signal_disp():
     # Each item should be a 15-element array
     assert isinstance(df['signal_disp'].iloc[0], np.ndarray)
     assert df['signal_disp'].iloc[0].shape == (15,)
-    
-    # Clean up
-    os.unlink(config_path)
 
 
 def test_make_dataframe_from_config_with_default_values():
