@@ -208,6 +208,37 @@ parameters = get_experiment_parameters(
 for file in files:
     # Your analysis code here
     analyze_data(file, parameters)
+
+# Extract metadata from filenames while loading files
+files_with_metadata = load_experiment_files(
+    config_path="/path/to/your/config.yaml",
+    experiment_name="plume_navigation_analysis",
+    extensions=["csv"],
+    extract_metadata=True
+)
+
+# Result: {"/path/to/file.csv": {"date": "20230101", "condition": "control", ...}}
+
+# Extract metadata and parse dates from filenames
+files_with_dates = load_experiment_files(
+    config_path="/path/to/your/config.yaml",
+    experiment_name="plume_navigation_analysis",
+    extensions=["csv"],
+    extract_metadata=True,
+    parse_dates=True
+)
+
+# Result: {"/path/to/file.csv": {"date": "20230101", "condition": "control", "parsed_date": datetime(2023, 1, 1), ...}}
+
+# You can also use pre-loaded config instead of a config path
+from flyrigloader.config.yaml_config import load_config
+
+config = load_config("/path/to/your/config.yaml")
+files = load_dataset_files(
+    config=config,  # Using pre-loaded config
+    dataset_name="my_dataset",
+    extract_metadata=True
+)
 ```
 
 See the [examples directory](examples/external_project) for a complete demonstration of integrating `flyrigloader` into an external analysis project.
@@ -223,6 +254,8 @@ project:
   ignore_substrings:
     - 'pattern_to_ignore'
     - '._'
+  extraction_patterns:  # Project-level extraction patterns
+    - .*_(?P<date>\d{8})_(?P<condition>\w+)_(?P<replicate>\d+)\.csv
 
 datasets:
   my_dataset:
@@ -230,6 +263,9 @@ datasets:
     dates_vials:
       2023-01-01: [1, 2, 3]
       2023-01-02: [4, 5]
+    metadata:  # Dataset-specific extraction patterns
+      extraction_patterns:
+        - .*_(?P<dataset>\w+)_(?P<date>\d{8})\.csv
 
 experiments:
   my_experiment:
@@ -240,7 +276,33 @@ experiments:
         - 'experiment_specific_ignore'
       mandatory_experiment_strings:
         - 'required_pattern'
+    metadata:  # Experiment-specific extraction patterns
+      extraction_patterns:
+        - .*_(?P<experiment>\w+)_(?P<date>\d{8})\.csv
 ```
+
+### Metadata Extraction Configuration
+
+The configuration supports defining regex patterns for extracting metadata from filenames at three levels:
+
+1. **Project level**: Applies to all files
+2. **Experiment level**: Applies to files for that experiment
+3. **Dataset level**: Applies to files for that dataset
+
+Patterns are specified using Python regex named capture groups (`(?P<name>pattern)`). When multiple patterns match a filename, all extracted fields are combined. When conflicts occur, experiment-level patterns take precedence over dataset-level patterns, which take precedence over project-level patterns.
+
+Example pattern for a file like `data_20230415_control_01.csv`:
+```yaml
+extraction_patterns:
+  - .*_(?P<date>\d{8})_(?P<condition>\w+)_(?P<replicate>\d+)\.csv
+```
+
+This would extract:
+- `date`: "20230415"
+- `condition`: "control"
+- `replicate`: "01"
+
+When `parse_dates=True` is specified, the API will attempt to convert any field named `date` (or containing the word "date") into a Python datetime object, which will be added as a new field with the prefix `parsed_`.
 
 ## Development
 
