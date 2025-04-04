@@ -38,8 +38,8 @@ def load_experiment_files(
     config_path: Optional[Union[str, Path]] = None,
     config: Optional[Dict[str, Any]] = None,
     experiment_name: str = "",
-    data_directory: Optional[Union[str, Path]] = None,
-    file_pattern: str = "*.*",
+    base_directory: Optional[Union[str, Path]] = None,
+    pattern: str = "*.*",
     recursive: bool = True,
     extensions: Optional[List[str]] = None,
     extract_metadata: bool = False,
@@ -52,8 +52,8 @@ def load_experiment_files(
         config_path: Path to the YAML configuration file
         config: Pre-loaded configuration dictionary
         experiment_name: Name of the experiment to load files for
-        data_directory: Optional override for the data directory (if not specified, uses config)
-        file_pattern: File pattern to search for in glob format (e.g., "*.csv", "data_*.pkl")
+        base_directory: Optional override for the data directory (if not specified, uses config)
+        pattern: File pattern to search for in glob format (e.g., "*.csv", "data_*.pkl")
         recursive: Whether to search recursively (defaults to True)
         extensions: Optional list of file extensions to filter by
         extract_metadata: If True, extract metadata from filenames using config patterns
@@ -77,13 +77,13 @@ def load_experiment_files(
         config = load_config(config_path)
     
     # Determine the data directory
-    if data_directory is None:
+    if base_directory is None:
         if "project" in config and "directories" in config["project"]:
-            data_directory = config["project"]["directories"].get("major_data_directory")
+            base_directory = config["project"]["directories"].get("major_data_directory")
             
-        if not data_directory:
+        if not base_directory:
             raise ValueError(
-                "No data directory specified. Either provide data_directory parameter "
+                "No data directory specified. Either provide base_directory parameter "
                 "or ensure 'major_data_directory' is set in config."
             )
     
@@ -91,8 +91,8 @@ def load_experiment_files(
     return discover_experiment_files(
         config=config,
         experiment_name=experiment_name,
-        base_directory=data_directory,
-        pattern=file_pattern,
+        base_directory=base_directory,
+        pattern=pattern,
         recursive=recursive,
         extensions=extensions,
         extract_metadata=extract_metadata,
@@ -104,8 +104,8 @@ def load_dataset_files(
     config_path: Optional[Union[str, Path]] = None,
     config: Optional[Dict[str, Any]] = None,
     dataset_name: str = "",
-    data_directory: Optional[Union[str, Path]] = None,
-    file_pattern: str = "*.*",
+    base_directory: Optional[Union[str, Path]] = None,
+    pattern: str = "*.*",
     recursive: bool = True,
     extensions: Optional[List[str]] = None,
     extract_metadata: bool = False,
@@ -118,8 +118,8 @@ def load_dataset_files(
         config_path: Path to the YAML configuration file
         config: Pre-loaded configuration dictionary
         dataset_name: Name of the dataset to load files for
-        data_directory: Optional override for the data directory (if not specified, uses config)
-        file_pattern: File pattern to search for in glob format (e.g., "*.csv", "data_*.pkl") 
+        base_directory: Optional override for the data directory (if not specified, uses config)
+        pattern: File pattern to search for in glob format (e.g., "*.csv", "data_*.pkl")
         recursive: Whether to search recursively (defaults to True)
         extensions: Optional list of file extensions to filter by
         extract_metadata: If True, extract metadata from filenames using config patterns
@@ -143,13 +143,13 @@ def load_dataset_files(
         config = load_config(config_path)
     
     # Determine the data directory
-    if data_directory is None:
+    if base_directory is None:
         if "project" in config and "directories" in config["project"]:
-            data_directory = config["project"]["directories"].get("major_data_directory")
+            base_directory = config["project"]["directories"].get("major_data_directory")
             
-        if not data_directory:
+        if not base_directory:
             raise ValueError(
-                "No data directory specified. Either provide data_directory parameter "
+                "No data directory specified. Either provide base_directory parameter "
                 "or ensure 'major_data_directory' is set in config."
             )
     
@@ -157,8 +157,8 @@ def load_dataset_files(
     return discover_dataset_files(
         config=config,
         dataset_name=dataset_name,
-        base_directory=data_directory,
-        pattern=file_pattern,
+        base_directory=base_directory,
+        pattern=pattern,
         recursive=recursive,
         extensions=extensions,
         extract_metadata=extract_metadata,

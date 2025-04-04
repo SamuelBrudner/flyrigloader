@@ -102,8 +102,8 @@ def test_load_experiment_files_with_custom_params(mock_config_and_discovery):
     result = load_experiment_files(
         config=config,
         experiment_name="test_experiment",
-        data_directory="/custom/data/dir",
-        file_pattern="*.csv",
+        base_directory="/custom/data/dir",
+        pattern="*.csv",
         recursive=False,
         extensions=[".csv"]
     )
@@ -268,8 +268,8 @@ def test_load_dataset_files_with_custom_params(mock_config_and_discovery):
     result = load_dataset_files(
         config=config,
         dataset_name="test_dataset",
-        data_directory="/custom/data/dir",
-        file_pattern="*.csv",
+        base_directory="/custom/data/dir",
+        pattern="*.csv",
         recursive=False,
         extensions=[".csv"]
     )
