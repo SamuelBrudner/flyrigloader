@@ -10,7 +10,7 @@ from datetime import datetime
 import fnmatch
 
 from flyrigloader.discovery.patterns import PatternMatcher, match_files_to_patterns
-
+from flyrigloader.discovery.stats import get_file_stats, attach_file_stats
 
 class FileDiscoverer:
     """
@@ -20,12 +20,14 @@ class FileDiscoverer:
     - Finding files based on patterns
     - Extracting metadata using regex patterns
     - Parsing dates from filenames
+    - Collecting file statistics (size, modification time)
     """
     
     def __init__(
         self,
         extract_patterns: Optional[List[str]] = None,
-        parse_dates: bool = False
+        parse_dates: bool = False,
+        include_stats: bool = False
     ):
         """
         Initialize the FileDiscoverer.
@@ -33,9 +35,11 @@ class FileDiscoverer:
         Args:
             extract_patterns: Optional list of regex patterns to extract metadata from file paths
             parse_dates: If True, attempt to parse dates from filenames
+            include_stats: If True, include file statistics (size, mtime, ctime)
         """
         self.extract_patterns = extract_patterns
         self.parse_dates = parse_dates
+        self.include_stats = include_stats
         
         # Field names for pattern extraction (for backward compatibility)
         # These are based on the test patterns and expectations
@@ -311,7 +315,7 @@ class FileDiscoverer:
             mandatory_substrings: Optional list of substrings that must be present in files
             
         Returns:
-            If extract_patterns or parse_dates is configured: Dictionary mapping 
+            If extract_patterns, parse_dates, or include_stats is configured: Dictionary mapping 
             file paths to extracted metadata.
             Otherwise: List of matched file paths.
         """
@@ -326,11 +330,17 @@ class FileDiscoverer:
         )
         
         # Check if we need to return files with metadata
-        if not (self.extract_patterns or self.parse_dates):
+        if not (self.extract_patterns or self.parse_dates or self.include_stats):
             return found_files
         
         # Extract metadata from paths and return the result
-        return self._extract_metadata_from_paths(found_files)
+        result = self._extract_metadata_from_paths(found_files)
+        
+        # Add file statistics if requested
+        if self.include_stats:
+            result = attach_file_stats(result)
+            
+        return result
     
     def _extract_metadata_from_paths(self, files: List[str]) -> Dict[str, Dict[str, Any]]:
         """
@@ -353,7 +363,8 @@ def discover_files(
     ignore_patterns: Optional[List[str]] = None,
     mandatory_substrings: Optional[List[str]] = None,
     extract_patterns: Optional[List[str]] = None,
-    parse_dates: bool = False
+    parse_dates: bool = False,
+    include_stats: bool = False
 ) -> Union[List[str], Dict[str, Dict[str, Any]]]:
     """
     Discover files matching the given pattern and criteria.
@@ -368,15 +379,17 @@ def discover_files(
         mandatory_substrings: Optional list of substrings that must be present
         extract_patterns: Optional list of regex patterns to extract metadata
         parse_dates: If True, attempt to parse dates from filenames
+        include_stats: If True, include file statistics (size, mtime, ctime)
     
     Returns:
-        If extract_patterns or parse_dates is used: Dictionary mapping file paths
+        If extract_patterns, parse_dates, or include_stats is used: Dictionary mapping file paths
         to extracted metadata.
         Otherwise: List of matched file paths.
     """
     return FileDiscoverer(
         extract_patterns=extract_patterns,
-        parse_dates=parse_dates
+        parse_dates=parse_dates,
+        include_stats=include_stats
     ).discover(
         directory, 
         pattern, 
