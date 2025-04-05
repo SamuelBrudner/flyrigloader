@@ -3,11 +3,13 @@ Tests for file statistics functionality.
 
 Tests the functionality for collecting and working with file system metadata.
 """
+
 import os
 import tempfile
 from pathlib import Path
 from datetime import datetime, timedelta
 import time
+import itertools
 from typing import List, Dict, Any, Callable
 
 import pytest
@@ -78,6 +80,18 @@ def create_temp_files(num_files: int, content_template: str = "content {}") -> L
     return temp_files
 
 
+def create_temp_files_in_dir(dir_path: str, num_files: int, name_template: str = "file_{}.txt", 
+                         content_template: str = "content {}") -> List[str]:
+    """Create temporary files in a specified directory."""
+    file_paths = []
+    for i in range(num_files):
+        file_path = os.path.join(dir_path, name_template.format(i))
+        with open(file_path, 'w') as f:
+            f.write(content_template.format(i))
+        file_paths.append(file_path)
+    return file_paths
+
+
 def safe_remove_files(file_paths: List[str]) -> None:
     """Safely remove multiple files."""
     for file_path in file_paths:
@@ -94,6 +108,21 @@ def verify_stats_keys_in_result(result: Dict[str, Any], file_paths: List[str]) -
         assert "size" in result[file_path]
         assert "mtime" in result[file_path]
         assert "ctime" in result[file_path]
+
+
+def verify_all_files_have_stats(result: Dict[str, Dict[str, Any]]) -> None:
+    """Verify that all files in the result have stats fields."""
+    for file_data in result.values():
+        assert "size" in file_data
+        assert "mtime" in file_data
+        assert "ctime" in file_data
+
+
+def verify_metadata_preserved(result: Dict[str, Dict[str, Any]], file_paths: List[str], 
+                             expected_keys: List[str]) -> None:
+    """Verify that metadata keys are preserved in the result."""
+    for file_path, key in itertools.product(file_paths, expected_keys):
+        assert key in result[file_path], f"Key '{key}' missing from metadata for {file_path}"
 
 
 def test_attach_file_stats_list():
@@ -139,9 +168,7 @@ def test_attach_file_stats_dict():
         verify_stats_keys_in_result(result, temp_files)
         
         # Verify original metadata is preserved
-        for file_path in temp_files:
-            assert "type" in result[file_path]
-            assert "index" in result[file_path]
+        verify_metadata_preserved(result, temp_files, ["type", "index"])
     finally:
         # Clean up
         safe_remove_files(temp_files)
@@ -151,15 +178,10 @@ def test_integration_with_discover_files():
     """Test integration with discover_files function."""
     # Create a temporary directory with files
     temp_dir = tempfile.mkdtemp()
-    temp_files = []
     
     try:
         # Create files in the temporary directory
-        for i in range(3):
-            file_path = os.path.join(temp_dir, f"file_{i}.txt")
-            with open(file_path, 'w') as f:
-                f.write(f"content {i}")
-            temp_files.append(file_path)
+        temp_files = create_temp_files_in_dir(temp_dir, 3)
         
         # Use discover_files with include_stats
         result = discover_files(temp_dir, "*.txt", include_stats=True)
@@ -167,11 +189,7 @@ def test_integration_with_discover_files():
         # Verify the result has file stats
         assert isinstance(result, dict)
         assert len(result) == 3
-        
-        for file_path in result:
-            assert "size" in result[file_path]
-            assert "mtime" in result[file_path]
-            assert "ctime" in result[file_path]
+        verify_all_files_have_stats(result)
     finally:
         # Clean up
         safe_remove_files(temp_files)

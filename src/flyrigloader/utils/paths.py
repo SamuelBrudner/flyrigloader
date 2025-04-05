@@ -23,11 +23,11 @@ def get_relative_path(path: Union[str, Path], base_dir: Union[str, Path]) -> Pat
     """
     path = Path(path).resolve()
     base_dir = Path(base_dir).resolve()
-    
+
     try:
         return path.relative_to(base_dir)
-    except ValueError:
-        raise ValueError(f"Path {path} is not within base directory {base_dir}")
+    except ValueError as e:
+        raise ValueError(f"Path {path} is not within base directory {base_dir}") from e
 
 
 def get_absolute_path(path: Union[str, Path], base_dir: Union[str, Path]) -> Path:
@@ -43,11 +43,8 @@ def get_absolute_path(path: Union[str, Path], base_dir: Union[str, Path]) -> Pat
     """
     path = Path(path)
     base_dir = Path(base_dir)
-    
-    if path.is_absolute():
-        return path
-    
-    return (base_dir / path).resolve()
+
+    return path if path.is_absolute() else (base_dir / path).resolve()
 
 
 def find_common_base_directory(paths: List[Union[str, Path]]) -> Optional[Path]:
@@ -62,14 +59,14 @@ def find_common_base_directory(paths: List[Union[str, Path]]) -> Optional[Path]:
     """
     if not paths:
         return None
-    
+
     # Convert all paths to Path objects and resolve them
     resolved_paths = [Path(path).resolve() for path in paths]
-    
+
     # Find the common parts
     parts_list = [path.parts for path in resolved_paths]
     min_length = min(len(parts) for parts in parts_list)
-    
+
     # Find the common prefix
     common_parts = []
     for i in range(min_length):
@@ -77,11 +74,8 @@ def find_common_base_directory(paths: List[Union[str, Path]]) -> Optional[Path]:
             common_parts.append(parts_list[0][i])
         else:
             break
-    
-    if not common_parts:
-        return None
-    
-    return Path(*common_parts)
+
+    return Path(*common_parts) if common_parts else None
 
 
 def ensure_directory_exists(path: Union[str, Path]) -> Path:
