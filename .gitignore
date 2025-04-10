@@ -165,3 +165,6 @@ cython_debug/
 flyrigloader.txt
 src.txt
 test.txt
+
+# Log files and directories
+logs/
