@@ -9,12 +9,41 @@ from typing import Dict, List, Any, Optional, Union
 import yaml
 
 
-def load_config(config_path: Union[str, Path]) -> Dict[str, Any]:
+def validate_config_dict(config: Dict[str, Any]) -> Dict[str, Any]:
     """
-    Load a YAML configuration file into a dictionary.
+    Validate a configuration dictionary to ensure it has the expected structure.
+    
+    This function is used to validate Kedro-style parameters dictionaries directly
+    passed to flyrigloader functions.
     
     Args:
-        config_path: Path to the YAML configuration file
+        config: The configuration dictionary to validate
+        
+    Returns:
+        The validated configuration dictionary
+        
+    Raises:
+        ValueError: If the configuration dictionary is invalid
+    """
+    # Perform basic structure validation
+    if not isinstance(config, dict):
+        raise ValueError("Configuration must be a dictionary")
+    
+    # Check for required top-level keys (minimal validation)
+    required_sections = []
+    for section in required_sections:
+        if section not in config:
+            raise ValueError(f"Missing required section in configuration: {section}")
+    
+    return config
+
+
+def load_config(config_path_or_dict: Union[str, Path, Dict[str, Any]]) -> Dict[str, Any]:
+    """
+    Load a YAML configuration file or validate a pre-loaded configuration dictionary.
+    
+    Args:
+        config_path_or_dict: Path to the YAML configuration file or a pre-loaded dictionary
         
     Returns:
         Dictionary containing the configuration data
@@ -22,8 +51,18 @@ def load_config(config_path: Union[str, Path]) -> Dict[str, Any]:
     Raises:
         FileNotFoundError: If the configuration file does not exist
         yaml.YAMLError: If the YAML file is invalid
+        ValueError: If the input is neither a valid path nor a dictionary
     """
-    config_path = Path(config_path)
+    # If input is already a dictionary (Kedro-style parameters)
+    if isinstance(config_path_or_dict, dict):
+        return validate_config_dict(config_path_or_dict)
+    
+    # Check for invalid input types
+    if not isinstance(config_path_or_dict, (str, Path)):
+        raise ValueError(f"Invalid input type: {type(config_path_or_dict)}. Expected a string, Path, or dictionary.")
+    
+    # Otherwise treat as a path
+    config_path = Path(config_path_or_dict)
     
     if not config_path.exists():
         raise FileNotFoundError(f"Configuration file not found: {config_path}")

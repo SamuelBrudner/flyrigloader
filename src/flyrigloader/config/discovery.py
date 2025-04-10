@@ -34,7 +34,7 @@ def discover_files_with_config(
     based on project-wide settings and experiment-specific overrides.
     
     Args:
-        config: The loaded configuration dictionary
+        config: The loaded configuration dictionary (either from YAML or Kedro-style parameters)
         directory: The directory or list of directories to search in
         pattern: File pattern to match (glob format)
         recursive: If True, search recursively through subdirectories
@@ -88,7 +88,7 @@ def discover_experiment_files(
     to find relevant files.
     
     Args:
-        config: The loaded configuration dictionary
+        config: The loaded configuration dictionary (either from YAML or Kedro-style parameters)
         experiment_name: Name of the experiment to use for discovery
         base_directory: Base directory to search in (often the major_data_directory)
         pattern: File pattern to match (glob format), defaults to all files
@@ -158,7 +158,7 @@ def discover_dataset_files(
     This uses the dataset's date-vial definitions to find relevant files.
     
     Args:
-        config: The loaded configuration dictionary
+        config: The loaded configuration dictionary (either from YAML or Kedro-style parameters)
         dataset_name: Name of the dataset to use for discovery
         base_directory: Base directory to search in (often the major_data_directory)
         pattern: File pattern to match (glob format), defaults to all files

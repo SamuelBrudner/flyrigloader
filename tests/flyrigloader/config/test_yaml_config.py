@@ -11,6 +11,7 @@ from pathlib import Path
 # (We'll implement this after the tests)
 from flyrigloader.config.yaml_config import (
     load_config,
+    validate_config_dict,
     get_ignore_patterns,
     get_mandatory_substrings,
     get_dataset_info,
@@ -117,9 +118,31 @@ class TestYamlConfig:
             import shutil
             shutil.rmtree(temp_dir)
     
-    def test_load_config(self, sample_config_file):
+    @pytest.fixture
+    def sample_config_dict(self, sample_config_file):
+        """Create a sample configuration dictionary."""
+        # Load the config file into a dictionary
+        with open(sample_config_file, 'r') as f:
+            return yaml.safe_load(f)
+    
+    def test_validate_config_dict(self, sample_config_dict):
+        """Test validation of configuration dictionaries."""
+        # Test with a valid config dictionary
+        validated_config = validate_config_dict(sample_config_dict)
+        assert validated_config == sample_config_dict
+        
+        # Test with invalid input (not a dictionary)
+        with pytest.raises(ValueError, match="Configuration must be a dictionary"):
+            validate_config_dict("not a dictionary")
+            
+        # Test with a minimal valid dictionary
+        minimal_config = {"project": {"directories": {"major_data_directory": "/path/to/data"}}}
+        validated_minimal = validate_config_dict(minimal_config)
+        assert validated_minimal == minimal_config
+    
+    def test_load_config(self, sample_config_file, sample_config_dict):
         """Test basic config loading functionality."""
-        # Load the configuration
+        # Test loading from a file path string
         config = load_config(sample_config_file)
         
         # Verify the structure is loaded correctly
@@ -140,6 +163,18 @@ class TestYamlConfig:
         # Check experiments
         assert "multi_plume" in config["experiments"]
         assert "no_green_light" in config["experiments"]["multi_plume"]["datasets"]
+        
+        # Test loading directly from a dictionary (Kedro-style params)
+        config_from_dict = load_config(sample_config_dict)
+        assert config_from_dict == config
+        
+        # Test with invalid path
+        with pytest.raises(FileNotFoundError):
+            load_config("/path/to/nonexistent/config.yaml")
+        
+        # Test with invalid input type
+        with pytest.raises(ValueError):
+            load_config(123)
     
     def test_get_ignore_patterns(self, sample_config_file):
         """Test extracting ignore patterns from config."""
