@@ -37,10 +37,6 @@ from flyrigloader.io.column_models import (
 from flyrigloader.utils.paths import (
     get_relative_path,
     get_absolute_path,
-    normalize_path,
-    get_file_extension,
-    get_filename,
-    get_parent_directory,
     check_file_exists,
     ensure_directory_exists,
     find_common_base_directory
@@ -270,6 +266,12 @@ def get_default_column_config() -> ColumnConfigDict:
 #
 # File and path utilities
 #
+# Note: For standard path operations, consider using Python's pathlib directly:
+#  - Path.name - Get filename without directory (instead of get_file_name)
+#  - Path.suffix - Get file extension with dot (instead of get_extension)
+#  - Path.parent - Get parent directory (instead of get_parent_dir)
+#  - Path.resolve() - Normalize path (instead of normalize_file_path)
+#
 
 def get_file_statistics(path: Union[str, Path]) -> Dict[str, Any]:
     """
@@ -355,55 +357,3 @@ def get_common_base_dir(paths: List[Union[str, Path]]) -> Optional[Path]:
         Common base directory or None if no common base can be found
     """
     return find_common_base_directory(paths)
-
-
-def normalize_file_path(path: Union[str, Path]) -> Path:
-    """
-    Normalize a path, resolving symlinks and removing redundant elements.
-    
-    Args:
-        path: Path to normalize
-        
-    Returns:
-        Normalized path
-    """
-    return normalize_path(path)
-
-
-def get_extension(path: Union[str, Path]) -> str:
-    """
-    Get the file extension from a path.
-    
-    Args:
-        path: Path to a file
-        
-    Returns:
-        File extension (without the dot)
-    """
-    return get_file_extension(path)
-
-
-def get_file_name(path: Union[str, Path]) -> str:
-    """
-    Get the filename without directory from a path.
-    
-    Args:
-        path: Path to a file
-        
-    Returns:
-        Filename without directory
-    """
-    return get_filename(path)
-
-
-def get_parent_dir(path: Union[str, Path]) -> Path:
-    """
-    Get the parent directory of a path.
-    
-    Args:
-        path: Path to a file or directory
-        
-    Returns:
-        Parent directory path
-    """
-    return get_parent_directory(path)
