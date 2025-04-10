@@ -91,3 +91,69 @@ def ensure_directory_exists(path: Union[str, Path]) -> Path:
     path = Path(path)
     path.mkdir(parents=True, exist_ok=True)
     return path
+
+
+def normalize_path(path: Union[str, Path]) -> Path:
+    """
+    Normalize a path, resolving symlinks and removing redundant elements.
+    
+    Args:
+        path: Path to normalize
+        
+    Returns:
+        Normalized path
+    """
+    return Path(path).resolve()
+
+
+def get_file_extension(path: Union[str, Path]) -> str:
+    """
+    Get the file extension from a path.
+    
+    Args:
+        path: Path to a file
+        
+    Returns:
+        File extension (without the dot)
+    """
+    return Path(path).suffix[1:] if Path(path).suffix else ""
+
+
+def get_filename(path: Union[str, Path]) -> str:
+    """
+    Get the filename (without directory) from a path.
+    
+    Args:
+        path: Path to a file
+        
+    Returns:
+        Filename without directory
+    """
+    return Path(path).name
+
+
+def get_parent_directory(path: Union[str, Path]) -> Path:
+    """
+    Get the parent directory from a path.
+    
+    Args:
+        path: Path to a file or directory
+        
+    Returns:
+        Parent directory path
+    """
+    return Path(path).parent
+
+
+def check_file_exists(file_path: Union[str, Path]) -> bool:
+    """
+    Check if a file exists.
+    
+    Args:
+        file_path: Path to the file
+        
+    Returns:
+        True if the file exists, False otherwise
+    """
+    # Using is_file() alone is sufficient as it returns False if the path doesn't exist
+    return Path(file_path).is_file()

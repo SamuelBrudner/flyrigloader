@@ -5,6 +5,7 @@ This module provides simple entry points for external projects to use flyrigload
 functionality without having to directly import from multiple submodules.
 """
 from pathlib import Path
+import copy
 from typing import Dict, List, Any, Optional, Union
 
 from flyrigloader.config.yaml_config import (
@@ -20,6 +21,7 @@ from flyrigloader.config.discovery import (
     discover_dataset_files
 )
 from flyrigloader.discovery.files import discover_files
+from flyrigloader.discovery.stats import get_file_stats
 from flyrigloader.io.pickle import (
     read_pickle_any_format,
     make_dataframe_from_config
@@ -31,6 +33,17 @@ from flyrigloader.io.column_models import (
     get_config_from_source,
     get_default_config_path,
     load_column_config
+)
+from flyrigloader.utils.paths import (
+    get_relative_path,
+    get_absolute_path,
+    normalize_path,
+    get_file_extension,
+    get_filename,
+    get_parent_directory,
+    check_file_exists,
+    ensure_directory_exists,
+    find_common_base_directory
 )
 
 
@@ -50,7 +63,7 @@ def load_experiment_files(
     
     Args:
         config_path: Path to the YAML configuration file
-        config: Pre-loaded configuration dictionary
+        config: Pre-loaded configuration dictionary (can be a Kedro-style parameters dictionary)
         experiment_name: Name of the experiment to load files for
         base_directory: Optional override for the data directory (if not specified, uses config)
         pattern: File pattern to search for in glob format (e.g., "*.csv", "data_*.pkl")
@@ -72,14 +85,17 @@ def load_experiment_files(
     if (config_path is None and config is None) or (config_path is not None and config is not None):
         raise ValueError("Exactly one of 'config_path' or 'config' must be provided")
     
-    # Load the configuration if path is provided
+    # Load the configuration if path is provided, otherwise make a deep copy of the config
     if config_path is not None:
-        config = load_config(config_path)
+        config_dict = load_config(config_path)
+    else:
+        # Make a deep copy to avoid modifying the original dictionary
+        config_dict = copy.deepcopy(config)
     
     # Determine the data directory
     if base_directory is None:
-        if "project" in config and "directories" in config["project"]:
-            base_directory = config["project"]["directories"].get("major_data_directory")
+        if "project" in config_dict and "directories" in config_dict["project"]:
+            base_directory = config_dict["project"]["directories"].get("major_data_directory")
             
         if not base_directory:
             raise ValueError(
@@ -89,7 +105,7 @@ def load_experiment_files(
     
     # Discover experiment files
     return discover_experiment_files(
-        config=config,
+        config=config_dict,
         experiment_name=experiment_name,
         base_directory=base_directory,
         pattern=pattern,
@@ -116,7 +132,7 @@ def load_dataset_files(
     
     Args:
         config_path: Path to the YAML configuration file
-        config: Pre-loaded configuration dictionary
+        config: Pre-loaded configuration dictionary (can be a Kedro-style parameters dictionary)
         dataset_name: Name of the dataset to load files for
         base_directory: Optional override for the data directory (if not specified, uses config)
         pattern: File pattern to search for in glob format (e.g., "*.csv", "data_*.pkl")
@@ -138,14 +154,17 @@ def load_dataset_files(
     if (config_path is None and config is None) or (config_path is not None and config is not None):
         raise ValueError("Exactly one of 'config_path' or 'config' must be provided")
     
-    # Load the configuration if path is provided
+    # Load the configuration if path is provided, otherwise make a deep copy of the config
     if config_path is not None:
-        config = load_config(config_path)
+        config_dict = load_config(config_path)
+    else:
+        # Make a deep copy to avoid modifying the original dictionary
+        config_dict = copy.deepcopy(config)
     
     # Determine the data directory
     if base_directory is None:
-        if "project" in config and "directories" in config["project"]:
-            base_directory = config["project"]["directories"].get("major_data_directory")
+        if "project" in config_dict and "directories" in config_dict["project"]:
+            base_directory = config_dict["project"]["directories"].get("major_data_directory")
             
         if not base_directory:
             raise ValueError(
@@ -155,7 +174,7 @@ def load_dataset_files(
     
     # Discover dataset files
     return discover_dataset_files(
-        config=config,
+        config=config_dict,
         dataset_name=dataset_name,
         base_directory=base_directory,
         pattern=pattern,
@@ -176,7 +195,7 @@ def get_experiment_parameters(
     
     Args:
         config_path: Path to the YAML configuration file
-        config: Pre-loaded configuration dictionary
+        config: Pre-loaded configuration dictionary (can be a Kedro-style parameters dictionary)
         experiment_name: Name of the experiment to get parameters for
         
     Returns:
@@ -191,12 +210,15 @@ def get_experiment_parameters(
     if (config_path is None and config is None) or (config_path is not None and config is not None):
         raise ValueError("Exactly one of 'config_path' or 'config' must be provided")
     
-    # Load the configuration if path is provided
+    # Load the configuration if path is provided, otherwise make a deep copy of the config
     if config_path is not None:
-        config = load_config(config_path)
+        config_dict = load_config(config_path)
+    else:
+        # Make a deep copy to avoid modifying the original dictionary
+        config_dict = copy.deepcopy(config)
     
     # Get experiment info
-    experiment_info = get_experiment_info(config, experiment_name)
+    experiment_info = get_experiment_info(config_dict, experiment_name)
     
     # Extract parameters
     return experiment_info.get("parameters", {})
@@ -243,3 +265,145 @@ def get_default_column_config() -> ColumnConfigDict:
     """
     # Load the default configuration
     return get_config_from_source(None)
+
+
+#
+# File and path utilities
+#
+
+def get_file_statistics(path: Union[str, Path]) -> Dict[str, Any]:
+    """
+    Get comprehensive statistics for a file.
+    
+    Args:
+        path: Path to the file
+        
+    Returns:
+        Dictionary containing file statistics (size, modification time, etc.)
+        
+    Raises:
+        FileNotFoundError: If the file doesn't exist
+    """
+    return get_file_stats(path)
+
+
+def ensure_dir_exists(path: Union[str, Path]) -> Path:
+    """
+    Ensure a directory exists, creating it if necessary.
+    
+    Args:
+        path: Directory path
+        
+    Returns:
+        Path object pointing to the directory
+    """
+    return ensure_directory_exists(path)
+
+
+def check_if_file_exists(path: Union[str, Path]) -> bool:
+    """
+    Check if a file exists.
+    
+    Args:
+        path: Path to check
+        
+    Returns:
+        True if the file exists, False otherwise
+    """
+    return check_file_exists(path)
+
+
+def get_path_relative_to(path: Union[str, Path], base_dir: Union[str, Path]) -> Path:
+    """
+    Get a path relative to a base directory.
+    
+    Args:
+        path: Path to convert
+        base_dir: Base directory
+        
+    Returns:
+        Relative path
+        
+    Raises:
+        ValueError: If the path is not within the base directory
+    """
+    return get_relative_path(path, base_dir)
+
+
+def get_path_absolute(path: Union[str, Path], base_dir: Union[str, Path]) -> Path:
+    """
+    Convert a relative path to an absolute path.
+    
+    Args:
+        path: Relative path
+        base_dir: Base directory
+        
+    Returns:
+        Absolute path
+    """
+    return get_absolute_path(path, base_dir)
+
+
+def get_common_base_dir(paths: List[Union[str, Path]]) -> Optional[Path]:
+    """
+    Find the common base directory for a list of paths.
+    
+    Args:
+        paths: List of paths to analyze
+        
+    Returns:
+        Common base directory or None if no common base can be found
+    """
+    return find_common_base_directory(paths)
+
+
+def normalize_file_path(path: Union[str, Path]) -> Path:
+    """
+    Normalize a path, resolving symlinks and removing redundant elements.
+    
+    Args:
+        path: Path to normalize
+        
+    Returns:
+        Normalized path
+    """
+    return normalize_path(path)
+
+
+def get_extension(path: Union[str, Path]) -> str:
+    """
+    Get the file extension from a path.
+    
+    Args:
+        path: Path to a file
+        
+    Returns:
+        File extension (without the dot)
+    """
+    return get_file_extension(path)
+
+
+def get_file_name(path: Union[str, Path]) -> str:
+    """
+    Get the filename without directory from a path.
+    
+    Args:
+        path: Path to a file
+        
+    Returns:
+        Filename without directory
+    """
+    return get_filename(path)
+
+
+def get_parent_dir(path: Union[str, Path]) -> Path:
+    """
+    Get the parent directory of a path.
+    
+    Args:
+        path: Path to a file or directory
+        
+    Returns:
+        Parent directory path
+    """
+    return get_parent_directory(path)

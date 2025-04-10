@@ -6,6 +6,8 @@ Utilities for collecting and working with file system metadata.
 from typing import Dict, Any, List, Union, Optional
 from pathlib import Path
 from datetime import datetime
+import os
+import stat
 
 
 def get_file_stats(path: Union[str, Path]) -> Dict[str, Any]:
@@ -16,7 +18,8 @@ def get_file_stats(path: Union[str, Path]) -> Dict[str, Any]:
         path: Path to the file
         
     Returns:
-        Dictionary with file stats (size, mtime, ctime)
+        Dictionary with comprehensive file stats including size, modification time,
+        creation time, permissions, and other metadata.
     """
     path = Path(path)
     if not path.exists():
@@ -25,8 +28,20 @@ def get_file_stats(path: Union[str, Path]) -> Dict[str, Any]:
     stats = path.stat()
     return {
         "size": stats.st_size,
+        "size_bytes": stats.st_size,  # Alias for backward compatibility
         "mtime": datetime.fromtimestamp(stats.st_mtime),
-        "ctime": datetime.fromtimestamp(stats.st_ctime)
+        "modified_time": stats.st_mtime,  # Timestamp version
+        "ctime": datetime.fromtimestamp(stats.st_ctime),
+        "created_time": stats.st_ctime,  # Timestamp version
+        "is_directory": path.is_dir(),
+        "is_file": path.is_file(),
+        "is_symlink": path.is_symlink(),
+        "filename": path.name,
+        "extension": path.suffix[1:] if path.suffix else "",
+        "permissions": stats.st_mode & 0o777,
+        "is_readable": os.access(path, os.R_OK),
+        "is_writable": os.access(path, os.W_OK),
+        "is_executable": os.access(path, os.X_OK)
     }
 
 
@@ -52,4 +67,3 @@ def attach_file_stats(
         file_path: {**metadata, **get_file_stats(file_path)}
         for file_path, metadata in file_data.items()
     }
-
