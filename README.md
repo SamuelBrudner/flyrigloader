@@ -239,6 +239,61 @@ files = load_dataset_files(
     dataset_name="my_dataset",
     extract_metadata=True
 )
+
+# Kedro-style parameters dictionaries are also supported
+kedro_params = {
+    "project": {
+        "directories": {"major_data_directory": "/path/to/data"}
+    },
+    "datasets": {
+        "my_dataset": {
+            "rig": "rig_name",
+            "dates_vials": {"2023-01-01": [1, 2, 3]}
+        }
+    },
+    "experiments": {
+        "my_experiment": {
+            "datasets": ["my_dataset"]
+        }
+    }
+}
+
+# Use pre-loaded Kedro parameters without modification
+files = load_dataset_files(
+    config=kedro_params,
+    dataset_name="my_dataset",
+    extract_metadata=True
+)
+```
+
+### Path and File Utilities
+
+The API also provides utility functions for common file and path operations:
+
+```python
+from flyrigloader.api import (
+    get_file_statistics,        # Get comprehensive file stats
+    ensure_dir_exists,          # Create directory if needed
+    check_if_file_exists,       # Check if file exists
+    get_path_relative_to,       # Get relative path with error handling
+    get_path_absolute,          # Convert to absolute path
+    get_common_base_dir         # Find common base directory for multiple paths
+)
+
+# Get comprehensive file statistics
+stats = get_file_statistics("/path/to/file.txt")
+# Result: {"size": 1024, "mtime": datetime(...), "is_readable": True, ...}
+
+# Ensure directory exists before writing
+output_dir = ensure_dir_exists("/path/to/output")
+
+# For standard path operations, use Python's pathlib directly:
+from pathlib import Path
+
+filename = Path("/path/to/file.txt").name     # Get filename
+extension = Path("/path/to/file.txt").suffix  # Get extension with dot
+parent = Path("/path/to/file.txt").parent     # Get parent directory
+resolved = Path("../file.txt").resolve()      # Normalize path
 ```
 
 See the [examples directory](examples/external_project) for a complete demonstration of integrating `flyrigloader` into an external analysis project.
