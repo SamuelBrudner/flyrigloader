@@ -1,6 +1,6 @@
 # flyrigloader
 
-A Python package for managing and controlling fly rigs for neuroscience experiments.
+A Python package for managing reading data from the opto rig.
 
 ## Project Structure
 
