@@ -184,10 +184,17 @@ class FileDiscoverer:
 
         # Filter by extensions if specified
         if extensions:
-            # Add dot prefix to extensions if not already there
-            ext_filters = [ext if ext.startswith(".") else f".{ext}" for ext in extensions]
-            # Filter files by extensions
-            filtered_files = [f for f in filtered_files if any(f.endswith(ext) for ext in ext_filters)]
+            # Normalize extensions for case-insensitive comparison and ensure dot prefix
+            ext_filters = [
+                (ext if ext.startswith(".") else f".{ext}").lower()
+                for ext in extensions
+            ]
+            # Filter files by extensions, ignoring case
+            filtered_files = [
+                f
+                for f in filtered_files
+                if any(f.lower().endswith(ext) for ext in ext_filters)
+            ]
 
         # Apply ignore patterns if specified
         if ignore_patterns:
