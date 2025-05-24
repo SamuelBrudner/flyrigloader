@@ -578,3 +578,26 @@ class TestFileDiscovery:
         # Should match and ignore files with temp or hidden anywhere in the name
         assert all("temp_smoke_2a_experiment.json" not in f for f in matched_files)
         assert all("._hidden_file.txt" not in f for f in matched_files)
+
+    def test_get_latest_file_multiple(self, tmp_path):
+        """Return the latest modified file from a list."""
+        from flyrigloader.discovery.files import get_latest_file
+        file1 = tmp_path / "file1.txt"
+        file1.write_text("a")
+        import time
+        time.sleep(0.01)
+        file2 = tmp_path / "file2.txt"
+        file2.write_text("b")
+        latest = get_latest_file([str(file1), str(file2)])
+        assert latest == str(file2)
+
+    def test_get_latest_file_single(self, tmp_path):
+        from flyrigloader.discovery.files import get_latest_file
+        file1 = tmp_path / "single.txt"
+        file1.write_text("x")
+        assert get_latest_file([str(file1)]) == str(file1)
+
+    def test_get_latest_file_empty(self):
+        from flyrigloader.discovery.files import get_latest_file
+        assert get_latest_file([]) is None
+

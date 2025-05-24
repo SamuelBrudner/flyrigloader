@@ -398,3 +398,12 @@ def discover_files(
         ignore_patterns=ignore_patterns, 
         mandatory_substrings=mandatory_substrings
     )
+
+
+def get_latest_file(files: List[str]) -> Optional[str]:
+    """Return the most recently modified file from the list."""
+    if not files:
+        return None
+
+    latest_file = max(files, key=lambda f: Path(f).stat().st_mtime)
+    return str(latest_file)
