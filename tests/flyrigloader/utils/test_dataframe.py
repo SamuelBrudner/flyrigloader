@@ -74,6 +74,7 @@ def test_build_manifest_df_with_stats():
         assert "size" in df.columns
         assert "mtime" in df.columns
         assert "ctime" in df.columns
+        assert "creation_time" in df.columns
         assert set(df["path"].tolist()) == set(temp_files)
     finally:
         # Clean up

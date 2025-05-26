@@ -24,7 +24,7 @@ def build_manifest_df(
     
     Args:
         files: Discovery results (either list of paths or dict with metadata)
-        include_stats: Whether to include file statistics (size, mtime, ctime)
+        include_stats: Whether to include file statistics (size, mtime, ctime, creation_time)
         base_directory: Optional base directory for calculating relative paths
         
     Returns:
