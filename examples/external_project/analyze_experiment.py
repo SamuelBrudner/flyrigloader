@@ -9,6 +9,14 @@ import os
 import argparse
 import pandas as pd
 from pathlib import Path
+import sys
+
+from flyrigloader import (
+    logger,
+    log_format_console,
+    log_format_file,
+    log_file_path,
+)
 
 # Import flyrigloader utilities
 from flyrigloader.config.yaml_config import load_config, get_experiment_info
@@ -22,14 +30,39 @@ def main():
     parser.add_argument('--config', type=str, required=True, help='Path to configuration file')
     parser.add_argument('--experiment', type=str, required=True, help='Name of experiment to analyze')
     parser.add_argument('--data-dir', type=str, help='Override base data directory')
+    parser.add_argument(
+        '--log-level',
+        type=str,
+        default='INFO',
+        help='Console log level (DEBUG, INFO, WARNING, ERROR, CRITICAL)'
+    )
     args = parser.parse_args()
+
+    # Reconfigure logger with user-specified console level
+    logger.remove()
+    logger.add(
+        sys.stderr,
+        level=args.log_level.upper(),
+        format=log_format_console,
+        colorize=True,
+    )
+    logger.add(
+        log_file_path,
+        rotation="10 MB",
+        retention="7 days",
+        compression="zip",
+        level="DEBUG",
+        format=log_format_file,
+        encoding="utf-8",
+    )
+    logger.debug("Debug logging enabled")
 
     # Load the configuration file
     try:
         config = load_config(args.config)
-        print(f"Loaded configuration from: {args.config}")
+        logger.info("Loaded configuration from: {}", args.config)
     except Exception as e:
-        print(f"Error loading configuration: {e}")
+        logger.error("Error loading configuration: {}", e)
         return 1
 
     # Override the data directory if specified
@@ -40,34 +73,34 @@ def main():
             base_directory = config["project"]["directories"].get("major_data_directory")
         
         if not base_directory:
-            print("Error: No data directory specified in config or command line")
+            logger.error("Error: No data directory specified in config or command line")
             return 1
 
     # Check if the experiment exists in the configuration
     try:
         experiment_info = get_experiment_info(config, args.experiment)
-        print(f"Found experiment '{args.experiment}' in configuration")
+        logger.info("Found experiment '{}' in configuration", args.experiment)
     except KeyError:
-        print(f"Error: Experiment '{args.experiment}' not found in configuration")
+        logger.error("Error: Experiment '{}' not found in configuration", args.experiment)
         return 1
 
     # Discover experiment data files
     try:
-        print(f"Searching for experiment data in: {base_directory}")
+        logger.info("Searching for experiment data in: {}", base_directory)
         csv_files = discover_experiment_files(
             config=config,
             experiment_name=args.experiment,
             base_directory=base_directory,
             extensions=["csv"]
         )
-        print(f"Found {len(csv_files)} CSV files for experiment '{args.experiment}'")
+        logger.info("Found {} CSV files for experiment '{}'", len(csv_files), args.experiment)
     except Exception as e:
-        print(f"Error discovering experiment files: {e}")
+        logger.error("Error discovering experiment files: {}", e)
         return 1
 
     # Extract and analyze data
     if not csv_files:
-        print("No data files found for analysis")
+        logger.info("No data files found for analysis")
         return 0
 
     # Print the files found
@@ -79,24 +112,23 @@ def main():
     print("\nPerforming example analysis on first file:")
     try:
         first_file = csv_files[0]
-        print(f"Loading: {first_file}")
+        logger.info("Loading: {}", first_file)
         
         # In a real analysis, you'd process all files and perform more complex operations
         df = pd.read_csv(first_file)
-        print(f"Data shape: {df.shape}")
-        print("\nData preview:")
-        print(df.head())
-        
-        print("\nBasic statistics:")
-        print(df.describe())
+        logger.info("Data shape: {}", df.shape)
+        logger.debug("\nData preview:\n{}", df.head())
+
+        logger.info("\nBasic statistics:")
+        logger.info(df.describe())
         
         # Get analysis parameters from experiment config
         if "analysis_params" in experiment_info:
-            print("\nUsing experiment-specific analysis parameters:")
+            logger.info("\nUsing experiment-specific analysis parameters:")
             for param, value in experiment_info["analysis_params"].items():
-                print(f"  {param}: {value}")
+                logger.info("  {}: {}", param, value)
     except Exception as e:
-        print(f"Error in analysis: {e}")
+        logger.error("Error in analysis: {}", e)
         return 1
 
     return 0
