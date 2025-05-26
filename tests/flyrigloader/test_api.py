@@ -9,7 +9,8 @@ import pytest
 
 from flyrigloader.api import (
     load_experiment_files,
-    load_dataset_files
+    load_dataset_files,
+    get_dataset_parameters
 )
 
 
@@ -343,3 +344,30 @@ def test_load_dataset_files_with_date_parsing(mock_config_and_discovery):
     
     # Verify result
     assert result == mock_discover_dataset_files.return_value
+
+def test_get_dataset_parameters_with_defined_params():
+    """Return dataset-specific parameters when defined."""
+    config = {
+        "datasets": {
+            "my_dataset": {
+                "parameters": {"alpha": 1, "beta": "b"}
+            }
+        }
+    }
+    result = api.get_dataset_parameters(config=config, dataset_name="my_dataset")
+    assert result == {"alpha": 1, "beta": "b"}
+
+
+def test_get_dataset_parameters_without_params():
+    """Return empty dict when dataset has no parameters."""
+    config = {"datasets": {"my_dataset": {"rig": "rig1"}}}
+    result = api.get_dataset_parameters(config=config, dataset_name="my_dataset")
+    assert result == {}
+
+
+def test_get_dataset_parameters_nonexistent_dataset():
+    """Raise KeyError when dataset is not present in config."""
+    config = {"datasets": {"other_dataset": {}}}
+    with pytest.raises(KeyError):
+        api.get_dataset_parameters(config=config, dataset_name="missing")
+
