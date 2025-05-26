@@ -15,7 +15,8 @@ from flyrigloader.config.yaml_config import (
     get_ignore_patterns,
     get_mandatory_substrings,
     get_dataset_info,
-    get_experiment_info
+    get_experiment_info,
+    get_all_experiment_names
 )
 
 
@@ -265,3 +266,19 @@ class TestYamlConfig:
         # Test with non-existent experiment - should raise KeyError
         with pytest.raises(KeyError):
             get_experiment_info(config, "non_existent_experiment")
+
+    def test_get_all_experiment_names(self, sample_config_file):
+        """Verify listing all experiment names from the config."""
+        config = load_config(sample_config_file)
+
+        experiments = get_all_experiment_names(config)
+
+        assert set(experiments) == set(config["experiments"].keys())
+
+    def test_get_all_experiment_names_no_section(self):
+        """If the config has no experiments section, an empty list is returned."""
+        config = {"project": {"directories": {"major_data_directory": "/tmp"}}}
+
+        experiments = get_all_experiment_names(config)
+
+        assert experiments == []

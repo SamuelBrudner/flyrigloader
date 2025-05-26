@@ -231,6 +231,11 @@ def get_experiment_info(
     return config["experiments"][experiment_name]
 
 
+def get_all_experiment_names(config: Dict[str, Any]) -> List[str]:
+    """Return a list of experiment names defined in the configuration."""
+    return list(config.get("experiments", {}).keys())
+
+
 def get_extraction_patterns(
     config: Dict[str, Any],
     experiment: Optional[str] = None,
