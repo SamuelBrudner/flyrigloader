@@ -3,6 +3,7 @@ Tests for API functions in the flyrigloader.api module.
 """
 
 import os
+import re
 from unittest.mock import patch, MagicMock, call
 
 import pytest
@@ -345,6 +346,17 @@ def test_load_dataset_files_with_date_parsing(mock_config_and_discovery):
     # Verify result
     assert result == mock_discover_dataset_files.return_value
 
+def test_load_dataset_files_missing_major_data_directory(sample_config_dict):
+    """Ensure ValueError if major_data_directory is missing for datasets."""
+    config = sample_config_dict.copy()
+    config["project"]["directories"].pop("major_data_directory")
+    expected_msg = (
+        "No data directory specified. Either provide base_directory parameter "
+        "or ensure 'major_data_directory' is set in config."
+    )
+    with pytest.raises(ValueError, match=re.escape(expected_msg)):
+        load_dataset_files(config=config, dataset_name="test_dataset")
+
 def test_get_dataset_parameters_with_defined_params():
     """Return dataset-specific parameters when defined."""
     config = {
@@ -370,4 +382,5 @@ def test_get_dataset_parameters_nonexistent_dataset():
     config = {"datasets": {"other_dataset": {}}}
     with pytest.raises(KeyError):
         api.get_dataset_parameters(config=config, dataset_name="missing")
+
 
