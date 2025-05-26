@@ -14,7 +14,39 @@ sys.path.insert(0, src_path)
 # --- Loguru / Caplog Integration Fixture ---
 import pytest
 import logging
-from loguru import logger
+try:
+    from loguru import logger
+except ModuleNotFoundError:  # pragma: no cover
+    class _DummyLogger:
+        def __init__(self):
+            self._logger = logging.getLogger("loguru")
+
+        def debug(self, msg, *a, **k):
+            self._logger.debug(msg, *a, **k)
+
+        def info(self, msg, *a, **k):
+            self._logger.info(msg, *a, **k)
+
+        def warning(self, msg, *a, **k):
+            self._logger.warning(msg, *a, **k)
+
+        def error(self, msg, *a, **k):
+            self._logger.error(msg, *a, **k)
+
+        def add(self, handler, format=None, level=0):
+            handler_id = id(handler)
+            setattr(handler, "_id", handler_id)
+            self._logger.setLevel(level)
+            self._logger.addHandler(handler)
+            return handler_id
+
+        def remove(self, handler_id):
+            for h in list(self._logger.handlers):
+                if getattr(h, "_id", None) == handler_id:
+                    self._logger.removeHandler(h)
+                    break
+
+    logger = _DummyLogger()
 
 @pytest.fixture(autouse=True) # Run once per function
 def capture_loguru_logs_globally(caplog):
