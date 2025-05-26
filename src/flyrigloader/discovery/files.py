@@ -35,7 +35,7 @@ class FileDiscoverer:
         Args:
             extract_patterns: Optional list of regex patterns to extract metadata from file paths
             parse_dates: If True, attempt to parse dates from filenames
-            include_stats: If True, include file statistics (size, mtime, ctime)
+            include_stats: If True, include file statistics (size, mtime, ctime, creation_time)
         """
         self.extract_patterns = extract_patterns
         self.parse_dates = parse_dates
@@ -379,7 +379,7 @@ def discover_files(
         mandatory_substrings: Optional list of substrings that must be present
         extract_patterns: Optional list of regex patterns to extract metadata
         parse_dates: If True, attempt to parse dates from filenames
-        include_stats: If True, include file statistics (size, mtime, ctime)
+        include_stats: If True, include file statistics (size, mtime, ctime, creation_time)
     
     Returns:
         If extract_patterns, parse_dates, or include_stats is used: Dictionary mapping file paths
