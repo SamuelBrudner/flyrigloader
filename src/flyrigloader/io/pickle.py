@@ -65,6 +65,7 @@ def read_pickle_any_format(path) -> Union[Dict[str, Any], pd.DataFrame]:
         with gzip.open(path, 'rb') as f:
             obj = pickle.load(f)
         logger.debug(f"Successfully loaded gzipped pickle: {path}")
+        logger.info(f"Loaded pickle using gzip: {path}")
         return obj
     except gzip.BadGzipFile as e:
         errors.append(f"Not a valid gzipped file: {e}")
@@ -80,6 +81,7 @@ def read_pickle_any_format(path) -> Union[Dict[str, Any], pd.DataFrame]:
         with open(path, 'rb') as f:
             obj = pickle.load(f)
         logger.debug(f"Successfully loaded regular pickle: {path}")
+        logger.info(f"Loaded pickle using regular pickle: {path}")
         return obj
     except pickle.UnpicklingError as e:
         errors.append(f"Invalid pickle format in regular file: {e}")
@@ -95,6 +97,7 @@ def read_pickle_any_format(path) -> Union[Dict[str, Any], pd.DataFrame]:
     try:
         obj = pd.read_pickle(path)
         logger.debug(f"Successfully loaded with pd.read_pickle: {path}")
+        logger.info(f"Loaded pickle using pandas: {path}")
         return obj
     except pickle.UnpicklingError as e:
         errors.append(f"Invalid pickle format for pandas: {e}")
