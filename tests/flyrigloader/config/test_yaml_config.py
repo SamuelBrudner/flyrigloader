@@ -139,6 +139,29 @@ class TestYamlConfig:
         minimal_config = {"project": {"directories": {"major_data_directory": "/path/to/data"}}}
         validated_minimal = validate_config_dict(minimal_config)
         assert validated_minimal == minimal_config
+
+    def test_dates_vials_validation_valid(self, sample_config_dict):
+        """dates_vials as dict with string keys and list values should pass."""
+        # Should not raise when structure is correct
+        validate_config_dict(sample_config_dict)
+
+    def test_dates_vials_as_list_errors(self, sample_config_dict):
+        """dates_vials provided as list should raise ValueError."""
+        sample_config_dict["datasets"]["no_green_light"]["dates_vials"] = [1, 2]
+        with pytest.raises(ValueError):
+            validate_config_dict(sample_config_dict)
+
+    def test_dates_vials_key_not_string_errors(self, sample_config_dict):
+        """dates_vials key that is not a string should raise ValueError."""
+        sample_config_dict["datasets"]["no_green_light"]["dates_vials"] = {123: [1]}
+        with pytest.raises(ValueError):
+            validate_config_dict(sample_config_dict)
+
+    def test_dates_vials_value_not_list_errors(self, sample_config_dict):
+        """dates_vials value that is not a list should raise ValueError."""
+        sample_config_dict["datasets"]["no_green_light"]["dates_vials"] = {"2024-12-20": "1"}
+        with pytest.raises(ValueError):
+            validate_config_dict(sample_config_dict)
     
     def test_load_config(self, sample_config_file, sample_config_dict):
         """Test basic config loading functionality."""
