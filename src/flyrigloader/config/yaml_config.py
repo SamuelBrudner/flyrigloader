@@ -34,7 +34,31 @@ def validate_config_dict(config: Dict[str, Any]) -> Dict[str, Any]:
     for section in required_sections:
         if section not in config:
             raise ValueError(f"Missing required section in configuration: {section}")
-    
+
+    # Validate dates_vials structure within datasets if present
+    if "datasets" in config:
+        datasets = config["datasets"]
+        if not isinstance(datasets, dict):
+            raise ValueError("'datasets' must be a dictionary")
+        for name, ds in datasets.items():
+            if not isinstance(ds, dict):
+                continue
+            if "dates_vials" in ds:
+                dates_vials = ds["dates_vials"]
+                if not isinstance(dates_vials, dict):
+                    raise ValueError(
+                        f"Dataset '{name}' dates_vials must be a dictionary"
+                    )
+                for key, value in dates_vials.items():
+                    if not isinstance(key, str):
+                        raise ValueError(
+                            f"Dataset '{name}' dates_vials key '{key}' must be a string"
+                        )
+                    if not isinstance(value, list):
+                        raise ValueError(
+                            f"Dataset '{name}' dates_vials value for '{key}' must be a list"
+                        )
+
     return config
 
 
@@ -207,6 +231,11 @@ def get_experiment_info(
     return config["experiments"][experiment_name]
 
 
+def get_all_experiment_names(config: Dict[str, Any]) -> List[str]:
+    """Return a list of experiment names defined in the configuration."""
+    return list(config.get("experiments", {}).keys())
+
+
 def get_extraction_patterns(
     config: Dict[str, Any],
     experiment: Optional[str] = None,
@@ -250,3 +279,15 @@ def get_extraction_patterns(
     
     # Return patterns if not empty, or None
     return patterns or None
+
+
+def get_all_dataset_names(config: Dict[str, Any]) -> List[str]:
+    """Return a list of all dataset names defined in the configuration.
+
+    Args:
+        config: The loaded configuration dictionary.
+
+    Returns:
+        List of dataset names. Returns an empty list if no datasets are defined.
+    """
+    return list(config.get("datasets", {}).keys())

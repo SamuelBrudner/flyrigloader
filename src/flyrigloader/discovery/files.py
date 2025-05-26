@@ -35,7 +35,7 @@ class FileDiscoverer:
         Args:
             extract_patterns: Optional list of regex patterns to extract metadata from file paths
             parse_dates: If True, attempt to parse dates from filenames
-            include_stats: If True, include file statistics (size, mtime, ctime)
+            include_stats: If True, include file statistics (size, mtime, ctime, creation_time)
         """
         self.extract_patterns = extract_patterns
         self.parse_dates = parse_dates
@@ -184,10 +184,17 @@ class FileDiscoverer:
 
         # Filter by extensions if specified
         if extensions:
-            # Add dot prefix to extensions if not already there
-            ext_filters = [ext if ext.startswith(".") else f".{ext}" for ext in extensions]
-            # Filter files by extensions
-            filtered_files = [f for f in filtered_files if any(f.endswith(ext) for ext in ext_filters)]
+            # Normalize extensions for case-insensitive comparison and ensure dot prefix
+            ext_filters = [
+                (ext if ext.startswith(".") else f".{ext}").lower()
+                for ext in extensions
+            ]
+            # Filter files by extensions, ignoring case
+            filtered_files = [
+                f
+                for f in filtered_files
+                if any(f.lower().endswith(ext) for ext in ext_filters)
+            ]
 
         # Apply ignore patterns if specified
         if ignore_patterns:
@@ -379,7 +386,7 @@ def discover_files(
         mandatory_substrings: Optional list of substrings that must be present
         extract_patterns: Optional list of regex patterns to extract metadata
         parse_dates: If True, attempt to parse dates from filenames
-        include_stats: If True, include file statistics (size, mtime, ctime)
+        include_stats: If True, include file statistics (size, mtime, ctime, creation_time)
     
     Returns:
         If extract_patterns, parse_dates, or include_stats is used: Dictionary mapping file paths
@@ -398,3 +405,12 @@ def discover_files(
         ignore_patterns=ignore_patterns, 
         mandatory_substrings=mandatory_substrings
     )
+
+
+def get_latest_file(files: List[str]) -> Optional[str]:
+    """Return the most recently modified file from the list."""
+    if not files:
+        return None
+
+    latest_file = max(files, key=lambda f: Path(f).stat().st_mtime)
+    return str(latest_file)

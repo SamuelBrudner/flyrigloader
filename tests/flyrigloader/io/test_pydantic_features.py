@@ -11,6 +11,7 @@ import numpy as np
 import pandas as pd
 import pytest
 import yaml
+import logging
 from pydantic import ValidationError
 
 # Import from the consolidated implementation
@@ -270,3 +271,31 @@ def test_make_dataframe_from_config_with_invalid_config():
     
     # Clean up
     os.unlink(config_path)
+
+def test_make_dataframe_skip_configured_column(sample_column_config_file, sample_exp_matrix):
+    """Column defined in config can be explicitly skipped."""
+    df = make_dataframe_from_config(sample_exp_matrix, sample_column_config_file, skip_columns=["y"])
+    assert 'y' not in df.columns
+    # Other required columns should remain
+    assert 't' in df.columns
+    assert 'x' in df.columns
+
+
+def test_make_dataframe_skip_columns_empty(sample_column_config_file, sample_exp_matrix):
+    """Default behavior with empty skip list includes all columns."""
+    df = make_dataframe_from_config(sample_exp_matrix, sample_column_config_file, skip_columns=[])
+    assert {'t', 'x', 'y'} <= set(df.columns)
+
+
+def test_make_dataframe_skip_nonexistent_column(sample_column_config_file, sample_exp_matrix):
+    """Skipping a column not present in exp_matrix should not error."""
+    df = make_dataframe_from_config(sample_exp_matrix, sample_column_config_file, skip_columns=['signal'])
+    assert 'signal' not in df.columns
+
+
+def test_make_dataframe_skip_required_column(sample_column_config_file, sample_exp_matrix, caplog):
+    """Required columns can still be skipped but log a warning."""
+    caplog.set_level(logging.WARNING)
+    df = make_dataframe_from_config(sample_exp_matrix, sample_column_config_file, skip_columns=['x'])
+    assert 'x' not in df.columns
+    assert any('Skipping required column' in rec.message for rec in caplog.records)

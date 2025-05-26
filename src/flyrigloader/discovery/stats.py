@@ -26,11 +26,16 @@ def get_file_stats(path: Union[str, Path]) -> Dict[str, Any]:
         raise FileNotFoundError(f"File not found: {path}")
         
     stats = path.stat()
+
+    # Determine creation time in a platform-independent manner
+    creation_timestamp = getattr(stats, "st_birthtime", stats.st_ctime)
+
     return {
         "size": stats.st_size,
         "size_bytes": stats.st_size,  # Alias for backward compatibility
         "mtime": datetime.fromtimestamp(stats.st_mtime),
         "modified_time": stats.st_mtime,  # Timestamp version
+        "creation_time": datetime.fromtimestamp(creation_timestamp),
         "ctime": datetime.fromtimestamp(stats.st_ctime),
         "created_time": stats.st_ctime,  # Timestamp version
         "is_directory": path.is_dir(),

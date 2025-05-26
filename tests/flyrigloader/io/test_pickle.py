@@ -175,6 +175,27 @@ def test_read_pickle_any_format_pandas(pandas_pickle_file):
     np.testing.assert_array_equal(result['x'].values, np.arange(10, 20))
 
 
+def test_read_pickle_any_format_logs_gzip(gzipped_pickle_file, caplog):
+    caplog.clear()
+    with caplog.at_level(logging.DEBUG):
+        read_pickle_any_format(gzipped_pickle_file)
+    assert any("Loaded pickle using gzip" in r.message for r in caplog.records)
+
+
+def test_read_pickle_any_format_logs_regular(regular_pickle_file, caplog):
+    caplog.clear()
+    with caplog.at_level(logging.DEBUG):
+        read_pickle_any_format(regular_pickle_file)
+    assert any("Loaded pickle using regular pickle" in r.message for r in caplog.records)
+
+
+def test_read_pickle_any_format_logs_pandas(pandas_pickle_file, caplog):
+    caplog.clear()
+    with caplog.at_level(logging.DEBUG):
+        read_pickle_any_format(pandas_pickle_file)
+    assert any("Loaded pickle using pandas" in r.message for r in caplog.records)
+
+
 def test_read_pickle_any_format_file_not_found():
     """Test that an appropriate error is raised for a non-existent file."""
     with pytest.raises(FileNotFoundError):

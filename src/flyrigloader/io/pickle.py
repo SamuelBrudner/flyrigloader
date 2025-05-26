@@ -65,6 +65,7 @@ def read_pickle_any_format(path) -> Union[Dict[str, Any], pd.DataFrame]:
         with gzip.open(path, 'rb') as f:
             obj = pickle.load(f)
         logger.debug(f"Successfully loaded gzipped pickle: {path}")
+        logger.info(f"Loaded pickle using gzip: {path}")
         return obj
     except gzip.BadGzipFile as e:
         errors.append(f"Not a valid gzipped file: {e}")
@@ -80,6 +81,7 @@ def read_pickle_any_format(path) -> Union[Dict[str, Any], pd.DataFrame]:
         with open(path, 'rb') as f:
             obj = pickle.load(f)
         logger.debug(f"Successfully loaded regular pickle: {path}")
+        logger.info(f"Loaded pickle using regular pickle: {path}")
         return obj
     except pickle.UnpicklingError as e:
         errors.append(f"Invalid pickle format in regular file: {e}")
@@ -95,6 +97,7 @@ def read_pickle_any_format(path) -> Union[Dict[str, Any], pd.DataFrame]:
     try:
         obj = pd.read_pickle(path)
         logger.debug(f"Successfully loaded with pd.read_pickle: {path}")
+        logger.info(f"Loaded pickle using pandas: {path}")
         return obj
     except pickle.UnpicklingError as e:
         errors.append(f"Invalid pickle format for pandas: {e}")
@@ -689,9 +692,10 @@ def _add_metadata_columns(df, metadata, column_config):
 
 
 def make_dataframe_from_config(
-    exp_matrix: Dict[str, Any], 
-    config_source: Union[str, Dict[str, Any], ColumnConfigDict, None] = None, 
-    metadata: Optional[Dict[str, Any]] = None
+    exp_matrix: Dict[str, Any],
+    config_source: Union[str, Dict[str, Any], ColumnConfigDict, None] = None,
+    metadata: Optional[Dict[str, Any]] = None,
+    skip_columns: Optional[List[str]] = None,
 ) -> pd.DataFrame:
     """
     Convert an exp_matrix dictionary to a DataFrame based on column configuration.
@@ -704,6 +708,7 @@ def make_dataframe_from_config(
             - A ColumnConfigDict instance
             - None (will use the default column_config.yaml)
         metadata: Optional dictionary with metadata to add to the DataFrame.
+        skip_columns: Optional list of columns to exclude from processing.
     
     Returns:
         pd.DataFrame: DataFrame containing the data with correct types.
@@ -715,14 +720,19 @@ def make_dataframe_from_config(
     """
     # Load and validate configuration
     config = get_config_from_source(config_source)
+    skip_columns = skip_columns or []
     
     # Validate required columns
-    if missing_columns := _validate_required_columns(exp_matrix, config.columns):
+    if missing_columns := _validate_required_columns(exp_matrix, config.columns, skip_columns):
         raise ValueError(f"Missing required columns: {', '.join(missing_columns)}")
     
     # Process columns
     data_dict = {}
     for col_name, col_config in config.columns.items():
+        if col_name in skip_columns:
+            if col_config.required:
+                logger.warning(f"Skipping required column '{col_name}' as requested")
+            continue
         if result := _process_column(exp_matrix, col_name, col_config, config.special_handlers):
             col_name, value = result
             data_dict[col_name] = value
@@ -740,7 +750,11 @@ def make_dataframe_from_config(
     return df
 
 
-def _validate_required_columns(exp_matrix: Dict[str, Any], columns: Dict[str, ColumnConfig]) -> List[str]:
+def _validate_required_columns(
+    exp_matrix: Dict[str, Any],
+    columns: Dict[str, ColumnConfig],
+    skip_columns: Optional[List[str]] = None,
+) -> List[str]:
     """
     Validate that all required columns are present in the exp_matrix.
     
@@ -751,10 +765,11 @@ def _validate_required_columns(exp_matrix: Dict[str, Any], columns: Dict[str, Co
     Returns:
         list: Missing required columns.
     """
+    skip_columns = skip_columns or []
     missing_columns = []
     
     for col_name, col_config in columns.items():
-        if not col_config.required or col_config.is_metadata:
+        if col_name in skip_columns or not col_config.required or col_config.is_metadata:
             continue
             
         if col_name in exp_matrix:

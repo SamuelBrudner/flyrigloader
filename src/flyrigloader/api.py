@@ -226,6 +226,25 @@ def get_experiment_parameters(
     return experiment_info.get("parameters", {})
 
 
+def get_dataset_parameters(
+    config_path: Optional[Union[str, Path]] = None,
+    config: Optional[Dict[str, Any]] = None,
+    dataset_name: str = "",
+) -> Dict[str, Any]:
+    """Get parameters for a specific dataset."""
+
+    if (config_path is None and config is None) or (config_path is not None and config is not None):
+        raise ValueError("Exactly one of 'config_path' or 'config' must be provided")
+
+    if config_path is not None:
+        config_dict = load_config(config_path)
+    else:
+        config_dict = copy.deepcopy(config)
+
+    dataset_info = get_dataset_info(config_dict, dataset_name)
+    return dataset_info.get("parameters", {})
+
+
 def process_experiment_data(
     data_path: Union[str, Path],
     column_config_path: Optional[Union[str, Path, Dict[str, Any], ColumnConfigDict]] = None,

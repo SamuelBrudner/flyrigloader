@@ -102,3 +102,9 @@ def test_loguru_imported_in_all_modules():
         logger_obj = getattr(module, "logger")
         assert str(type(logger_obj)) == "<class 'loguru._logger.Logger'>", \
                f"Logger in {module_name} is not a loguru Logger"
+
+
+def test_console_log_format_includes_module():
+    """Ensure console log format includes module name."""
+    assert "{module}" in flyrigloader.log_format_console
+
