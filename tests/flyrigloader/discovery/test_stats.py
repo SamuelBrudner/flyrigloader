@@ -44,11 +44,16 @@ def verify_file_stats(file_path: str) -> None:
     assert "size" in stats
     assert "mtime" in stats
     assert "ctime" in stats
+    assert "creation_time" in stats
 
     # Verify the values are of expected types
     assert isinstance(stats["size"], int)
     assert isinstance(stats["mtime"], datetime)
     assert isinstance(stats["ctime"], datetime)
+    assert isinstance(stats["creation_time"], datetime)
+
+    # Optional check: creation time is close to current time
+    assert abs((stats["creation_time"] - datetime.now()).total_seconds()) < 5
 
     # Verify the size is correct
     assert stats["size"] == 12  # "test content" is 12 bytes
@@ -108,6 +113,7 @@ def verify_stats_keys_in_result(result: Dict[str, Any], file_paths: List[str]) -
         assert "size" in result[file_path]
         assert "mtime" in result[file_path]
         assert "ctime" in result[file_path]
+        assert "creation_time" in result[file_path]
 
 
 def verify_all_files_have_stats(result: Dict[str, Dict[str, Any]]) -> None:
@@ -116,6 +122,7 @@ def verify_all_files_have_stats(result: Dict[str, Dict[str, Any]]) -> None:
         assert "size" in file_data
         assert "mtime" in file_data
         assert "ctime" in file_data
+        assert "creation_time" in file_data
 
 
 def verify_metadata_preserved(result: Dict[str, Dict[str, Any]], file_paths: List[str], 

@@ -41,6 +41,23 @@ class TestFileDiscovery:
             # Clean up after the test
             import shutil
             shutil.rmtree(temp_dir)
+
+    @pytest.fixture
+    def case_extension_dir(self):
+        """Create files with mixed-case extensions for case-insensitive testing."""
+        temp_dir = tempfile.mkdtemp()
+        try:
+            with open(os.path.join(temp_dir, "test.TXT"), "w") as f:
+                f.write("Upper case text")
+            with open(os.path.join(temp_dir, "data.Csv"), "w") as f:
+                f.write("Mixed case csv")
+            with open(os.path.join(temp_dir, "image.PnG"), "w") as f:
+                f.write("Mixed case png")
+
+            yield temp_dir
+        finally:
+            import shutil
+            shutil.rmtree(temp_dir)
     
     @pytest.fixture
     def nested_test_dir(self):
@@ -323,9 +340,20 @@ class TestFileDiscovery:
         # Count files by type
         csv_files = [f for f in data_files if f.endswith(".csv")]
         json_files = [f for f in data_files if f.endswith(".json")]
-        
+
         assert len(csv_files) == 3
         assert len(json_files) == 2
+
+    def test_case_insensitive_extension_filtering(self, case_extension_dir):
+        """Extensions filter should be case-insensitive."""
+        txt_files = discover_files(case_extension_dir, "*", extensions=["txt"])
+        assert len(txt_files) == 1
+        assert any(Path(f).name == "test.TXT" for f in txt_files)
+
+        other_files = discover_files(case_extension_dir, "*", extensions=["csv", "png"])
+        assert len(other_files) == 2
+        assert any(Path(f).name == "data.Csv" for f in other_files)
+        assert any(Path(f).name == "image.PnG" for f in other_files)
         
     def test_multi_directory_discovery(self, multi_dir_setup):
         """Test file discovery across multiple directories."""
@@ -578,3 +606,26 @@ class TestFileDiscovery:
         # Should match and ignore files with temp or hidden anywhere in the name
         assert all("temp_smoke_2a_experiment.json" not in f for f in matched_files)
         assert all("._hidden_file.txt" not in f for f in matched_files)
+
+    def test_get_latest_file_multiple(self, tmp_path):
+        """Return the latest modified file from a list."""
+        from flyrigloader.discovery.files import get_latest_file
+        file1 = tmp_path / "file1.txt"
+        file1.write_text("a")
+        import time
+        time.sleep(0.01)
+        file2 = tmp_path / "file2.txt"
+        file2.write_text("b")
+        latest = get_latest_file([str(file1), str(file2)])
+        assert latest == str(file2)
+
+    def test_get_latest_file_single(self, tmp_path):
+        from flyrigloader.discovery.files import get_latest_file
+        file1 = tmp_path / "single.txt"
+        file1.write_text("x")
+        assert get_latest_file([str(file1)]) == str(file1)
+
+    def test_get_latest_file_empty(self):
+        from flyrigloader.discovery.files import get_latest_file
+        assert get_latest_file([]) is None
+
