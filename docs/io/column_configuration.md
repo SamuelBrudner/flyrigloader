@@ -150,6 +150,30 @@ The following special handlers are available:
 
 You can define your own special handlers by adding them to the `special_handlers` section of your configuration and implementing the corresponding function.
 
+When `make_dataframe_from_config` loads your YAML configuration, each entry in `special_handlers` maps a handler key to a Python function name. The function must be importable by `flyrigloader.io.pickle` and will be called whenever a column references that handler type.
+
+For example, your configuration might include:
+
+```yaml
+special_handlers:
+  my_custom_handler: _my_function
+```
+
+To use this handler you must define a function named `_my_function` that is accessible when `pickle.py` is imported. The function can either accept the entire `exp_matrix` and column name or just the current value, and it should return the processed value.
+
+```python
+def _my_function(exp_matrix, col_name):
+    # access exp_matrix[col_name] and return the new value
+    ...
+
+# or for a simple value-based handler
+def _my_function(value):
+    # transform value and return it
+    ...
+```
+
+If you place the implementation in another module, make sure it is imported in `pickle.py` so that the function can be resolved by name.
+
 ## Template Configuration
 
 A complete template configuration is provided in `src/flyrigloader/io/pydantic_column_config.yaml` which includes:
