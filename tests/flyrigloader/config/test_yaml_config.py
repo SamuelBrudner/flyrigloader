@@ -16,7 +16,9 @@ from flyrigloader.config.yaml_config import (
     get_mandatory_substrings,
     get_dataset_info,
     get_experiment_info,
+    get_all_dataset_names
     get_all_experiment_names
+
 )
 
 
@@ -267,6 +269,22 @@ class TestYamlConfig:
         with pytest.raises(KeyError):
             get_experiment_info(config, "non_existent_experiment")
 
+    def test_get_all_dataset_names(self, sample_config_file):
+        """Return all dataset names defined in the configuration."""
+        config = load_config(sample_config_file)
+
+        dataset_names = get_all_dataset_names(config)
+
+        assert set(dataset_names) == set(config["datasets"].keys())
+
+    def test_get_all_dataset_names_no_section(self):
+        """Return empty list when no datasets section exists."""
+        config = {"project": {}}
+
+        dataset_names = get_all_dataset_names(config)
+
+        assert dataset_names == []
+
     def test_get_all_experiment_names(self, sample_config_file):
         """Verify listing all experiment names from the config."""
         config = load_config(sample_config_file)
@@ -282,3 +300,4 @@ class TestYamlConfig:
         experiments = get_all_experiment_names(config)
 
         assert experiments == []
+

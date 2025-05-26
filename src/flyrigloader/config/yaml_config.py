@@ -279,3 +279,15 @@ def get_extraction_patterns(
     
     # Return patterns if not empty, or None
     return patterns or None
+
+
+def get_all_dataset_names(config: Dict[str, Any]) -> List[str]:
+    """Return a list of all dataset names defined in the configuration.
+
+    Args:
+        config: The loaded configuration dictionary.
+
+    Returns:
+        List of dataset names. Returns an empty list if no datasets are defined.
+    """
+    return list(config.get("datasets", {}).keys())
