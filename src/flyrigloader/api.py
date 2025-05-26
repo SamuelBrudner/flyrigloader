@@ -8,6 +8,28 @@ from pathlib import Path
 import copy
 from typing import Dict, List, Any, Optional, Union
 
+
+MISSING_DATA_DIR_ERROR = (
+    "No data directory specified. Either provide base_directory parameter "
+    "or ensure 'major_data_directory' is set in config."
+)
+
+
+def _resolve_base_directory(
+    config: Dict[str, Any], base_directory: Optional[Union[str, Path]]
+) -> Union[str, Path]:
+    """Return the resolved base directory or raise ValueError."""
+    if base_directory is None:
+        base_directory = (
+            config.get("project", {})
+            .get("directories", {})
+            .get("major_data_directory")
+        )
+
+    if not base_directory:
+        raise ValueError(MISSING_DATA_DIR_ERROR)
+    return base_directory
+
 from flyrigloader.config.yaml_config import (
     load_config,
     get_ignore_patterns,
@@ -89,15 +111,7 @@ def load_experiment_files(
         config_dict = copy.deepcopy(config)
     
     # Determine the data directory
-    if base_directory is None:
-        if "project" in config_dict and "directories" in config_dict["project"]:
-            base_directory = config_dict["project"]["directories"].get("major_data_directory")
-            
-        if not base_directory:
-            raise ValueError(
-                "No data directory specified. Either provide base_directory parameter "
-                "or ensure 'major_data_directory' is set in config."
-            )
+    base_directory = _resolve_base_directory(config_dict, base_directory)
     
     # Discover experiment files
     return discover_experiment_files(
@@ -158,15 +172,7 @@ def load_dataset_files(
         config_dict = copy.deepcopy(config)
     
     # Determine the data directory
-    if base_directory is None:
-        if "project" in config_dict and "directories" in config_dict["project"]:
-            base_directory = config_dict["project"]["directories"].get("major_data_directory")
-            
-        if not base_directory:
-            raise ValueError(
-                "No data directory specified. Either provide base_directory parameter "
-                "or ensure 'major_data_directory' is set in config."
-            )
+    base_directory = _resolve_base_directory(config_dict, base_directory)
     
     # Discover dataset files
     return discover_dataset_files(
