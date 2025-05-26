@@ -346,8 +346,8 @@ def test_load_dataset_files_with_date_parsing(mock_config_and_discovery):
     assert result == mock_discover_dataset_files.return_value
 
 
-def test_load_experiment_files_missing_major_data_directory(sample_config_dict):
-    """Ensure ValueError if major_data_directory is missing."""
+def _test_missing_major_data_directory(helper_function, sample_config_dict, **kwargs):
+    """Helper function to test missing major_data_directory."""
     config = sample_config_dict.copy()
     config["project"]["directories"].pop("major_data_directory")
     expected_msg = (
