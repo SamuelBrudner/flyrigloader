@@ -411,4 +411,4 @@ The project is developed using:
 
 ## License
 
-MIT
+Released under the MIT License.
