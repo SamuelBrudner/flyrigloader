@@ -22,7 +22,7 @@ df = make_dataframe_from_config(
 )
 ```
 
-See the template configuration file in `src/flyrigloader/io/pydantic_column_config.yaml` for a comprehensive example with all available options. You can copy this file and modify it for your specific needs.
+See the template configuration file in `src/flyrigloader/io/column_config.yaml` for a comprehensive example with all available options. You can copy this file and modify it for your specific needs.
 
 ### 2. Using a Dictionary Configuration
 
@@ -107,14 +107,14 @@ from flyrigloader.io.pickle import make_dataframe_from_config
 # Load experimental data
 exp_matrix = {...}  # Your experimental data dictionary with required columns
 
-# Create DataFrame using the default configuration (pydantic_column_config.yaml)
+# Create DataFrame using the default configuration (column_config.yaml)
 df = make_dataframe_from_config(
     exp_matrix=exp_matrix,
     metadata={"date": "2025-04-01"}
 )
 ```
 
-The default configuration is located at `src/flyrigloader/io/pydantic_column_config.yaml` and can be accessed programmatically:
+The default configuration is located at `src/flyrigloader/io/column_config.yaml` and can be accessed programmatically:
 
 ```python
 from flyrigloader.io.column_models import get_default_config_path
@@ -176,7 +176,7 @@ If you place the implementation in another module, make sure it is imported in `
 
 ## Template Configuration
 
-A complete template configuration is provided in `src/flyrigloader/io/pydantic_column_config.yaml` which includes:
+A complete template configuration is provided in `src/flyrigloader/io/column_config.yaml` which includes:
 
 - All available configuration options with explanatory comments
 - Examples of required columns, optional columns, and metadata
