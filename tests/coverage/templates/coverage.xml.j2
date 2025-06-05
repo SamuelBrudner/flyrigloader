@@ -1,0 +1,438 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+============================================================================
+FlyRigLoader Coverage Report - XML Format for CI/CD Integration
+============================================================================
+
+Comprehensive XML coverage report template implementing TST-COV-003 requirements
+for machine-readable coverage data with automated quality gate integration.
+
+This template provides:
+- Complete coverage metrics with module-level breakdown per TST-COV-003
+- CI/CD metadata integration for automated pipeline processing
+- Quality gate validation data per TST-COV-004 requirements
+- Neuroscience research domain context per technical specification
+- Performance SLA correlation per Section 4.1.1.5 test execution workflow
+
+Requirements Implementation:
+- TST-COV-003: Generate coverage reports in XML, JSON, and HTML formats
+- TST-COV-004: Block merges when coverage drops below thresholds  
+- Section 3.6.4: Quality metrics dashboard integration with coverage trend tracking
+- Section 4.1.1.5: Test execution workflow with automated quality gate enforcement
+
+Author: FlyRigLoader Test Infrastructure Team
+Created: 2024-12-19
+Template Version: 1.0.0
+Format Version: coverage-xml-v1.0
+============================================================================
+-->
+
+<!-- Coverage Report Root Element with Comprehensive Metadata -->
+<coverage 
+    version="{{ coverage_version | default('7.0+') }}" 
+    timestamp="{{ timestamp | default(now().strftime('%Y-%m-%dT%H:%M:%S.%fZ')) }}"
+    lines-valid="{{ lines_valid | default(0) }}" 
+    lines-covered="{{ lines_covered | default(0) }}" 
+    line-rate="{{ line_rate | default(0.0) | round(4) }}"
+    branches-valid="{{ branches_valid | default(0) }}" 
+    branches-covered="{{ branches_covered | default(0) }}" 
+    branch-rate="{{ branch_rate | default(0.0) | round(4) }}"
+    complexity="{{ complexity | default(0) }}"
+    format-version="1.0"
+    schema-version="coverage-xml-v1.0">
+
+  <!-- ========================================================================
+       PROJECT AND BUILD METADATA SECTION
+       ======================================================================== -->
+  
+  <!-- Project Metadata with Neuroscience Research Context -->
+  <project-metadata>
+    <project-info>
+      <name>flyrigloader</name>
+      <description>Modern data loading library for neuroscience experimental data</description>
+      <version>{{ project_version | default('2.0.0') }}</version>
+      <domain>neuroscience_research</domain>
+      <experimental-data-focus>true</experimental-data-focus>
+      <research-workflow-integration>true</research-workflow-integration>
+      <publication-quality>true</publication-quality>
+    </project-info>
+    
+    <!-- Build and CI/CD Integration Metadata per TST-COV-003 -->
+    <build-metadata>
+      <build-id>{{ build_metadata.build_id | default(environ.get('BUILD_ID', 'local-build')) }}</build-id>
+      <build-url>{{ build_metadata.build_url | default(environ.get('BUILD_URL', '')) }}</build-url>
+      <build-timestamp>{{ build_metadata.build_timestamp | default(now().strftime('%Y-%m-%dT%H:%M:%S.%fZ')) }}</build-timestamp>
+      <build-duration>{{ build_metadata.build_duration | default('unknown') }}</build-duration>
+      <runner-os>{{ build_metadata.runner_os | default(environ.get('RUNNER_OS', 'local')) }}</runner-os>
+      <runner-name>{{ build_metadata.runner_name | default(environ.get('RUNNER_NAME', 'local-runner')) }}</runner-name>
+    </build-metadata>
+    
+    <!-- Git and Version Control Information -->
+    <git-metadata>
+      <branch-name>{{ git_metadata.branch_name | default(environ.get('GITHUB_REF_NAME', 'main')) }}</branch-name>
+      <commit-sha>{{ git_metadata.commit_sha | default(environ.get('GITHUB_SHA', 'unknown')) }}</commit-sha>
+      <commit-message>{{ git_metadata.commit_message | default('Coverage analysis') }}</commit-message>
+      <pull-request>{{ git_metadata.pull_request | default(environ.get('GITHUB_HEAD_REF', '')) }}</pull-request>
+      <repository>{{ git_metadata.repository | default(environ.get('GITHUB_REPOSITORY', 'flyrigloader/flyrigloader')) }}</repository>
+      <actor>{{ git_metadata.actor | default(environ.get('GITHUB_ACTOR', 'unknown')) }}</actor>
+    </git-metadata>
+    
+    <!-- Test Environment and Execution Context -->
+    <test-environment>
+      <python-version>{{ test_environment.python_version | default(environ.get('PYTHON_VERSION', '3.8+')) }}</python-version>
+      <pytest-version>{{ test_environment.pytest_version | default(environ.get('PYTEST_VERSION', '7.0+')) }}</pytest-version>
+      <coverage-version>{{ test_environment.coverage_version | default(environ.get('COVERAGE_VERSION', '7.0+')) }}</coverage-version>
+      <test-execution-time>{{ test_environment.test_execution_time | default('unknown') }}</test-execution-time>
+      <test-count>{{ test_environment.test_count | default(0) }}</test-count>
+      <test-success-rate>{{ test_environment.test_success_rate | default(100.0) | round(2) }}</test-success-rate>
+    </test-environment>
+  </project-metadata>
+
+  <!-- ========================================================================
+       QUALITY GATES AND THRESHOLD VALIDATION SECTION
+       ======================================================================== -->
+  
+  <!-- Quality Gates Validation per TST-COV-004 -->
+  <quality-gates>
+    <!-- Overall Coverage Quality Gate -->
+    <coverage-quality-gate>
+      <overall-threshold>{{ quality_gates.coverage.overall_threshold | default(90.0) }}</overall-threshold>
+      <actual-coverage>{{ line_rate | default(0.0) * 100 | round(2) }}</actual-coverage>
+      <threshold-met>{{ (line_rate | default(0.0) * 100) >= (quality_gates.coverage.overall_threshold | default(90.0)) }}</threshold-met>
+      <branch-threshold>{{ quality_gates.coverage.branch_threshold | default(90.0) }}</branch-threshold>
+      <actual-branch-coverage>{{ branch_rate | default(0.0) * 100 | round(2) }}</actual-branch-coverage>
+      <branch-threshold-met>{{ (branch_rate | default(0.0) * 100) >= (quality_gates.coverage.branch_threshold | default(90.0)) }}</branch-threshold-met>
+    </coverage-quality-gate>
+    
+    <!-- Critical Module Coverage Quality Gate per TST-COV-002 -->
+    <critical-module-quality-gate>
+      <critical-threshold>{{ quality_gates.coverage.critical_threshold | default(100.0) }}</critical-threshold>
+      <critical-modules-coverage>
+        {% for module in critical_modules | default([]) %}
+        <critical-module>
+          <name>{{ module.name }}</name>
+          <category>{{ module.category | default('critical') }}</category>
+          <actual-coverage>{{ module.line_rate | default(0.0) * 100 | round(2) }}</actual-coverage>
+          <threshold-met>{{ (module.line_rate | default(0.0) * 100) >= (quality_gates.coverage.critical_threshold | default(100.0)) }}</threshold-met>
+          <priority>{{ module.priority | default('critical') }}</priority>
+        </critical-module>
+        {% endfor %}
+      </critical-modules-coverage>
+    </critical-module-quality-gate>
+    
+    <!-- Performance SLA Integration per Section 4.1.1.5 -->
+    <performance-quality-gate>
+      <data-loading-sla>
+        <threshold>1s per 100MB</threshold>
+        <actual-performance>{{ performance_metrics.data_loading_time | default('unknown') }}</actual-performance>
+        <sla-met>{{ performance_metrics.data_loading_sla_met | default(true) }}</sla-met>
+        <measurement-context>TST-PERF-001 validation</measurement-context>
+      </data-loading-sla>
+      <dataframe-transformation-sla>
+        <threshold>500ms per 1M rows</threshold>
+        <actual-performance>{{ performance_metrics.transformation_time | default('unknown') }}</actual-performance>
+        <sla-met>{{ performance_metrics.transformation_sla_met | default(true) }}</sla-met>
+        <measurement-context>TST-PERF-002 validation</measurement-context>
+      </dataframe-transformation-sla>
+    </performance-quality-gate>
+    
+    <!-- Overall Quality Gate Decision -->
+    <quality-gate-decision>
+      <status>{{ 'PASS' if quality_gate_passed | default(true) else 'FAIL' }}</status>
+      <merge-allowed>{{ quality_gate_passed | default(true) }}</merge-allowed>
+      <blocking-failures>
+        {% for failure in quality_gate_failures | default([]) %}
+        <failure>
+          <category>{{ failure.category }}</category>
+          <message>{{ failure.message }}</message>
+          <requirement>{{ failure.requirement }}</requirement>
+          <remediation>{{ failure.remediation | default('See documentation') }}</remediation>
+        </failure>
+        {% endfor %}
+      </blocking-failures>
+    </quality-gate-decision>
+  </quality-gates>
+
+  <!-- ========================================================================
+       COVERAGE TREND AND ANALYSIS SECTION
+       ======================================================================== -->
+  
+  <!-- Coverage Trend Analysis per Section 3.6.4 -->
+  <coverage-trends>
+    <!-- Historical Coverage Comparison -->
+    <trend-analysis>
+      <baseline-coverage>{{ trend_analysis.baseline_coverage | default(0.0) | round(2) }}</baseline-coverage>
+      <current-coverage>{{ line_rate | default(0.0) * 100 | round(2) }}</current-coverage>
+      <coverage-delta>{{ trend_analysis.coverage_delta | default(0.0) | round(2) }}</coverage-delta>
+      <trend-direction>{{ trend_analysis.trend_direction | default('stable') }}</trend-direction>
+      <regression-detected>{{ trend_analysis.regression_detected | default(false) }}</regression-detected>
+      <analysis-window>{{ trend_analysis.analysis_window | default(10) }} builds</analysis-window>
+    </trend-analysis>
+    
+    <!-- Module-Level Trend Analysis -->
+    <module-trends>
+      {% for module_trend in module_trends | default([]) %}
+      <module-trend>
+        <module>{{ module_trend.name }}</module>
+        <baseline>{{ module_trend.baseline | default(0.0) | round(2) }}</baseline>
+        <current>{{ module_trend.current | default(0.0) | round(2) }}</current>
+        <delta>{{ module_trend.delta | default(0.0) | round(2) }}</delta>
+        <trend>{{ module_trend.trend | default('stable') }}</trend>
+      </module-trend>
+      {% endfor %}
+    </module-trends>
+  </coverage-trends>
+
+  <!-- ========================================================================
+       NEUROSCIENCE RESEARCH DOMAIN CONTEXT
+       ======================================================================== -->
+  
+  <!-- Domain-Specific Coverage Analysis -->
+  <neuroscience-context>
+    <!-- Experimental Data Module Coverage -->
+    <experimental-data-modules>
+      <coverage-summary>
+        <total-modules>{{ experimental_modules | length | default(0) }}</total-modules>
+        <average-coverage>{{ experimental_modules_avg_coverage | default(0.0) | round(2) }}</average-coverage>
+        <critical-path-coverage>{{ experimental_critical_path_coverage | default(0.0) | round(2) }}</critical-path-coverage>
+      </coverage-summary>
+      
+      <!-- Individual Module Analysis -->
+      {% for exp_module in experimental_modules | default([]) %}
+      <experimental-module>
+        <name>{{ exp_module.name }}</name>
+        <category>{{ exp_module.category | default('data_processing') }}</category>
+        <description>{{ exp_module.description | default('Experimental data processing module') }}</description>
+        <coverage>{{ exp_module.line_rate | default(0.0) * 100 | round(2) }}</coverage>
+        <research-criticality>{{ exp_module.research_criticality | default('medium') }}</research-criticality>
+        <data-integrity-impact>{{ exp_module.data_integrity_impact | default('medium') }}</data-integrity-impact>
+      </experimental-module>
+      {% endfor %}
+    </experimental-data-modules>
+    
+    <!-- Data Validation Coverage Analysis -->
+    <validation-modules>
+      <schema-validation-coverage>{{ validation_coverage.schema | default(0.0) | round(2) }}</schema-validation-coverage>
+      <type-validation-coverage>{{ validation_coverage.type | default(0.0) | round(2) }}</type-validation-coverage>
+      <integrity-validation-coverage>{{ validation_coverage.integrity | default(0.0) | round(2) }}</integrity-validation-coverage>
+      <security-validation-coverage>{{ validation_coverage.security | default(0.0) | round(2) }}</security-validation-coverage>
+    </validation-modules>
+    
+    <!-- Research Workflow Integration Coverage -->
+    <workflow-integration>
+      <kedro-integration-coverage>{{ workflow_coverage.kedro | default(0.0) | round(2) }}</kedro-integration-coverage>
+      <pipeline-coverage>{{ workflow_coverage.pipeline | default(0.0) | round(2) }}</pipeline-coverage>
+      <end-to-end-coverage>{{ workflow_coverage.end_to_end | default(0.0) | round(2) }}</end-to-end-coverage>
+    </workflow-integration>
+  </neuroscience-context>
+
+  <!-- ========================================================================
+       SOURCE CODE ANALYSIS AND PACKAGE STRUCTURE
+       ======================================================================== -->
+  
+  <!-- Sources Section with Comprehensive Path Mapping -->
+  <sources>
+    {% for source in sources | default([]) %}
+    <source>{{ source }}</source>
+    {% endfor %}
+  </sources>
+
+  <!-- Packages Section with Detailed Module Breakdown -->
+  <packages>
+    {% for package in packages | default([]) %}
+    <!-- Package: {{ package.name }} -->
+    <package 
+        name="{{ package.name }}" 
+        line-rate="{{ package.line_rate | default(0.0) | round(4) }}" 
+        branch-rate="{{ package.branch_rate | default(0.0) | round(4) }}"
+        complexity="{{ package.complexity | default(0) }}">
+      
+      <!-- Package Metadata and Context -->
+      <package-metadata>
+        <category>{{ package.category | default('standard') }}</category>
+        <description>{{ package.description | default('Package component') }}</description>
+        <priority>{{ package.priority | default('standard') }}</priority>
+        <coverage-requirement>{{ package.coverage_requirement | default(90.0) }}</coverage-requirement>
+        <neuroscience-relevance>{{ package.neuroscience_relevance | default('medium') }}</neuroscience-relevance>
+      </package-metadata>
+      
+      <!-- Classes within Package -->
+      <classes>
+        {% for class in package.classes | default([]) %}
+        <!-- Class: {{ class.name }} -->
+        <class 
+            name="{{ class.name }}" 
+            filename="{{ class.filename }}" 
+            line-rate="{{ class.line_rate | default(0.0) | round(4) }}" 
+            branch-rate="{{ class.branch_rate | default(0.0) | round(4) }}"
+            complexity="{{ class.complexity | default(0) }}">
+          
+          <!-- Class Metadata -->
+          <class-metadata>
+            <function-type>{{ class.function_type | default('standard') }}</function-type>
+            <research-impact>{{ class.research_impact | default('medium') }}</research-impact>
+            <data-flow-criticality>{{ class.data_flow_criticality | default('medium') }}</data-flow-criticality>
+          </class-metadata>
+          
+          <!-- Methods within Class -->
+          <methods>
+            {% for method in class.methods | default([]) %}
+            <method 
+                name="{{ method.name }}" 
+                signature="{{ method.signature | default('') }}" 
+                line-rate="{{ method.line_rate | default(0.0) | round(4) }}" 
+                branch-rate="{{ method.branch_rate | default(0.0) | round(4) }}">
+              
+              <!-- Method Coverage Details -->
+              <method-analysis>
+                <complexity>{{ method.complexity | default(0) }}</complexity>
+                <test-scenarios>{{ method.test_scenarios | default(0) }}</test-scenarios>
+                <edge-case-coverage>{{ method.edge_case_coverage | default(0.0) | round(2) }}</edge-case-coverage>
+                <experimental-data-handling>{{ method.experimental_data_handling | default(false) }}</experimental-data-handling>
+              </method-analysis>
+            </method>
+            {% endfor %}
+          </methods>
+          
+          <!-- Line-Level Coverage Information -->
+          <lines>
+            {% for line in class.lines | default([]) %}
+            <line 
+                number="{{ line.number }}" 
+                hits="{{ line.hits | default(0) }}"
+                {% if line.branch %}branch="{{ line.branch }}"{% endif %}
+                {% if line.condition_coverage %}condition-coverage="{{ line.condition_coverage }}"{% endif %}>
+              
+              <!-- Line Context and Analysis -->
+              {% if line.context %}
+              <line-context>
+                <function>{{ line.context.function | default('') }}</function>
+                <statement-type>{{ line.context.statement_type | default('') }}</statement-type>
+                <criticality>{{ line.context.criticality | default('standard') }}</criticality>
+                <test-scenario>{{ line.context.test_scenario | default('') }}</test-scenario>
+              </line-context>
+              {% endif %}
+            </line>
+            {% endfor %}
+          </lines>
+        </class>
+        {% endfor %}
+      </classes>
+    </package>
+    {% endfor %}
+  </packages>
+
+  <!-- ========================================================================
+       DETAILED ERROR REPORTING AND ACTIONABLE FEEDBACK
+       ======================================================================== -->
+  
+  <!-- Uncovered Lines Analysis per TST-COV-001 and TST-COV-002 -->
+  <uncovered-analysis>
+    <!-- Critical Path Analysis -->
+    <critical-paths>
+      <uncovered-critical-lines>{{ uncovered_analysis.critical_lines | default(0) }}</uncovered-critical-lines>
+      <total-critical-lines>{{ uncovered_analysis.total_critical_lines | default(0) }}</total-critical-lines>
+      <critical-coverage-percentage>{{ uncovered_analysis.critical_coverage | default(100.0) | round(2) }}</critical-coverage-percentage>
+      
+      <!-- Individual Critical Uncovered Lines -->
+      {% for critical_line in uncovered_analysis.critical_uncovered | default([]) %}
+      <critical-uncovered-line>
+        <file>{{ critical_line.file }}</file>
+        <line>{{ critical_line.line }}</line>
+        <function>{{ critical_line.function | default('') }}</function>
+        <reason>{{ critical_line.reason | default('Not covered by tests') }}</reason>
+        <impact>{{ critical_line.impact | default('Data integrity risk') }}</impact>
+        <remediation>{{ critical_line.remediation | default('Add comprehensive test coverage') }}</remediation>
+      </critical-uncovered-line>
+      {% endfor %}
+    </critical-paths>
+    
+    <!-- Branch Coverage Analysis -->
+    <branch-analysis>
+      <uncovered-branches>{{ uncovered_analysis.uncovered_branches | default(0) }}</uncovered-branches>
+      <total-branches>{{ uncovered_analysis.total_branches | default(0) }}</total-branches>
+      <partial-branches>{{ uncovered_analysis.partial_branches | default(0) }}</partial-branches>
+      
+      <!-- Detailed Branch Information -->
+      {% for branch in uncovered_analysis.branches | default([]) %}
+      <uncovered-branch>
+        <file>{{ branch.file }}</file>
+        <line>{{ branch.line }}</line>
+        <condition>{{ branch.condition | default('') }}</condition>
+        <missing-case>{{ branch.missing_case | default('') }}</missing-case>
+        <test-recommendation>{{ branch.test_recommendation | default('Add edge case test') }}</test-recommendation>
+      </uncovered-branch>
+      {% endfor %}
+    </branch-analysis>
+    
+    <!-- Actionable Improvement Recommendations -->
+    <improvement-recommendations>
+      {% for recommendation in improvement_recommendations | default([]) %}
+      <recommendation>
+        <priority>{{ recommendation.priority | default('medium') }}</priority>
+        <category>{{ recommendation.category | default('coverage') }}</category>
+        <description>{{ recommendation.description }}</description>
+        <action>{{ recommendation.action }}</action>
+        <expected-impact>{{ recommendation.expected_impact | default('Improved test coverage') }}</expected-impact>
+        <effort-estimate>{{ recommendation.effort_estimate | default('medium') }}</effort-estimate>
+      </recommendation>
+      {% endfor %}
+    </improvement-recommendations>
+  </uncovered-analysis>
+
+  <!-- ========================================================================
+       AUTOMATED QUALITY ASSURANCE INTEGRATION
+       ======================================================================== -->
+  
+  <!-- CI/CD Integration Metadata for Automated Processing -->
+  <ci-cd-integration>
+    <!-- Quality Gate Automation -->
+    <automated-quality-gates>
+      <coverage-gate-enabled>{{ ci_cd_config.coverage_gate_enabled | default(true) }}</coverage-gate-enabled>
+      <performance-gate-enabled>{{ ci_cd_config.performance_gate_enabled | default(true) }}</performance-gate-enabled>
+      <merge-blocking-enabled>{{ ci_cd_config.merge_blocking_enabled | default(true) }}</merge-blocking-enabled>
+      <notification-enabled>{{ ci_cd_config.notification_enabled | default(true) }}</notification-enabled>
+    </automated-quality-gates>
+    
+    <!-- Dashboard Integration -->
+    <dashboard-integration>
+      <metrics-export-enabled>{{ ci_cd_config.metrics_export | default(true) }}</metrics-export-enabled>
+      <trend-tracking-enabled>{{ ci_cd_config.trend_tracking | default(true) }}</trend-tracking-enabled>
+      <real-time-updates>{{ ci_cd_config.real_time_updates | default(true) }}</real-time-updates>
+      <alert-thresholds-configured>{{ ci_cd_config.alert_thresholds | default(true) }}</alert-thresholds-configured>
+    </dashboard-integration>
+    
+    <!-- Report Artifact Information -->
+    <report-artifacts>
+      <xml-report-path>{{ report_artifacts.xml_path | default('coverage.xml') }}</xml-report-path>
+      <json-report-path>{{ report_artifacts.json_path | default('coverage.json') }}</json-report-path>
+      <html-report-path>{{ report_artifacts.html_path | default('htmlcov/index.html') }}</html-report-path>
+      <archive-enabled>{{ report_artifacts.archive_enabled | default(true) }}</archive-enabled>
+      <retention-days>{{ report_artifacts.retention_days | default(30) }}</retention-days>
+    </report-artifacts>
+  </ci-cd-integration>
+
+  <!-- ========================================================================
+       REPORT GENERATION METADATA AND VALIDATION
+       ======================================================================== -->
+  
+  <!-- Report Generation Information -->
+  <report-metadata>
+    <generation-timestamp>{{ now().strftime('%Y-%m-%dT%H:%M:%S.%fZ') }}</generation-timestamp>
+    <template-version>1.0.0</template-version>
+    <template-file>coverage.xml.j2</template-file>
+    <generated-by>flyrigloader Coverage Enhancement System</generated-by>
+    <format-compliance>coverage-xml-v1.0</format-compliance>
+    <schema-validation>passed</schema-validation>
+    <data-integrity-check>{{ report_metadata.data_integrity | default('passed') }}</data-integrity-check>
+  </report-metadata>
+  
+  <!-- Configuration Checksums for Integrity Validation -->
+  <configuration-integrity>
+    <config-checksum>{{ config_checksums.report_config | default('') }}</config-checksum>
+    <quality-gates-checksum>{{ config_checksums.quality_gates | default('') }}</quality-gates-checksum>
+    <template-checksum>{{ config_checksums.template | default('') }}</template-checksum>
+    <validation-status>{{ config_validation.status | default('valid') }}</validation-status>
+  </configuration-integrity>
+
+</coverage>

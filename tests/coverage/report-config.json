@@ -1,0 +1,328 @@
+{
+  "metadata": {
+    "project_name": "flyrigloader",
+    "project_description": "Modern data loading library for neuroscience experimental data",
+    "domain": "neuroscience_research",
+    "version": "2.0.0",
+    "generated_by": "flyrigloader Coverage Enhancement System",
+    "last_updated": "2024-06-05T00:00:00Z",
+    "documentation_url": "https://github.com/flyrigloader/flyrigloader",
+    "contact": "team@research.org"
+  },
+  "coverage_thresholds": {
+    "overall_minimum": 90,
+    "critical_modules_minimum": 100,
+    "branch_coverage_required": true,
+    "fail_under_threshold": true,
+    "critical_modules": [
+      "src/flyrigloader/api.py",
+      "src/flyrigloader/config/",
+      "src/flyrigloader/discovery/",
+      "src/flyrigloader/io/"
+    ]
+  },
+  "html_report": {
+    "enabled": true,
+    "output_directory": "htmlcov",
+    "title": "FlyRigLoader Coverage Report - Neuroscience Data Loading Library",
+    "custom_css": true,
+    "template_directory": "tests/coverage/templates",
+    "templates": {
+      "index": "index.html.j2",
+      "module": "module.html.j2",
+      "pyfile": "pyfile.html.j2",
+      "style": "style.css.j2"
+    },
+    "branding": {
+      "logo_url": null,
+      "primary_color": "#2E8B57",
+      "secondary_color": "#4682B4",
+      "accent_color": "#FFB347",
+      "background_color": "#F8F9FA",
+      "text_color": "#343A40",
+      "header_background": "#1F4E79",
+      "success_color": "#28A745",
+      "warning_color": "#FFC107",
+      "danger_color": "#DC3545"
+    },
+    "features": {
+      "source_highlighting": true,
+      "syntax_highlighting_language": "python",
+      "interactive_navigation": true,
+      "responsive_design": true,
+      "module_grouping": true,
+      "coverage_visualization": true,
+      "branch_coverage_display": true,
+      "uncovered_line_highlighting": true,
+      "function_level_coverage": true,
+      "class_level_coverage": true,
+      "search_functionality": true,
+      "filtering_options": true,
+      "trend_charts": true,
+      "performance_correlation": true
+    },
+    "module_organization": {
+      "api": {
+        "category": "Core API",
+        "description": "High-level facade for data loading operations",
+        "priority": "critical",
+        "coverage_requirement": 100
+      },
+      "config": {
+        "category": "Configuration Management",
+        "description": "YAML configuration and discovery modules",
+        "priority": "critical",
+        "coverage_requirement": 100
+      },
+      "discovery": {
+        "category": "File Discovery Engine",
+        "description": "Pattern-based file discovery and metadata extraction",
+        "priority": "critical",
+        "coverage_requirement": 100
+      },
+      "io": {
+        "category": "Data Input/Output",
+        "description": "Data loading and transformation pipeline",
+        "priority": "critical",
+        "coverage_requirement": 100
+      },
+      "utils": {
+        "category": "Utility Functions",
+        "description": "Cross-platform utilities and helper functions",
+        "priority": "standard",
+        "coverage_requirement": 95
+      }
+    },
+    "custom_sections": {
+      "experimental_data_modules": [
+        "src/flyrigloader/io/pickle.py",
+        "src/flyrigloader/io/column_models.py",
+        "src/flyrigloader/discovery/files.py"
+      ],
+      "validation_modules": [
+        "src/flyrigloader/config/yaml_config.py",
+        "src/flyrigloader/config/discovery.py",
+        "src/flyrigloader/io/column_models.py"
+      ],
+      "transformation_modules": [
+        "src/flyrigloader/utils/dataframe.py",
+        "src/flyrigloader/api.py"
+      ]
+    }
+  },
+  "xml_report": {
+    "enabled": true,
+    "output_file": "coverage.xml",
+    "template": "coverage.xml.j2",
+    "format_version": "1.0",
+    "include_branches": true,
+    "include_sources": true,
+    "ci_integration": {
+      "build_metadata": true,
+      "git_information": true,
+      "environment_details": true,
+      "execution_timestamp": true,
+      "test_execution_metadata": true
+    },
+    "metadata_fields": {
+      "build_id": "${BUILD_ID:-local}",
+      "build_url": "${BUILD_URL:-}",
+      "branch_name": "${GITHUB_REF_NAME:-main}",
+      "commit_sha": "${GITHUB_SHA:-unknown}",
+      "pull_request": "${GITHUB_HEAD_REF:-}",
+      "runner_os": "${RUNNER_OS:-local}",
+      "python_version": "${PYTHON_VERSION:-3.8+}",
+      "pytest_version": "${PYTEST_VERSION:-7.0+}",
+      "coverage_version": "${COVERAGE_VERSION:-7.0+}"
+    },
+    "quality_gates": {
+      "include_threshold_validation": true,
+      "include_performance_sla": true,
+      "include_trend_analysis": true,
+      "include_regression_detection": true
+    }
+  },
+  "json_report": {
+    "enabled": true,
+    "output_file": "coverage.json",
+    "template": "coverage.json.j2",
+    "pretty_print": true,
+    "include_detailed_metrics": true,
+    "programmatic_analysis": {
+      "module_breakdown": true,
+      "function_level_metrics": true,
+      "class_level_metrics": true,
+      "line_level_details": true,
+      "branch_analysis": true,
+      "complexity_metrics": true,
+      "performance_correlation": true
+    },
+    "trend_tracking": {
+      "enabled": true,
+      "historical_data_retention_days": 90,
+      "baseline_comparison": true,
+      "regression_threshold": 5.0,
+      "trend_analysis_window": 30,
+      "statistical_analysis": true
+    },
+    "quality_indicators": {
+      "coverage_health_score": true,
+      "module_risk_assessment": true,
+      "testing_completeness": true,
+      "maintenance_indicators": true,
+      "performance_impact": true
+    },
+    "export_formats": {
+      "detailed_json": true,
+      "summary_json": true,
+      "metrics_csv": true,
+      "trend_data": true
+    }
+  },
+  "source_analysis": {
+    "include_source_code": true,
+    "syntax_highlighting": {
+      "python": {
+        "enabled": true,
+        "theme": "github",
+        "line_numbers": true,
+        "highlight_uncovered": true
+      },
+      "yaml": {
+        "enabled": true,
+        "theme": "github",
+        "configuration_files": true
+      },
+      "json": {
+        "enabled": true,
+        "theme": "github",
+        "configuration_files": true
+      }
+    },
+    "code_annotations": {
+      "coverage_annotations": true,
+      "branch_annotations": true,
+      "complexity_annotations": true,
+      "performance_annotations": true
+    },
+    "exclusion_patterns": [
+      "*/tests/*",
+      "*/__pycache__/*",
+      "*/site-packages/*",
+      "*/venv/*",
+      "*/env/*",
+      "*/.git/*",
+      "*/examples/*",
+      "*/docs/*"
+    ]
+  },
+  "performance_integration": {
+    "benchmark_correlation": true,
+    "data_loading_sla": "1s per 100MB",
+    "transformation_sla": "500ms per 1M rows",
+    "performance_report_integration": true,
+    "sla_validation": {
+      "enforce_in_reports": true,
+      "highlight_violations": true,
+      "trend_analysis": true
+    }
+  },
+  "reporting_automation": {
+    "scheduled_generation": {
+      "enabled": false,
+      "frequency": "daily",
+      "time": "02:00"
+    },
+    "trigger_conditions": {
+      "on_test_completion": true,
+      "on_coverage_change": true,
+      "on_threshold_violation": true,
+      "on_ci_pipeline": true
+    },
+    "notification_targets": {
+      "file_outputs": true,
+      "console_summary": true,
+      "ci_artifacts": true,
+      "dashboard_updates": false
+    }
+  },
+  "quality_gates": {
+    "coverage_validation": {
+      "enabled": true,
+      "fail_on_decrease": true,
+      "threshold_enforcement": true,
+      "critical_module_enforcement": true
+    },
+    "trend_validation": {
+      "enabled": true,
+      "regression_detection": true,
+      "trend_threshold": 2.0,
+      "historical_comparison": true
+    },
+    "performance_validation": {
+      "enabled": true,
+      "sla_enforcement": true,
+      "benchmark_integration": true,
+      "regression_prevention": true
+    }
+  },
+  "advanced_features": {
+    "differential_coverage": {
+      "enabled": true,
+      "comparison_branch": "main",
+      "highlight_new_code": true,
+      "focus_on_changes": true
+    },
+    "security_analysis": {
+      "pickle_loading_coverage": true,
+      "file_handling_coverage": true,
+      "validation_coverage": true
+    },
+    "experimental_features": {
+      "ai_insights": false,
+      "predictive_analysis": false,
+      "automated_recommendations": false
+    }
+  },
+  "template_variables": {
+    "neuroscience_context": {
+      "experimental_data_focus": true,
+      "research_workflow_integration": true,
+      "academic_presentation": true,
+      "publication_quality": true
+    },
+    "technical_context": {
+      "python_library": true,
+      "data_processing_pipeline": true,
+      "scientific_computing": true,
+      "research_infrastructure": true
+    },
+    "domain_terminology": {
+      "experiments": "neuroscience experiments",
+      "datasets": "experimental datasets",
+      "data_files": "experimental data files",
+      "analysis": "experimental analysis",
+      "validation": "data validation",
+      "transformation": "data transformation"
+    }
+  },
+  "localization": {
+    "language": "en-US",
+    "date_format": "YYYY-MM-DD HH:mm:ss UTC",
+    "number_format": "en-US",
+    "timezone": "UTC"
+  },
+  "accessibility": {
+    "wcag_compliance": "2.1 AA",
+    "high_contrast_support": true,
+    "keyboard_navigation": true,
+    "screen_reader_support": true,
+    "alt_text_generation": true
+  },
+  "debugging": {
+    "verbose_logging": false,
+    "debug_mode": false,
+    "template_debugging": false,
+    "performance_profiling": false
+  }
+}

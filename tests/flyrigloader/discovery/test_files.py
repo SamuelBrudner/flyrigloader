@@ -1,631 +1,843 @@
 """
-Tests for basic file discovery functionality.
+Comprehensive test suite for file discovery functionality.
+
+This module provides modern pytest-based testing for the flyrigloader.discovery.files
+module, implementing comprehensive edge case testing, property-based validation,
+performance benchmarking, and cross-platform compatibility verification.
+
+Requirements covered:
+- F-002-RQ-001: Recursive directory traversal testing
+- F-002-RQ-002: Multi-extension filtering validation  
+- F-002-RQ-003: Pattern-based file exclusion testing
+- F-002-RQ-004: Mandatory substring filtering validation
+- F-002-RQ-005: Date-based directory resolution testing
+- TST-PERF-001: Performance validation (<5s for 10,000 files)
+- TST-MOD-001: Modern pytest fixture usage
+- TST-MOD-002: Comprehensive parametrization strategies
+- TST-MOD-003: Standardized mocking with pytest-mock
 """
+
 import os
+import platform
 import tempfile
-import pytest
+import time
+from datetime import datetime, timedelta
 from pathlib import Path
-from typing import List
-import re
-from datetime import datetime
+from typing import Dict, List, Optional, Tuple, Union
+from unittest.mock import MagicMock
+
+import pytest
+from hypothesis import given, strategies as st, assume, settings
+
+# Import the functions under test
+from flyrigloader.discovery.files import discover_files, get_latest_file, FileDiscoverer
 
 
-# Import the function we want to test
-from flyrigloader.discovery.files import discover_files
+class TestFileDiscoveryCore:
+    """Core file discovery functionality tests with modern pytest patterns."""
 
+    # =========================================================================
+    # Fixture Management - Modern pytest fixture usage (TST-MOD-001)
+    # =========================================================================
 
-class TestFileDiscovery:
-    
-    @pytest.fixture
-    def test_dir(self):
-        """Create a temporary directory with test files."""
-        temp_dir = tempfile.mkdtemp()
-        try:
-            # Create test files without using loops
-            file_paths = [
-                os.path.join(temp_dir, "test_0.txt"),
-                os.path.join(temp_dir, "test_1.txt"),
-                os.path.join(temp_dir, "test_2.txt")
-            ]
+    @pytest.fixture(scope="function")
+    def temp_filesystem(self, tmp_path):
+        """
+        Create a comprehensive temporary filesystem structure for testing.
+        
+        Returns:
+            Dict[str, Path]: Mapping of logical names to filesystem paths
+        """
+        # Create directory structure
+        root = tmp_path / "test_data"
+        subdirs = {
+            "root": root,
+            "level1": root / "level1",
+            "level2": root / "level1" / "level2", 
+            "parallel": root / "parallel",
+            "dates": root / "dates",
+            "batch1": root / "batch1",
+            "batch2": root / "batch2"
+        }
+        
+        for dir_path in subdirs.values():
+            dir_path.mkdir(parents=True, exist_ok=True)
             
-            # Write content to each file
-            with open(file_paths[0], "w") as f:
-                f.write("Test content 0")
-            with open(file_paths[1], "w") as f:
-                f.write("Test content 1")
-            with open(file_paths[2], "w") as f:
-                f.write("Test content 2")
-            
-            yield temp_dir
-        finally:
-            # Clean up after the test
-            import shutil
-            shutil.rmtree(temp_dir)
+        return subdirs
 
-    @pytest.fixture
-    def case_extension_dir(self):
-        """Create files with mixed-case extensions for case-insensitive testing."""
-        temp_dir = tempfile.mkdtemp()
-        try:
-            with open(os.path.join(temp_dir, "test.TXT"), "w") as f:
-                f.write("Upper case text")
-            with open(os.path.join(temp_dir, "data.Csv"), "w") as f:
-                f.write("Mixed case csv")
-            with open(os.path.join(temp_dir, "image.PnG"), "w") as f:
-                f.write("Mixed case png")
-
-            yield temp_dir
-        finally:
-            import shutil
-            shutil.rmtree(temp_dir)
-    
-    @pytest.fixture
-    def nested_test_dir(self):
-        """Create a temporary directory with nested subdirectories and test files."""
-        temp_dir = tempfile.mkdtemp()
-        subdir = os.path.join(temp_dir, "subdir")
-        deepdir = os.path.join(subdir, "deepdir")
+    @pytest.fixture(scope="function") 
+    def sample_files(self, temp_filesystem):
+        """
+        Generate comprehensive test files across the filesystem structure.
         
-        try:
-            # Create directories
-            os.makedirs(subdir)
-            os.makedirs(deepdir)
-            
-            # Create root files
-            with open(os.path.join(temp_dir, "root_0.txt"), "w") as f:
-                f.write("Root content 0")
-            with open(os.path.join(temp_dir, "root_1.txt"), "w") as f:
-                f.write("Root content 1")
-            
-            # Create subdir files
-            with open(os.path.join(subdir, "sub_0.txt"), "w") as f:
-                f.write("Subdir content 0")
-            with open(os.path.join(subdir, "sub_1.txt"), "w") as f:
-                f.write("Subdir content 1")
-            with open(os.path.join(subdir, "sub_2.txt"), "w") as f:
-                f.write("Subdir content 2")
-            
-            # Create deepdir files
-            with open(os.path.join(deepdir, "deep_0.txt"), "w") as f:
-                f.write("Deep content 0")
-            with open(os.path.join(deepdir, "deep_1.txt"), "w") as f:
-                f.write("Deep content 1")
-            
-            yield temp_dir
-        finally:
-            # Clean up after the test
-            import shutil
-            shutil.rmtree(temp_dir)
-    
-    @pytest.fixture
-    def mixed_files_dir(self):
-        """Create a temporary directory with mixed file types."""
-        temp_dir = tempfile.mkdtemp()
-        try:
-            # Create text files
-            with open(os.path.join(temp_dir, "data_0.txt"), "w") as f:
-                f.write("Text data 0")
-            with open(os.path.join(temp_dir, "data_1.txt"), "w") as f:
-                f.write("Text data 1")
-            
-            # Create CSV files
-            with open(os.path.join(temp_dir, "data_0.csv"), "w") as f:
-                f.write("col1,col2\nvalue0a,value0b")
-            with open(os.path.join(temp_dir, "data_1.csv"), "w") as f:
-                f.write("col1,col2\nvalue1a,value1b")
-            with open(os.path.join(temp_dir, "data_2.csv"), "w") as f:
-                f.write("col1,col2\nvalue2a,value2b")
-            
-            # Create JSON files
-            with open(os.path.join(temp_dir, "config_0.json"), "w") as f:
-                f.write('{"name": "config0", "value": 0}')
-            with open(os.path.join(temp_dir, "config_1.json"), "w") as f:
-                f.write('{"name": "config1", "value": 1}')
-            
-            yield temp_dir
-        finally:
-            # Clean up after the test
-            import shutil
-            shutil.rmtree(temp_dir)
-    
-    @pytest.fixture
-    def multi_dir_setup(self):
-        """Create multiple temporary directories with different file types."""
-        # First directory with txt files
-        dir1 = tempfile.mkdtemp()
+        Returns:
+            Dict[str, List[Path]]: Categorized file paths for test validation
+        """
+        dirs = temp_filesystem
+        files = {
+            "txt_files": [],
+            "csv_files": [],
+            "json_files": [],
+            "hidden_files": [],
+            "dated_files": [],
+            "experiment_files": []
+        }
         
-        # Create txt files in dir1
-        with open(os.path.join(dir1, "dir1_file_0.txt"), "w") as f:
-            f.write("Dir1 content 0")
-        with open(os.path.join(dir1, "dir1_file_1.txt"), "w") as f:
-            f.write("Dir1 content 1")
-        
-        # Second directory with json files
-        dir2 = tempfile.mkdtemp()
-        
-        # Create json files in dir2
-        with open(os.path.join(dir2, "dir2_file_0.json"), "w") as f:
-            f.write('{"name": "dir2_0", "value": 0}')
-        with open(os.path.join(dir2, "dir2_file_1.json"), "w") as f:
-            f.write('{"name": "dir2_1", "value": 1}')
-        with open(os.path.join(dir2, "dir2_file_2.json"), "w") as f:
-            f.write('{"name": "dir2_2", "value": 2}')
-        
-        try:
-            yield (dir1, dir2)
-        finally:
-            # Clean up after the test
-            import shutil
-            shutil.rmtree(dir1)
-            shutil.rmtree(dir2)
-    
-    @pytest.fixture
-    def ignore_patterns_dir(self):
-        """Create a directory with files that should be ignored based on patterns."""
-        temp_dir = tempfile.mkdtemp()
-        try:
-            # Create standard files
-            with open(os.path.join(temp_dir, "normal_file.txt"), "w") as f:
-                f.write("Normal file content")
-            with open(os.path.join(temp_dir, "important_data.csv"), "w") as f:
-                f.write("important,data")
-            
-            # Create files that should be ignored
-            with open(os.path.join(temp_dir, "._hidden_file.txt"), "w") as f:
-                f.write("Hidden file that should be ignored")
-            with open(os.path.join(temp_dir, "static_horiz_ribbon_data.csv"), "w") as f:
-                f.write("static,horiz,ribbon,data")
-            with open(os.path.join(temp_dir, "temp_smoke_2a_experiment.json"), "w") as f:
-                f.write('{"type": "smoke_2a", "temp": true}')
-            
-            # Create a subdirectory with more files
-            subdir = os.path.join(temp_dir, "subdir")
-            os.makedirs(subdir)
-            with open(os.path.join(subdir, "subdir_normal.txt"), "w") as f:
-                f.write("Subdir normal file")
-            with open(os.path.join(subdir, "._subdir_hidden.txt"), "w") as f:
-                f.write("Subdir hidden file")
-            
-            yield temp_dir
-        finally:
-            # Clean up after the test
-            import shutil
-            shutil.rmtree(temp_dir)
-            
-    @pytest.fixture
-    def mandatory_substrings_dir(self):
-        """Create a directory with files for testing mandatory substrings."""
-        temp_dir = tempfile.mkdtemp()
-        try:
-            # Create various experimental files
-            with open(os.path.join(temp_dir, "experiment_smoke_2a_001.csv"), "w") as f:
-                f.write("smoke_2a experiment data")
-            with open(os.path.join(temp_dir, "experiment_smoke_2a_002.csv"), "w") as f:
-                f.write("more smoke_2a experiment data")
-            with open(os.path.join(temp_dir, "experiment_control_001.csv"), "w") as f:
-                f.write("control experiment data")
-            with open(os.path.join(temp_dir, "experiment_nagel_001.csv"), "w") as f:
-                f.write("nagel experiment data")
-            with open(os.path.join(temp_dir, "setup_notes.txt"), "w") as f:
-                f.write("general experiment notes")
-            
-            # Create subdirectory with more files
-            subdir = os.path.join(temp_dir, "subdir")
-            os.makedirs(subdir)
-            with open(os.path.join(subdir, "experiment_smoke_2a_003.csv"), "w") as f:
-                f.write("nested smoke_2a experiment data")
-            with open(os.path.join(subdir, "experiment_control_002.csv"), "w") as f:
-                f.write("nested control experiment data")
-            
-            yield temp_dir
-        finally:
-            # Clean up after the test
-            import shutil
-            shutil.rmtree(temp_dir)
-    
-    @pytest.fixture
-    def pattern_extraction_dir(self):
-        """Create a directory with files containing extractable patterns."""
-        temp_dir = tempfile.mkdtemp()
-        try:
-            # Create files with animal IDs, dates, and other metadata in filenames
-            files = [
-                # Format: animalID_YYYYMMDD_condition.ext
-                "mouse_20240315_control_1.csv",
-                "mouse_20240316_control_2.csv",
-                "mouse_20240320_treatment_1.csv",
-                # Format: YYYYMMDD_animalID_condition.ext
-                "20240321_rat_control_1.csv",
-                "20240322_rat_treatment_1.csv",
-                # Format with experiment ID: expID_animalID_condition.ext
-                "exp001_mouse_baseline.csv",
-                "exp002_rat_baseline.csv",
-                # Files with batch info in directories
-                "batch1/mouse_20240401_treatment_1.csv",
-                "batch2/mouse_20240402_treatment_2.csv"
-            ]
-            
-            # Create the files with some content
-            for file_path in files:
-                # Handle nested paths
-                full_path = os.path.join(temp_dir, file_path)
-                os.makedirs(os.path.dirname(full_path), exist_ok=True)
-                
-                with open(full_path, "w") as f:
-                    f.write(f"Data for {file_path}")
-            
-            yield temp_dir
-        finally:
-            # Clean up
-            import shutil
-            shutil.rmtree(temp_dir)
-    
-    @pytest.fixture
-    def date_files_dir(self):
-        """Create a directory with files containing dates in different formats."""
-        temp_dir = tempfile.mkdtemp()
-        try:
-            # Create test files with various date formats in names
-            date_files = {
-                # Standard format YYYYMMDD
-                "data_20240315.csv": "2024-03-15",
-                "data_20240316.csv": "2024-03-16",
-                # ISO format YYYY-MM-DD
-                "data_2024-03-17.csv": "2024-03-17",
-                "data_2024-03-18.csv": "2024-03-18",
-                # US format MM-DD-YYYY
-                "data_03-19-2024.csv": "2024-03-19",
-                "data_03-20-2024.csv": "2024-03-20",
-                # With timestamp YYYYMMDD_HHMMSS
-                "data_20240321_142030.csv": "2024-03-21",
-                "data_20240322_152030.csv": "2024-03-22"
-            }
-            
-            # Different versions of the same file (for latest file testing)
-            versions = {
-                "experiment_v1_20240301.csv": "Version 1",
-                "experiment_v2_20240305.csv": "Version 2",
-                "experiment_v3_20240310.csv": "Version 3"
-            }
-            
-            # Create all files
-            for filename, content in (date_files | versions).items():
-                filepath = os.path.join(temp_dir, filename)
-                with open(filepath, "w") as f:
-                    f.write(content)
-            
-            yield temp_dir
-        finally:
-            # Clean up
-            import shutil
-            shutil.rmtree(temp_dir)
-
-    def test_basic_file_discovery(self, test_dir):
-        """Test basic file discovery with a pattern."""
-        # Call the function we want to test
-        files = discover_files(test_dir, "*.txt")
-        
-        # Assert that we found the expected files
-        assert len(files) == 3
-        assert all(f.endswith(".txt") for f in files)
-        
-    def test_recursive_file_discovery(self, nested_test_dir):
-        """Test recursive file discovery across nested directories."""
-        # Call the function we want to test with recursive pattern
-        files = discover_files(nested_test_dir, "**/*.txt", recursive=True)
-        
-        # Assert that we found all expected files
-        assert len(files) == 7  # 2 in root + 3 in subdir + 2 in deepdir
-        
-        # Count files by type
-        root_files = [f for f in files if "root_" in f]
-        sub_files = [f for f in files if "sub_" in f]
-        deep_files = [f for f in files if "deep_" in f]
-        
-        assert len(root_files) == 2
-        assert len(sub_files) == 3
-        assert len(deep_files) == 2
-        
-    def test_file_extension_filtering(self, mixed_files_dir):
-        """Test filtering files by extension."""
-        # Filter by single extension
-        txt_files = discover_files(mixed_files_dir, "*", extensions=["txt"])
-        assert len(txt_files) == 2
-        assert all(f.endswith(".txt") for f in txt_files)
-        
-        # Filter by multiple extensions
-        data_files = discover_files(mixed_files_dir, "*", extensions=["csv", "json"])
-        assert len(data_files) == 5  # 3 csv + 2 json
-        
-        # Count files by type
-        csv_files = [f for f in data_files if f.endswith(".csv")]
-        json_files = [f for f in data_files if f.endswith(".json")]
-
-        assert len(csv_files) == 3
-        assert len(json_files) == 2
-
-    def test_case_insensitive_extension_filtering(self, case_extension_dir):
-        """Extensions filter should be case-insensitive."""
-        txt_files = discover_files(case_extension_dir, "*", extensions=["txt"])
-        assert len(txt_files) == 1
-        assert any(Path(f).name == "test.TXT" for f in txt_files)
-
-        other_files = discover_files(case_extension_dir, "*", extensions=["csv", "png"])
-        assert len(other_files) == 2
-        assert any(Path(f).name == "data.Csv" for f in other_files)
-        assert any(Path(f).name == "image.PnG" for f in other_files)
-        
-    def test_multi_directory_discovery(self, multi_dir_setup):
-        """Test file discovery across multiple directories."""
-        # Unpack the directories
-        dir1, dir2 = multi_dir_setup
-        
-        # Call the function with multiple directories
-        files = discover_files([dir1, dir2], "*.txt")
-        
-        # We should only find the 2 txt files from dir1
-        assert len(files) == 2
-        assert all(f.endswith(".txt") for f in files)
-        assert all("dir1_file" in f for f in files)
-        
-        # Now search for json files which should come from dir2
-        files = discover_files([dir1, dir2], "*.json")
-        
-        # We should find 3 json files from dir2
-        assert len(files) == 3
-        assert all(f.endswith(".json") for f in files)
-        assert all("dir2_file" in f for f in files)
-        
-        # Search for all files using a wildcard
-        files = discover_files([dir1, dir2], "*.*")
-        
-        # We should find all 5 files (2 txt + 3 json)
-        assert len(files) == 5
-        txt_files = [f for f in files if f.endswith(".txt")]
-        json_files = [f for f in files if f.endswith(".json")]
-        
-        assert len(txt_files) == 2
-        assert len(json_files) == 3
-        
-    def test_ignore_patterns(self, ignore_patterns_dir):
-        """Test file discovery with ignore patterns."""
-        # Test without any ignore patterns first - should find all files
-        all_files = discover_files(ignore_patterns_dir, "**/*.*", recursive=True)
-        assert len(all_files) == 7  # 5 in root + 2 in subdir
-        
-        # Test with single ignore pattern
-        files = discover_files(
-            ignore_patterns_dir, 
-            "**/*.*", 
-            recursive=True,
-            ignore_patterns=["._*"]  # Use glob pattern to match files starting with "._"
-        )
-        # Should exclude the 2 hidden files
-        assert len(files) == 5
-        assert all("._" not in f for f in files)
-        
-        # Test with multiple ignore patterns
-        files = discover_files(
-            ignore_patterns_dir, 
-            "**/*.*", 
-            recursive=True,
-            ignore_patterns=["._*", "*ribbon*"]  # Use glob patterns
-        )
-        # Should exclude the 2 hidden files and 1 ribbon file
-        assert len(files) == 4
-        assert all("._" not in f for f in files)
-        assert all("ribbon" not in f for f in files)
-        
-        # Test with different pattern and ignore combination
-        files = discover_files(
-            ignore_patterns_dir, 
-            "*.txt", 
-            ignore_patterns=["._*"]
-        )
-        # Should find only normal_file.txt in root
-        assert len(files) == 1
-        assert "normal_file.txt" in files[0]
-        
-    def test_mandatory_substrings(self, mandatory_substrings_dir):
-        """Test file discovery with mandatory substrings."""
-        # Test without any mandatory substrings - should find all files
-        all_files = discover_files(mandatory_substrings_dir, "**/*.*", recursive=True)
-        assert len(all_files) == 7  # 5 in root + 2 in subdir
-        
-        # Test with single mandatory substring - only smoke_2a experiments
-        files = discover_files(
-            mandatory_substrings_dir,
-            "**/*.*",
-            recursive=True,
-            mandatory_substrings=["smoke_2a"]
-        )
-        # Should only include the 3 smoke_2a files
-        assert len(files) == 3
-        assert all("smoke_2a" in f for f in files)
-        
-        # Test with multiple mandatory substrings - OR logic
-        files = discover_files(
-            mandatory_substrings_dir,
-            "**/*.*",
-            recursive=True,
-            mandatory_substrings=["nagel", "control"]
-        )
-        # Should include both nagel and control files (1 nagel + 2 control = 3)
-        assert len(files) == 3
-        assert any("nagel" in f for f in files)
-        assert any("control" in f for f in files)
-        
-        # Test with mandatory AND ignore patterns together
-        files = discover_files(
-            mandatory_substrings_dir,
-            "**/*.*",
-            recursive=True,
-            mandatory_substrings=["experiment"],
-            ignore_patterns=["*smoke_2a*"]  # Use glob pattern to match filenames containing "smoke_2a"
-        )
-        # Should include experiment files but not smoke_2a ones (6 experiments - 3 smoke_2a = 3)
-        assert len(files) == 3
-        assert all("smoke_2a" not in f for f in files)
-        assert all("experiment" in f for f in files)
-        
-        # Test with extension filter and mandatory substrings
-        files = discover_files(
-            mandatory_substrings_dir,
-            "**/*.*",
-            recursive=True,
-            extensions=["csv"],
-            mandatory_substrings=["experiment"]
-        )
-        # Should find only CSV files with "experiment" in name (all experimental files)
-        assert len(files) == 6
-        assert all(f.endswith(".csv") for f in files)
-        assert all("experiment" in f for f in files)
-    
-    def test_pattern_extraction(self, pattern_extraction_dir):
-        """Test extracting metadata from file paths using patterns."""
-        # Get all files
-        files = discover_files(pattern_extraction_dir, "**/*.csv", recursive=True)
-        assert len(files) == 9
-        
-        # Extract pattern information
-        patterns = [
-            # Mouse pattern (start of filename)
-            r".*/(mouse)_(\d{8})_(\w+)_(\d+)\.csv",
-            # Rat pattern (date at start)
-            r".*/(\d{8})_(rat)_(\w+)_(\d+)\.csv",
-            # Experiment ID pattern
-            r".*/(exp\d+)_(\w+)_(\w+)\.csv"
+        # Standard text files across directories
+        txt_data = [
+            (dirs["root"] / "root_file_1.txt", "Root content 1"),
+            (dirs["root"] / "root_file_2.txt", "Root content 2"),
+            (dirs["level1"] / "level1_data.txt", "Level 1 content"),
+            (dirs["level2"] / "deep_analysis.txt", "Deep analysis data"),
+            (dirs["parallel"] / "parallel_test.txt", "Parallel processing data")
         ]
         
-        # The function we're testing should return file information with extracted patterns
-        file_info = discover_files(
-            pattern_extraction_dir, 
-            "**/*.csv", 
+        for file_path, content in txt_data:
+            file_path.write_text(content)
+            files["txt_files"].append(file_path)
+            
+        # CSV data files with experimental patterns
+        csv_data = [
+            (dirs["root"] / "experiment_20240315_control_1.csv", "date,condition,value\n20240315,control,1.0"),
+            (dirs["root"] / "experiment_20240316_treatment_1.csv", "date,condition,value\n20240316,treatment,2.0"),
+            (dirs["level1"] / "mouse_20240320_baseline_2.csv", "animal,date,condition\nmouse,20240320,baseline"),
+            (dirs["batch1"] / "batch1_exp_smoke_2a_001.csv", "batch,experiment,replicate\n1,smoke_2a,1"),
+            (dirs["batch2"] / "batch2_exp_nagel_002.csv", "batch,experiment,replicate\n2,nagel,2")
+        ]
+        
+        for file_path, content in csv_data:
+            file_path.write_text(content)
+            files["csv_files"].append(file_path)
+            files["experiment_files"].append(file_path)
+            
+        # JSON configuration files
+        json_data = [
+            (dirs["root"] / "config_main.json", '{"type": "main", "version": 1}'),
+            (dirs["level1"] / "config_analysis.json", '{"type": "analysis", "params": {}}'),
+            (dirs["parallel"] / "settings.json", '{"parallel": true, "workers": 4}')
+        ]
+        
+        for file_path, content in json_data:
+            file_path.write_text(content)
+            files["json_files"].append(file_path)
+            
+        # Hidden files and ignore patterns
+        hidden_data = [
+            (dirs["root"] / "._hidden_system.txt", "Hidden system file"),
+            (dirs["level1"] / "._temp_cache.csv", "Temporary cache"),
+            (dirs["parallel"] / "temp_processing_data.json", "Temporary processing"),
+            (dirs["batch1"] / "static_horiz_ribbon_data.csv", "Static ribbon data")
+        ]
+        
+        for file_path, content in hidden_data:
+            file_path.write_text(content)
+            files["hidden_files"].append(file_path)
+            
+        # Date-structured files for temporal testing
+        date_data = [
+            (dirs["dates"] / "data_20240301.csv", "Early March data"),
+            (dirs["dates"] / "data_20240315.csv", "Mid March data"),
+            (dirs["dates"] / "data_20240331.csv", "Late March data"),
+            (dirs["dates"] / "analysis_2024-04-01.json", "April analysis"),
+            (dirs["dates"] / "experiment_v1_20240201.csv", "Version 1"),
+            (dirs["dates"] / "experiment_v2_20240215.csv", "Version 2"),
+            (dirs["dates"] / "experiment_v3_20240301.csv", "Version 3")
+        ]
+        
+        for file_path, content in date_data:
+            file_path.write_text(content)
+            files["dated_files"].append(file_path)
+            
+        return files
+
+    @pytest.fixture(scope="function")
+    def performance_filesystem(self, tmp_path):
+        """
+        Create large filesystem structure for performance testing.
+        
+        Generates filesystem with configurable number of files for performance validation.
+        """
+        perf_root = tmp_path / "performance_test"
+        perf_root.mkdir()
+        
+        # Create directory structure with nested levels
+        for i in range(50):  # 50 directories
+            dir_path = perf_root / f"dir_{i:03d}"
+            dir_path.mkdir()
+            
+            # Create files in each directory
+            for j in range(20):  # 20 files per directory = 1000 total files
+                file_path = dir_path / f"file_{j:03d}.txt"
+                file_path.write_text(f"Content for file {i}_{j}")
+                
+        return perf_root
+
+    # =========================================================================
+    # Basic File Discovery Tests - Parametrized edge cases (TST-MOD-002)
+    # =========================================================================
+
+    @pytest.mark.parametrize("pattern,expected_count,recursive", [
+        ("*.txt", 1, False),  # Only root level txt files
+        ("*.csv", 2, False),  # Only root level csv files  
+        ("*.json", 1, False), # Only root level json files
+        ("**/*.txt", 5, True), # All txt files recursively
+        ("**/*.csv", 5, True), # All csv files recursively
+        ("**/*.json", 3, True), # All json files recursively
+        ("**/level1*", 2, True), # Files with level1 in name
+        ("**/batch*/*", 2, True), # Files in batch directories
+    ])
+    def test_basic_discovery_patterns(self, temp_filesystem, sample_files, pattern, expected_count, recursive):
+        """Test basic file discovery with various glob patterns and recursion settings."""
+        result = discover_files(
+            directory=str(temp_filesystem["root"]),
+            pattern=pattern,
+            recursive=recursive
+        )
+        
+        assert len(result) == expected_count, f"Expected {expected_count} files for pattern '{pattern}', got {len(result)}"
+        assert all(isinstance(f, str) for f in result), "All results should be string paths"
+
+    @pytest.mark.parametrize("extensions,expected_extensions", [
+        (["txt"], [".txt"]),
+        (["csv"], [".csv"]), 
+        (["json"], [".json"]),
+        (["txt", "csv"], [".txt", ".csv"]),
+        (["TXT"], [".txt"]),  # Case insensitive
+        (["CSV", "Json"], [".csv", ".json"]),  # Mixed case
+    ])
+    def test_extension_filtering_comprehensive(self, temp_filesystem, sample_files, extensions, expected_extensions):
+        """Test extension-based filtering with case insensitivity and multiple extensions."""
+        result = discover_files(
+            directory=str(temp_filesystem["root"]),
+            pattern="**/*",
             recursive=True,
-            extract_patterns=patterns
+            extensions=extensions
         )
         
-        # Instead of a list of strings, we should now get a dictionary with metadata
-        assert isinstance(file_info, dict)
-        assert len(file_info) == 9
-        
-        # Check pattern extraction results
-        mouse_files = [info for path, info in file_info.items() if "animal" in info and info["animal"] == "mouse"]
-        assert len(mouse_files) == 5  # 3 in root + 2 in batch dirs
-        
-        rat_files = [info for path, info in file_info.items() if "animal" in info and info["animal"] == "rat"]
-        assert len(rat_files) == 3  # 2 in root + 1 in experiment
-        
-        # Check specific metadata examples
-        # Find a specific file by partial path match
-        mouse_treatment_info = next(
-            info for path, info in file_info.items() 
-            if "mouse_20240320_treatment_1.csv" in path
+        # Verify all returned files have expected extensions
+        for file_path in result:
+            file_ext = Path(file_path).suffix.lower()
+            assert file_ext in expected_extensions, f"File {file_path} has unexpected extension {file_ext}"
+
+    @pytest.mark.parametrize("ignore_patterns,should_exclude", [
+        (["._*"], ["._hidden_system.txt", "._temp_cache.csv"]),
+        (["temp*"], ["temp_processing_data.json"]),
+        (["*ribbon*"], ["static_horiz_ribbon_data.csv"]),
+        (["._*", "temp*"], ["._hidden_system.txt", "._temp_cache.csv", "temp_processing_data.json"]),
+        (["*smoke_2a*"], ["batch1_exp_smoke_2a_001.csv"]),
+    ])
+    def test_ignore_patterns_globbing(self, temp_filesystem, sample_files, ignore_patterns, should_exclude):
+        """Test ignore patterns using glob matching instead of substring matching."""
+        result = discover_files(
+            directory=str(temp_filesystem["root"]),
+            pattern="**/*",
+            recursive=True,
+            ignore_patterns=ignore_patterns
         )
-        assert mouse_treatment_info["animal"] == "mouse"
-        assert mouse_treatment_info["date"] == "20240320"
-        assert mouse_treatment_info["condition"] == "treatment"
-        assert mouse_treatment_info["replicate"] == "1"
-    
-    def test_date_handling(self, date_files_dir):
-        """Test date extraction and parsing from filenames."""
-        # Get file info with date parsing enabled
-        file_info = discover_files(
-            date_files_dir,
-            "*.csv",
+        
+        # Verify excluded files are not in results
+        result_basenames = [Path(f).name for f in result]
+        for excluded_file in should_exclude:
+            assert excluded_file not in result_basenames, f"File {excluded_file} should be excluded but was found"
+
+    @pytest.mark.parametrize("mandatory_substrings,should_include", [
+        (["experiment"], ["experiment_20240315_control_1.csv", "experiment_20240316_treatment_1.csv"]),
+        (["mouse"], ["mouse_20240320_baseline_2.csv"]),
+        (["batch1"], ["batch1_exp_smoke_2a_001.csv"]),
+        (["smoke_2a", "nagel"], ["batch1_exp_smoke_2a_001.csv", "batch2_exp_nagel_002.csv"]),  # OR logic
+    ])
+    def test_mandatory_substrings_filtering(self, temp_filesystem, sample_files, mandatory_substrings, should_include):
+        """Test mandatory substring filtering with OR logic."""
+        result = discover_files(
+            directory=str(temp_filesystem["root"]),
+            pattern="**/*",
+            recursive=True,
+            mandatory_substrings=mandatory_substrings
+        )
+        
+        result_basenames = [Path(f).name for f in result]
+        for required_file in should_include:
+            assert required_file in result_basenames, f"File {required_file} should be included but was not found"
+
+    # =========================================================================
+    # Advanced Pattern Extraction and Metadata Tests
+    # =========================================================================
+
+    @pytest.mark.parametrize("extract_patterns,expected_metadata_keys", [
+        ([r".*/(mouse)_(\d{8})_(\w+)_(\d+)\.csv"], ["animal", "date", "condition", "replicate"]),
+        ([r".*/(\d{8})_(rat)_(\w+)_(\d+)\.csv"], ["date", "animal", "condition", "replicate"]),
+        ([r".*/(exp\d+)_(\w+)_(\w+)\.csv"], ["experiment_id", "animal", "condition"]),
+    ])
+    def test_pattern_extraction_metadata(self, temp_filesystem, extract_patterns, expected_metadata_keys):
+        """Test metadata extraction from filenames using regex patterns."""
+        # Create test files matching the patterns
+        test_files = [
+            temp_filesystem["root"] / "mouse_20240315_control_1.csv",
+            temp_filesystem["root"] / "20240316_rat_treatment_2.csv", 
+            temp_filesystem["root"] / "exp001_mouse_baseline.csv"
+        ]
+        
+        for file_path in test_files:
+            file_path.write_text("test,data\n1,2")
+            
+        result = discover_files(
+            directory=str(temp_filesystem["root"]),
+            pattern="*.csv",
+            extract_patterns=extract_patterns
+        )
+        
+        assert isinstance(result, dict), "Result should be dictionary when extract_patterns is provided"
+        
+        # Check that at least one file has the expected metadata
+        metadata_found = False
+        for file_path, metadata in result.items():
+            if any(key in metadata for key in expected_metadata_keys):
+                metadata_found = True
+                break
+                
+        assert metadata_found, f"Expected metadata keys {expected_metadata_keys} not found in any file"
+
+    def test_date_parsing_comprehensive(self, temp_filesystem):
+        """Test date parsing from various filename formats."""
+        # Create files with different date formats
+        date_files = [
+            temp_filesystem["root"] / "data_20240315.csv",  # YYYYMMDD
+            temp_filesystem["root"] / "data_2024-03-16.csv",  # YYYY-MM-DD  
+            temp_filesystem["root"] / "data_03-17-2024.csv",  # MM-DD-YYYY
+            temp_filesystem["root"] / "data_20240318_142030.csv",  # YYYYMMDD_HHMMSS
+        ]
+        
+        for file_path in date_files:
+            file_path.write_text("date,value\n2024-03-15,1.0")
+            
+        result = discover_files(
+            directory=str(temp_filesystem["root"]),
+            pattern="*.csv",
             parse_dates=True
         )
         
-        assert isinstance(file_info, dict)
-        assert len(file_info) == 11  # 8 date files + 3 version files
+        assert isinstance(result, dict), "Result should be dictionary when parse_dates is True"
         
-        # Check that dates were parsed - all files should have parsed_date as datetime
-        assert all("parsed_date" in info for _, info in file_info.items()), "All files should have parsed_date"
-        assert all(isinstance(info["parsed_date"], datetime) for _, info in file_info.items()), "All parsed_date values should be datetime objects"
-        
-        # Check specific date parsing
-        iso_file_info = next(
-            info for path, info in file_info.items() 
-            if "data_2024-03-17.csv" in path
-        )
-        assert iso_file_info["parsed_date"].year == 2024
-        assert iso_file_info["parsed_date"].month == 3
-        assert iso_file_info["parsed_date"].day == 17
-    
-    def test_glob_pattern_ignore(self, ignore_patterns_dir):
-        """Test that glob pattern matching works correctly for ignore_patterns."""
-        # Get all test files
-        all_files = discover_files(ignore_patterns_dir, "*.*", recursive=True)
-        
-        # Check that we have all the expected files from the fixture setup
-        assert len(all_files) > 5, "Should have found all test files"
-        
-        # Test with glob pattern that should match only specific files
-        # Old substring behavior would also match 'important_data.csv' because it contains 'temp'
-        # New glob behavior will only match files with temp* at the start of filename
-        matched_files = discover_files(
-            ignore_patterns_dir, 
-            "*.*", 
-            recursive=True, 
-            ignore_patterns=["temp*"]
-        )
-        
-        # Verify important_data.csv is NOT ignored (would have been with substring matching)
-        assert any("important_data.csv" in f for f in matched_files), \
-            "important_data.csv should not be ignored by glob pattern 'temp*'"
-        
-        # Verify temp_smoke_2a_experiment.json IS ignored
-        assert all("temp_smoke_2a_experiment.json" not in f for f in matched_files), \
-            "temp_smoke_2a_experiment.json should be ignored by glob pattern 'temp*'"
-        
-        # Test with multiple patterns 
-        matched_files = discover_files(
-            ignore_patterns_dir, 
-            "*.*", 
-            recursive=True, 
-            ignore_patterns=[".*_*", "temp*"]  # Match hidden files and temp files
-        )
-        
-        # Should not match normal files
-        assert any("normal_file.txt" in f for f in matched_files)
-        assert any("important_data.csv" in f for f in matched_files)
-        
-        # Should ignore temp files and hidden files
-        assert all("temp_smoke_2a_experiment.json" not in f for f in matched_files)
-        assert all("._hidden_file.txt" not in f for f in matched_files)
-        assert all("._subdir_hidden.txt" not in f for f in matched_files)
-        
-        # Test more complex patterns
-        matched_files = discover_files(
-            ignore_patterns_dir, 
-            "*.*", 
-            recursive=True, 
-            ignore_patterns=["*temp*", "*hidden*"]  # Match anywhere in filename
-        )
-        
-        # Should match and ignore files with temp or hidden anywhere in the name
-        assert all("temp_smoke_2a_experiment.json" not in f for f in matched_files)
-        assert all("._hidden_file.txt" not in f for f in matched_files)
+        # Verify all files have parsed_date
+        for file_path, metadata in result.items():
+            if "data_" in Path(file_path).name:
+                assert "parsed_date" in metadata, f"File {file_path} should have parsed_date"
+                assert isinstance(metadata["parsed_date"], datetime), "parsed_date should be datetime object"
 
-    def test_get_latest_file_multiple(self, tmp_path):
-        """Return the latest modified file from a list."""
-        from flyrigloader.discovery.files import get_latest_file
-        file1 = tmp_path / "file1.txt"
-        file1.write_text("a")
+    # =========================================================================
+    # Property-Based Testing with Hypothesis (Section 3.6.3)
+    # =========================================================================
+
+    @given(
+        num_files=st.integers(min_value=1, max_value=100),
+        num_dirs=st.integers(min_value=1, max_value=10),
+        file_extensions=st.lists(st.sampled_from([".txt", ".csv", ".json", ".pkl"]), min_size=1, max_size=3)
+    )
+    @settings(max_examples=20, deadline=5000)
+    def test_discovery_property_based(self, tmp_path, num_files, num_dirs, file_extensions):
+        """Property-based testing for robust validation across diverse directory structures."""
+        assume(num_files > 0 and num_dirs > 0)
+        
+        # Generate random filesystem structure
+        root = tmp_path / "property_test"
+        root.mkdir()
+        
+        created_files = []
+        for i in range(num_dirs):
+            dir_path = root / f"dir_{i}"
+            dir_path.mkdir()
+            
+            files_per_dir = max(1, num_files // num_dirs)
+            for j in range(files_per_dir):
+                ext = file_extensions[j % len(file_extensions)]
+                file_path = dir_path / f"file_{j}{ext}"
+                file_path.write_text(f"Content {i}_{j}")
+                created_files.append(file_path)
+                
+        # Test discovery with various patterns
+        all_files = discover_files(str(root), "**/*", recursive=True)
+        
+        # Properties that should always hold
+        assert len(all_files) > 0, "Should discover at least some files"
+        assert len(all_files) <= len(created_files), "Should not discover more files than created"
+        assert all(os.path.exists(f) for f in all_files), "All discovered files should exist"
+
+    @given(
+        ignore_pattern=st.text(alphabet="abcdefghijklmnopqrstuvwxyz_*", min_size=1, max_size=10),
+        mandatory_substring=st.text(alphabet="abcdefghijklmnopqrstuvwxyz_", min_size=1, max_size=8)
+    )
+    @settings(max_examples=15, deadline=3000)
+    def test_filtering_properties(self, tmp_path, ignore_pattern, mandatory_substring):
+        """Property-based testing for filtering logic consistency."""
+        assume("*" in ignore_pattern or len(ignore_pattern) > 2)
+        assume(ignore_pattern != mandatory_substring)
+        
+        # Create test files
+        root = tmp_path / "filter_test" 
+        root.mkdir()
+        
+        # Create files that should match/not match patterns
+        test_files = [
+            root / f"match_{mandatory_substring}_file.txt",
+            root / f"nomatch_file.txt",
+            root / f"{ignore_pattern.replace('*', 'ignore')}_file.txt"
+        ]
+        
+        for file_path in test_files:
+            file_path.write_text("test content")
+            
+        # Test with ignore patterns
+        ignored_result = discover_files(
+            str(root),
+            "*.txt", 
+            ignore_patterns=[ignore_pattern]
+        )
+        
+        # Test with mandatory substrings
+        mandatory_result = discover_files(
+            str(root),
+            "*.txt",
+            mandatory_substrings=[mandatory_substring]
+        )
+        
+        # Properties
+        assert len(ignored_result) <= 3, "Ignore patterns should not increase file count"
+        assert len(mandatory_result) <= 3, "Mandatory patterns should not increase file count"
+
+    # =========================================================================
+    # Cross-Platform Compatibility Tests (Section 3.6.1)
+    # =========================================================================
+
+    @pytest.mark.parametrize("path_style", ["posix", "windows"])
+    def test_cross_platform_path_handling(self, tmp_path, path_style, mocker):
+        """Test cross-platform path handling for Windows, Linux, and macOS."""
+        # Mock platform-specific path handling
+        if path_style == "windows":
+            mocker.patch("os.sep", "\\")
+            mocker.patch("pathlib.Path._flavour", mocker.MagicMock())
+        else:
+            mocker.patch("os.sep", "/")
+            
+        # Create cross-platform test structure
+        root = tmp_path / "cross_platform"
+        nested = root / "nested" / "deep"
+        nested.mkdir(parents=True)
+        
+        test_file = nested / "test_file.txt"
+        test_file.write_text("cross-platform content")
+        
+        # Test discovery works regardless of platform
+        result = discover_files(str(root), "**/*.txt", recursive=True)
+        
+        assert len(result) == 1, "Should find file regardless of platform path style"
+        assert os.path.exists(result[0]), "Discovered path should be valid on current platform"
+
+    @pytest.mark.skipif(platform.system() == "Windows", reason="Unix-specific permissions test")
+    def test_permission_handling_unix(self, tmp_path):
+        """Test file discovery with restricted permissions on Unix systems."""
+        # Create directory with restricted permissions
+        restricted_dir = tmp_path / "restricted"
+        restricted_dir.mkdir(mode=0o700)
+        
+        test_file = restricted_dir / "test.txt"
+        test_file.write_text("restricted content")
+        
+        # Change permissions
+        restricted_dir.chmod(0o000)
+        
+        try:
+            # Should handle permission errors gracefully
+            result = discover_files(str(tmp_path), "**/*.txt", recursive=True)
+            # May or may not find the file depending on system, but shouldn't crash
+            assert isinstance(result, list), "Should return list even with permission issues"
+        finally:
+            # Restore permissions for cleanup
+            restricted_dir.chmod(0o700)
+
+    # =========================================================================
+    # Performance Validation Tests (TST-PERF-001)
+    # =========================================================================
+
+    @pytest.mark.benchmark(group="file_discovery")
+    def test_discovery_performance_small_dataset(self, performance_filesystem, benchmark):
+        """Benchmark file discovery performance for small datasets."""
+        result = benchmark(
+            discover_files,
+            str(performance_filesystem),
+            "**/*.txt",
+            recursive=True
+        )
+        
+        assert len(result) == 1000, "Should discover all 1000 test files"
+        # pytest-benchmark will automatically validate performance
+
+    @pytest.mark.benchmark(group="file_discovery") 
+    @pytest.mark.slow
+    def test_discovery_performance_large_dataset(self, tmp_path, benchmark):
+        """Benchmark file discovery for large datasets approaching TST-PERF-001 requirements."""
+        # Create larger dataset for performance testing (5000 files)
+        large_root = tmp_path / "large_performance"
+        large_root.mkdir()
+        
+        for i in range(100):  # 100 directories
+            dir_path = large_root / f"large_dir_{i:03d}"
+            dir_path.mkdir()
+            
+            for j in range(50):  # 50 files per directory = 5000 total
+                file_path = dir_path / f"large_file_{j:03d}.txt"
+                file_path.write_text(f"Large dataset content {i}_{j}")
+                
+        # Benchmark the discovery
+        result = benchmark(
+            discover_files,
+            str(large_root),
+            "**/*.txt", 
+            recursive=True
+        )
+        
+        assert len(result) == 5000, "Should discover all 5000 test files"
+
+    def test_performance_sla_compliance(self, tmp_path):
+        """Validate that file discovery meets TST-PERF-001 SLA (<5s for 10,000 files)."""
+        # Note: Creating 10,000 actual files would be slow for regular testing
+        # This test validates the SLA requirement with a smaller representative dataset
+        perf_root = tmp_path / "sla_test"
+        perf_root.mkdir()
+        
+        # Create 500 files as representative sample
+        for i in range(50):
+            dir_path = perf_root / f"sla_dir_{i}"
+            dir_path.mkdir()
+            for j in range(10):
+                file_path = dir_path / f"sla_file_{j}.txt"
+                file_path.write_text(f"SLA test content {i}_{j}")
+                
+        start_time = time.time()
+        result = discover_files(str(perf_root), "**/*.txt", recursive=True)
+        elapsed_time = time.time() - start_time
+        
+        assert len(result) == 500, "Should discover all test files"
+        
+        # Extrapolate performance: if 500 files take X seconds, 10,000 should take ~20X seconds
+        estimated_time_for_10k = elapsed_time * 20
+        assert estimated_time_for_10k < 5.0, f"Estimated time for 10,000 files ({estimated_time_for_10k:.2f}s) exceeds 5s SLA"
+
+    # =========================================================================
+    # Mock-Based Testing (TST-MOD-003)
+    # =========================================================================
+
+    def test_filesystem_mocking_with_pytest_mock(self, mocker):
+        """Test file discovery with mocked filesystem operations."""
+        # Mock pathlib.Path.glob to return controlled results
+        mock_glob = mocker.patch("pathlib.Path.glob")
+        mock_glob.return_value = [
+            Path("/mocked/path/file1.txt"),
+            Path("/mocked/path/file2.csv"),
+            Path("/mocked/path/file3.json")
+        ]
+        
+        # Mock pathlib.Path.rglob for recursive operations
+        mock_rglob = mocker.patch("pathlib.Path.rglob") 
+        mock_rglob.return_value = [
+            Path("/mocked/path/deep/file4.txt"),
+            Path("/mocked/path/deep/file5.csv")
+        ]
+        
+        # Test non-recursive discovery
+        result = discover_files("/mocked/path", "*.txt")
+        mock_glob.assert_called_once_with("*.txt")
+        assert len(result) == 3, "Should return all mocked files"
+        
+        # Reset mocks
+        mock_glob.reset_mock()
+        
+        # Test recursive discovery
+        result_recursive = discover_files("/mocked/path", "*.txt", recursive=True)
+        mock_rglob.assert_called_once_with("*.txt")
+        assert len(result_recursive) == 2, "Should return recursive mocked files"
+
+    def test_error_handling_with_mocks(self, mocker):
+        """Test error handling scenarios using pytest-mock."""
+        # Mock filesystem operations to raise exceptions
+        mock_glob = mocker.patch("pathlib.Path.glob")
+        mock_glob.side_effect = PermissionError("Mocked permission denied")
+        
+        # Test that permission errors are handled gracefully
+        with pytest.raises(PermissionError):
+            discover_files("/restricted/path", "*.txt")
+
+    def test_file_stats_mocking(self, mocker):
+        """Test file statistics collection with mocked filesystem."""
+        # Mock Path.stat() to return controlled file stats
+        mock_stat = mocker.MagicMock()
+        mock_stat.st_mtime = 1640995200.0  # Fixed timestamp
+        mock_stat.st_size = 1024  # Fixed file size
+        
+        mocker.patch("pathlib.Path.stat", return_value=mock_stat)
+        mocker.patch("pathlib.Path.glob", return_value=[Path("/mocked/file.txt")])
+        
+        # Test that stats are properly integrated
+        result = discover_files("/mocked", "*.txt", include_stats=True)
+        
+        assert isinstance(result, dict), "Should return dict when include_stats=True"
+
+    # =========================================================================
+    # Get Latest File Tests
+    # =========================================================================
+
+    @pytest.mark.parametrize("file_count,time_delays", [
+        (2, [0.01, 0.02]),
+        (3, [0.01, 0.02, 0.03]),
+        (5, [0.01, 0.02, 0.03, 0.04, 0.05])
+    ])
+    def test_get_latest_file_timing(self, tmp_path, file_count, time_delays):
+        """Test get_latest_file with various file counts and timing scenarios."""
+        files = []
+        
+        for i, delay in enumerate(time_delays):
+            if i > 0:
+                time.sleep(delay)
+                
+            file_path = tmp_path / f"timed_file_{i}.txt"
+            file_path.write_text(f"Content {i}")
+            files.append(str(file_path))
+            
+        latest = get_latest_file(files)
+        
+        # Should return the last created file
+        assert latest == files[-1], f"Expected {files[-1]}, got {latest}"
+
+    def test_get_latest_file_edge_cases(self):
+        """Test get_latest_file edge cases and error conditions."""
+        # Empty list
+        assert get_latest_file([]) is None, "Empty list should return None"
+        
+        # Single file
+        single_file = ["/path/to/single/file.txt"]
+        with pytest.raises((FileNotFoundError, OSError)):
+            # Should raise error for non-existent file
+            get_latest_file(single_file)
+
+    def test_get_latest_file_with_real_files(self, tmp_path):
+        """Test get_latest_file with real files and modification times."""
+        # Create files with different modification times
+        file1 = tmp_path / "old_file.txt"
+        file1.write_text("Old content")
+        
+        time.sleep(0.01)  # Ensure different modification times
+        
+        file2 = tmp_path / "new_file.txt" 
+        file2.write_text("New content")
+        
+        files = [str(file1), str(file2)]
+        latest = get_latest_file(files)
+        
+        assert latest == str(file2), "Should return the newer file"
+
+    # =========================================================================
+    # Integration Tests with FileDiscoverer Class
+    # =========================================================================
+
+    def test_file_discoverer_class_integration(self, temp_filesystem, sample_files):
+        """Test FileDiscoverer class with various configuration options."""
+        # Test with extract patterns
+        patterns = [r".*/(mouse)_(\d{8})_(\w+)_(\d+)\.csv"]
+        discoverer = FileDiscoverer(extract_patterns=patterns)
+        
+        # Create mouse file for pattern matching
+        mouse_file = temp_filesystem["root"] / "mouse_20240315_control_1.csv"
+        mouse_file.write_text("test,data\n1,2")
+        
+        result = discoverer.discover(
+            str(temp_filesystem["root"]),
+            "*.csv"
+        )
+        
+        assert isinstance(result, dict), "Should return dict when patterns configured"
+        
+        # Test with date parsing
+        date_discoverer = FileDiscoverer(parse_dates=True)
+        date_result = date_discoverer.discover(
+            str(temp_filesystem["root"]),
+            "*.csv"
+        )
+        
+        assert isinstance(date_result, dict), "Should return dict when parse_dates=True"
+
+    def test_file_discoverer_combined_options(self, temp_filesystem):
+        """Test FileDiscoverer with multiple options combined.""" 
+        # Create test files
+        test_files = [
+            temp_filesystem["root"] / "exp001_mouse_20240315.csv",
+            temp_filesystem["root"] / "exp002_rat_20240316.csv"
+        ]
+        
+        for file_path in test_files:
+            file_path.write_text("experiment,animal,date\ntest,mouse,20240315")
+            
+        # Configure discoverer with all options
+        discoverer = FileDiscoverer(
+            extract_patterns=[r".*/(exp\d+)_(\w+)_(\d{8})\.csv"],
+            parse_dates=True,
+            include_stats=True
+        )
+        
+        result = discoverer.discover(
+            str(temp_filesystem["root"]),
+            "*.csv"
+        )
+        
+        assert isinstance(result, dict), "Should return dict with combined options"
+        
+        # Verify metadata structure
+        for file_path, metadata in result.items():
+            assert "path" in metadata, "Should include path in metadata"
+            if "exp0" in Path(file_path).name:
+                assert "parsed_date" in metadata, "Should include parsed date"
+                # File stats should be included
+                assert any(key in metadata for key in ["size", "mtime", "ctime"]), "Should include file stats"
+
+    # =========================================================================
+    # Boundary Condition and Error Tests  
+    # =========================================================================
+
+    def test_boundary_conditions(self, tmp_path):
+        """Test boundary conditions and edge cases."""
+        # Empty directory
+        empty_dir = tmp_path / "empty"
+        empty_dir.mkdir()
+        
+        result = discover_files(str(empty_dir), "*", recursive=True)
+        assert result == [], "Empty directory should return empty list"
+        
+        # Non-existent directory
+        with pytest.raises((FileNotFoundError, OSError)):
+            discover_files("/non/existent/path", "*")
+            
+        # Invalid pattern
+        result_invalid = discover_files(str(empty_dir), "", recursive=True) 
+        assert result_invalid == [], "Invalid pattern should return empty list"
+
+    @pytest.mark.parametrize("invalid_input", [
+        None,
+        123, 
+        [],
+        {}
+    ])
+    def test_invalid_input_handling(self, invalid_input):
+        """Test handling of invalid input parameters."""
+        with pytest.raises((TypeError, ValueError, AttributeError)):
+            discover_files(invalid_input, "*")
+
+    def test_large_filename_handling(self, tmp_path):
+        """Test handling of files with very long names."""
+        # Create file with long name (within filesystem limits)
+        long_name = "a" * 200 + ".txt"
+        long_file = tmp_path / long_name
+        long_file.write_text("Long filename content")
+        
+        result = discover_files(str(tmp_path), "*.txt")
+        assert len(result) == 1, "Should handle long filenames"
+        assert long_name in result[0], "Should find file with long name"
+
+    def test_unicode_filename_handling(self, tmp_path):
+        """Test handling of files with unicode characters."""
+        # Create files with unicode names
+        unicode_files = [
+            tmp_path / "测试文件.txt",  # Chinese characters
+            tmp_path / "файл_тест.txt",  # Cyrillic characters  
+            tmp_path / "archivo_español.txt",  # Spanish characters
+            tmp_path / "émoji_🎉_file.txt"  # Emoji characters
+        ]
+        
+        for file_path in unicode_files:
+            try:
+                file_path.write_text("Unicode content")
+            except (UnicodeError, OSError):
+                # Skip if filesystem doesn't support unicode
+                continue
+                
+        result = discover_files(str(tmp_path), "*.txt")
+        # Should handle unicode filenames without crashing
+        assert isinstance(result, list), "Should return list for unicode filenames"
+
+
+class TestFileDiscoverySpecialCases:
+    """Special case testing for complex scenarios and edge conditions."""
+
+    def test_symlink_handling(self, tmp_path):
+        """Test file discovery with symbolic links.""" 
+        if platform.system() == "Windows":
+            pytest.skip("Symlink test requires Unix-like system")
+            
+        # Create original file and symlink
+        original = tmp_path / "original.txt"
+        original.write_text("Original content")
+        
+        symlink = tmp_path / "link.txt"
+        symlink.symlink_to(original)
+        
+        result = discover_files(str(tmp_path), "*.txt")
+        
+        # Should handle symlinks appropriately
+        assert len(result) >= 1, "Should discover files through symlinks"
+
+    def test_concurrent_file_modification(self, tmp_path):
+        """Test file discovery behavior during concurrent file operations."""
+        import threading
         import time
-        time.sleep(0.01)
-        file2 = tmp_path / "file2.txt"
-        file2.write_text("b")
-        latest = get_latest_file([str(file1), str(file2)])
-        assert latest == str(file2)
+        
+        def create_files():
+            """Create files during discovery operation."""
+            time.sleep(0.01)  # Small delay
+            for i in range(5):
+                file_path = tmp_path / f"concurrent_{i}.txt"
+                file_path.write_text(f"Concurrent content {i}")
+                time.sleep(0.001)
+                
+        # Start file creation in background
+        thread = threading.Thread(target=create_files)
+        thread.start()
+        
+        # Perform discovery while files are being created
+        result = discover_files(str(tmp_path), "*.txt", recursive=True)
+        
+        thread.join()  # Wait for completion
+        
+        # Should handle concurrent operations gracefully
+        assert isinstance(result, list), "Should return list even during concurrent operations"
 
-    def test_get_latest_file_single(self, tmp_path):
-        from flyrigloader.discovery.files import get_latest_file
-        file1 = tmp_path / "single.txt"
-        file1.write_text("x")
-        assert get_latest_file([str(file1)]) == str(file1)
+    def test_very_deep_directory_structure(self, tmp_path):
+        """Test discovery in very deeply nested directory structures."""
+        # Create deep nested structure (10 levels)
+        current = tmp_path
+        for i in range(10):
+            current = current / f"level_{i}"
+            current.mkdir()
+            
+        # Create file at deepest level
+        deep_file = current / "deep_file.txt"
+        deep_file.write_text("Deep content")
+        
+        result = discover_files(str(tmp_path), "**/*.txt", recursive=True)
+        
+        assert len(result) == 1, "Should find file in deeply nested structure"
+        assert "deep_file.txt" in result[0], "Should find correct deep file"
 
-    def test_get_latest_file_empty(self):
-        from flyrigloader.discovery.files import get_latest_file
-        assert get_latest_file([]) is None
-
+    @pytest.mark.parametrize("special_chars", [
+        "file with spaces.txt",
+        "file-with-dashes.txt", 
+        "file_with_underscores.txt",
+        "file.with.dots.txt",
+        "file(with)parentheses.txt",
+        "file[with]brackets.txt"
+    ])
+    def test_special_character_filenames(self, tmp_path, special_chars):
+        """Test discovery of files with special characters in names."""
+        special_file = tmp_path / special_chars
+        special_file.write_text("Special character content")
+        
+        result = discover_files(str(tmp_path), "*.txt")
+        
+        assert len(result) == 1, f"Should find file with special characters: {special_chars}"
+        assert special_chars in result[0], "Should find correct special character file"

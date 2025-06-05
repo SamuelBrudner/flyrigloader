@@ -1,0 +1,348 @@
+{
+  "description": "Coverage threshold specification for flyrigloader library implementing TST-COV-001, TST-COV-002, and TST-COV-004 requirements",
+  "version": "1.0.0",
+  "updated": "2024-01-15",
+  "documentation": {
+    "purpose": "Define module-specific coverage requirements with critical modules requiring 100% coverage and overall system requiring ≥90% coverage",
+    "requirements": [
+      "TST-COV-001: Maintain >90% overall test coverage across all modules",
+      "TST-COV-002: Achieve 100% coverage for critical data loading and validation modules", 
+      "TST-COV-004: Block merges when coverage drops below thresholds",
+      "Section 3.6.4: Automated quality gates enforcement with stringent coverage thresholds"
+    ],
+    "usage": "This configuration enables granular quality gate enforcement and automated threshold validation per technical specification requirements"
+  },
+  
+  "global_settings": {
+    "overall_threshold": {
+      "line_coverage": 90.0,
+      "branch_coverage": 85.0,
+      "description": "Overall system coverage threshold per TST-COV-001",
+      "fail_on_violation": true,
+      "enforcement_level": "strict"
+    },
+    "measurement_settings": {
+      "include_branch_coverage": true,
+      "exclude_patterns": [
+        "*/tests/*",
+        "*/test_*",
+        "*/__pycache__/*", 
+        "*/site-packages/*",
+        "*/examples/*",
+        "*/docs/*"
+      ],
+      "context_tracking": true,
+      "parallel_support": true
+    }
+  },
+
+  "critical_modules": {
+    "description": "Modules requiring 100% coverage per TST-COV-002 critical module requirements",
+    "enforcement_level": "blocking",
+    "modules": {
+      "src/flyrigloader/api.py": {
+        "line_coverage": 100.0,
+        "branch_coverage": 100.0,
+        "rationale": "High-level facade requiring comprehensive integration testing and complete API coverage",
+        "critical_functions": [
+          "load_experiment_files",
+          "load_dataset_files", 
+          "get_experiment_parameters",
+          "get_dataset_parameters",
+          "process_experiment_data"
+        ],
+        "quality_gates": {
+          "fail_on_violation": true,
+          "block_merge": true,
+          "require_review": true
+        }
+      },
+      
+      "src/flyrigloader/config/": {
+        "line_coverage": 100.0,
+        "branch_coverage": 100.0,
+        "rationale": "YAML configuration and discovery modules needing validation testing for all configuration paths",
+        "submodules": {
+          "src/flyrigloader/config/yaml_config.py": {
+            "line_coverage": 100.0,
+            "branch_coverage": 100.0,
+            "critical_functions": [
+              "load_config",
+              "validate_config_dict",
+              "get_ignore_patterns",
+              "get_mandatory_substrings"
+            ]
+          },
+          "src/flyrigloader/config/discovery.py": {
+            "line_coverage": 100.0,
+            "branch_coverage": 100.0,
+            "critical_functions": [
+              "discover_files_with_config",
+              "discover_experiment_files", 
+              "discover_dataset_files"
+            ]
+          }
+        },
+        "quality_gates": {
+          "fail_on_violation": true,
+          "block_merge": true,
+          "require_review": true
+        }
+      },
+
+      "src/flyrigloader/discovery/": {
+        "line_coverage": 100.0,
+        "branch_coverage": 100.0,
+        "rationale": "File discovery engine requiring pattern matching and metadata extraction tests for all discovery scenarios",
+        "submodules": {
+          "src/flyrigloader/discovery/files.py": {
+            "line_coverage": 100.0,
+            "branch_coverage": 100.0,
+            "critical_functions": [
+              "discover_files",
+              "discover_files_with_metadata",
+              "filter_files_by_patterns"
+            ]
+          },
+          "src/flyrigloader/discovery/patterns.py": {
+            "line_coverage": 100.0,
+            "branch_coverage": 100.0,
+            "critical_functions": [
+              "match_files_to_patterns",
+              "PatternMatcher.match",
+              "compile_pattern"
+            ]
+          },
+          "src/flyrigloader/discovery/stats.py": {
+            "line_coverage": 100.0,
+            "branch_coverage": 100.0,
+            "critical_functions": [
+              "get_file_stats",
+              "attach_file_stats",
+              "calculate_metadata"
+            ]
+          }
+        },
+        "quality_gates": {
+          "fail_on_violation": true,
+          "block_merge": true,
+          "require_review": true
+        }
+      },
+
+      "src/flyrigloader/io/": {
+        "line_coverage": 100.0,
+        "branch_coverage": 100.0,
+        "rationale": "Data loading and transformation pipeline needing schema validation tests for all data formats and transformation paths",
+        "submodules": {
+          "src/flyrigloader/io/pickle.py": {
+            "line_coverage": 100.0,
+            "branch_coverage": 100.0,
+            "critical_functions": [
+              "read_pickle_any_format",
+              "make_dataframe_from_config",
+              "detect_pickle_format",
+              "decompress_gzip_pickle"
+            ]
+          },
+          "src/flyrigloader/io/column_models.py": {
+            "line_coverage": 100.0,
+            "branch_coverage": 100.0,
+            "critical_functions": [
+              "load_column_config",
+              "validate_column_config", 
+              "get_config_from_source",
+              "apply_special_handlers"
+            ]
+          }
+        },
+        "quality_gates": {
+          "fail_on_violation": true,
+          "block_merge": true,
+          "require_review": true
+        }
+      }
+    }
+  },
+
+  "standard_modules": {
+    "description": "Utility modules with 95% coverage threshold balancing comprehensive testing with practical utility function coverage per TST-COV-001",
+    "enforcement_level": "standard",
+    "modules": {
+      "src/flyrigloader/utils/": {
+        "line_coverage": 95.0,
+        "branch_coverage": 90.0,
+        "rationale": "Utility functions requiring edge case and error handling tests with practical coverage balance",
+        "submodules": {
+          "src/flyrigloader/utils/paths.py": {
+            "line_coverage": 95.0,
+            "branch_coverage": 90.0,
+            "critical_functions": [
+              "get_relative_path",
+              "get_absolute_path", 
+              "check_file_exists",
+              "ensure_directory_exists",
+              "find_common_base_directory"
+            ]
+          },
+          "src/flyrigloader/utils/dataframe.py": {
+            "line_coverage": 95.0,
+            "branch_coverage": 90.0,
+            "critical_functions": [
+              "discovery_results_to_dataframe",
+              "add_file_metadata",
+              "merge_dataframes_with_metadata"
+            ]
+          }
+        },
+        "quality_gates": {
+          "fail_on_violation": true,
+          "block_merge": true,
+          "require_review": false
+        }
+      }
+    }
+  },
+
+  "special_handling": {
+    "description": "Special coverage handling for __init__.py files and logging infrastructure per coverage best practices",
+    "rules": {
+      "__init__.py_files": {
+        "minimum_threshold": 80.0,
+        "rationale": "Init files primarily contain imports and package initialization with limited logic requiring testing",
+        "exclude_patterns": [
+          "*/flyrigloader/__init__.py"
+        ],
+        "special_considerations": [
+          "Logging initialization testing",
+          "Package-level imports validation",
+          "Version information exports"
+        ]
+      },
+      "logging_infrastructure": {
+        "minimum_threshold": 85.0,
+        "rationale": "Logging infrastructure requires testing but may have platform-specific code paths",
+        "include_patterns": [
+          "**/logging.py",
+          "**/log_config.py"
+        ],
+        "test_requirements": [
+          "Log level configuration testing",
+          "Log format validation",
+          "Handler setup verification"
+        ]
+      },
+      "error_handling": {
+        "minimum_threshold": 100.0,
+        "rationale": "All error handling code paths must be tested to ensure proper exception propagation",
+        "include_patterns": [
+          "except:",
+          "raise",
+          "try:",
+          "finally:"
+        ]
+      }
+    }
+  },
+
+  "quality_gates": {
+    "description": "Quality gate configuration with fail_on_violation=true enabling automated merge blocking per TST-COV-004 requirements",
+    "enforcement": {
+      "fail_on_violation": true,
+      "block_merge_on_failure": true,
+      "require_manual_override": false,
+      "notification_channels": [
+        "pull_request_comments",
+        "ci_cd_status_checks",
+        "team_notifications"
+      ]
+    },
+    "violation_handling": {
+      "critical_module_violations": {
+        "action": "block_merge",
+        "escalation": "team_lead_review",
+        "grace_period": "none"
+      },
+      "standard_module_violations": {
+        "action": "block_merge", 
+        "escalation": "code_review_required",
+        "grace_period": "24_hours"
+      },
+      "overall_threshold_violations": {
+        "action": "block_merge",
+        "escalation": "architecture_review",
+        "grace_period": "none"
+      }
+    }
+  },
+
+  "reporting": {
+    "formats": [
+      "html",
+      "xml", 
+      "json",
+      "terminal"
+    ],
+    "output_paths": {
+      "html": "htmlcov/index.html",
+      "xml": "coverage.xml",
+      "json": "coverage.json",
+      "terminal": "stdout"
+    },
+    "detailed_reporting": {
+      "missing_lines": true,
+      "branch_details": true,
+      "function_coverage": true,
+      "class_coverage": true,
+      "complexity_analysis": false
+    }
+  },
+
+  "ci_cd_integration": {
+    "pytest_commands": {
+      "standard_coverage": "pytest --cov=src/flyrigloader --cov-report=html:htmlcov --cov-report=xml:coverage.xml --cov-fail-under=90 --cov-branch",
+      "strict_coverage": "pytest --cov=src/flyrigloader --cov-report=html:htmlcov --cov-report=xml:coverage.xml --cov-fail-under=90 --cov-branch --cov-config=tests/coverage/coverage-thresholds.json",
+      "parallel_coverage": "pytest --cov=src/flyrigloader --cov-report=html:htmlcov --cov-report=xml:coverage.xml --cov-fail-under=90 --cov-branch -n auto"
+    },
+    "coverage_tools": {
+      "primary": "coverage>=7.8.2",
+      "pytest_integration": "pytest-cov>=6.1.1", 
+      "parallel_support": "pytest-xdist>=3.7.0"
+    },
+    "automated_checks": {
+      "pre_commit": true,
+      "pull_request": true,
+      "merge_gate": true,
+      "nightly_regression": true
+    }
+  },
+
+  "performance_considerations": {
+    "coverage_measurement_overhead": "< 30s coverage analysis per TST-COV-001 technical specifications",
+    "parallel_execution": "Supports pytest-xdist for distributed coverage measurement",
+    "incremental_coverage": "Enables incremental coverage for large codebases",
+    "memory_optimization": "Context tracking with selective measurement"
+  },
+
+  "validation_schema": {
+    "json_schema_version": "https://json-schema.org/draft/2019-09/schema",
+    "validation_rules": {
+      "threshold_ranges": {
+        "line_coverage": {"min": 0.0, "max": 100.0},
+        "branch_coverage": {"min": 0.0, "max": 100.0}
+      },
+      "required_fields": [
+        "line_coverage",
+        "branch_coverage", 
+        "quality_gates",
+        "rationale"
+      ],
+      "enforcement_levels": [
+        "strict",
+        "standard", 
+        "relaxed",
+        "monitoring"
+      ]
+    }
+  }
+}
