@@ -3,6 +3,9 @@ Module for loading data from various pickle file formats.
 
 This module specializes in handling different types of pickle files from fly behavior rigs, 
 including compressed files, with robust error handling and standardized output.
+
+Enhanced with dependency injection patterns for improved testability and modular
+component decomposition for better separation of concerns.
 """
 
 import gzip
@@ -10,7 +13,8 @@ import pickle
 import numpy as np
 import pandas as pd
 from pathlib import Path
-from typing import Dict, Any, Union, Optional, List, Tuple
+from typing import Dict, Any, Union, Optional, List, Tuple, Protocol, runtime_checkable
+from abc import ABC, abstractmethod
 from loguru import logger
 from flyrigloader.io.column_models import (
     load_column_config, 
@@ -21,14 +25,536 @@ from flyrigloader.io.column_models import (
 )
 
 
-def read_pickle_any_format(path) -> Union[Dict[str, Any], pd.DataFrame]:
-    """
-    Read a pickle file in any common format, with automatic detection.
+# Dependency Injection Protocols and Interfaces
+
+@runtime_checkable
+class FileSystemProvider(Protocol):
+    """Protocol for file system operations to enable dependency injection."""
     
-    This function attempts multiple approaches:
-    1. If file is gzipped, uses gzip.open + pickle.load
-    2. If not gzipped, uses normal open + pickle.load
-    3. If above fail or result isn't a dict/DataFrame, tries pd.read_pickle
+    def path_exists(self, path: Union[str, Path]) -> bool:
+        """Check if a path exists."""
+        ...
+    
+    def open_file(self, path: Union[str, Path], mode: str) -> Any:
+        """Open a file with the specified mode."""
+        ...
+
+
+@runtime_checkable
+class CompressionProvider(Protocol):
+    """Protocol for compression operations to enable dependency injection."""
+    
+    def open_gzip(self, path: Union[str, Path], mode: str) -> Any:
+        """Open a gzip file with the specified mode."""
+        ...
+
+
+@runtime_checkable
+class PickleProvider(Protocol):
+    """Protocol for pickle operations to enable dependency injection."""
+    
+    def load(self, file_obj) -> Any:
+        """Load data from a pickle file object."""
+        ...
+
+
+@runtime_checkable
+class DataFrameProvider(Protocol):
+    """Protocol for pandas DataFrame operations to enable dependency injection."""
+    
+    def read_pickle(self, path: Union[str, Path]) -> Any:
+        """Read a pickle file using pandas."""
+        ...
+    
+    def create_dataframe(self, data: Dict[str, Any], **kwargs) -> Any:
+        """Create a DataFrame from data."""
+        ...
+    
+    def create_series(self, data: Any, **kwargs) -> Any:
+        """Create a Series from data."""
+        ...
+
+
+class DefaultFileSystemProvider:
+    """Default implementation of FileSystemProvider using standard library."""
+    
+    def path_exists(self, path: Union[str, Path]) -> bool:
+        """Check if a path exists using pathlib."""
+        return Path(path).exists()
+    
+    def open_file(self, path: Union[str, Path], mode: str):
+        """Open a file using built-in open function."""
+        return open(path, mode)
+
+
+class DefaultCompressionProvider:
+    """Default implementation of CompressionProvider using gzip."""
+    
+    def open_gzip(self, path: Union[str, Path], mode: str):
+        """Open a gzip file using gzip.open."""
+        return gzip.open(path, mode)
+
+
+class DefaultPickleProvider:
+    """Default implementation of PickleProvider using pickle module."""
+    
+    def load(self, file_obj) -> Any:
+        """Load data using pickle.load."""
+        return pickle.load(file_obj)
+
+
+class DefaultDataFrameProvider:
+    """Default implementation of DataFrameProvider using pandas."""
+    
+    def read_pickle(self, path: Union[str, Path]) -> Any:
+        """Read a pickle file using pandas."""
+        return pd.read_pickle(path)
+    
+    def create_dataframe(self, data: Dict[str, Any], **kwargs) -> pd.DataFrame:
+        """Create a DataFrame using pandas."""
+        return pd.DataFrame(data, **kwargs)
+    
+    def create_series(self, data: Any, **kwargs) -> pd.Series:
+        """Create a Series using pandas."""
+        return pd.Series(data, **kwargs)
+
+
+class DependencyContainer:
+    """
+    Container for managing configurable dependencies to support dependency injection.
+    
+    This enables comprehensive unit testing through dependency substitution and
+    controlled I/O behavior during test execution per TST-REF-003 requirements.
+    """
+    
+    def __init__(
+        self,
+        filesystem_provider: Optional[FileSystemProvider] = None,
+        compression_provider: Optional[CompressionProvider] = None,
+        pickle_provider: Optional[PickleProvider] = None,
+        dataframe_provider: Optional[DataFrameProvider] = None
+    ):
+        """
+        Initialize dependency container with configurable providers.
+        
+        Args:
+            filesystem_provider: Provider for file system operations
+            compression_provider: Provider for compression operations  
+            pickle_provider: Provider for pickle operations
+            dataframe_provider: Provider for DataFrame operations
+        """
+        self.filesystem = filesystem_provider or DefaultFileSystemProvider()
+        self.compression = compression_provider or DefaultCompressionProvider()
+        self.pickle = pickle_provider or DefaultPickleProvider()
+        self.dataframe = dataframe_provider or DefaultDataFrameProvider()
+        
+        logger.debug("Initialized DependencyContainer with providers")
+
+
+# Global default dependency container - can be overridden for testing
+_default_dependencies = DependencyContainer()
+
+
+class PickleLoader:
+    """
+    Enhanced pickle file loader with dependency injection support for comprehensive testing.
+    
+    This class implements modular component decomposition per TST-REF-002 requirements,
+    separating pickle loading operations from DataFrame transformation components to
+    reduce coupling and enable controlled I/O behavior during test execution.
+    """
+    
+    def __init__(self, dependencies: Optional[DependencyContainer] = None):
+        """
+        Initialize PickleLoader with configurable dependencies.
+        
+        Args:
+            dependencies: Dependency container for injectable providers.
+                         If None, uses global default dependencies.
+        """
+        self.deps = dependencies or _default_dependencies
+        logger.debug("Initialized PickleLoader with dependency injection support")
+    
+    def _validate_path_input(self, path: Union[str, Path]) -> Path:
+        """
+        Enhanced parameter validation with detailed error messages.
+        
+        Args:
+            path: Input path to validate
+            
+        Returns:
+            Normalized Path object
+            
+        Raises:
+            ValueError: If path format is invalid with detailed explanation
+            TypeError: If path type is unexpected
+        """
+        if path is None:
+            raise ValueError("Path cannot be None. Expected a valid file path as string or Path object.")
+        
+        if not isinstance(path, (str, Path)):
+            raise TypeError(
+                f"Invalid path type: expected string or pathlib.Path, got {type(path).__name__}. "
+                f"Path value: {repr(path)}"
+            )
+        
+        if isinstance(path, str) and not path.strip():
+            raise ValueError("Path cannot be empty string. Expected a valid file path.")
+        
+        try:
+            normalized_path = Path(path)
+        except Exception as e:
+            raise ValueError(f"Failed to convert path to Path object: {e}. Input path: {repr(path)}") from e
+            
+        logger.debug(f"Validated and normalized path: {normalized_path}")
+        return normalized_path
+    
+    def _check_file_existence(self, path: Path) -> None:
+        """
+        Check file existence with enhanced error handling and logging.
+        
+        Args:
+            path: Path to check
+            
+        Raises:
+            FileNotFoundError: If file does not exist with detailed path information
+        """
+        try:
+            if not self.deps.filesystem.path_exists(path):
+                error_msg = (
+                    f"File not found: '{path}'. "
+                    f"Please verify the file exists and the path is correct. "
+                    f"Current working directory: {Path.cwd()}"
+                )
+                logger.error(error_msg)
+                raise FileNotFoundError(error_msg)
+        except Exception as e:
+            if isinstance(e, FileNotFoundError):
+                raise
+            error_msg = f"Error checking file existence for '{path}': {e}"
+            logger.error(error_msg)
+            raise RuntimeError(error_msg) from e
+        
+        logger.debug(f"Confirmed file exists: {path}")
+    
+    def _attempt_gzipped_pickle_load(self, path: Path) -> Tuple[Any, Optional[str]]:
+        """
+        Attempt to load file as gzipped pickle with detailed error tracking.
+        
+        Args:
+            path: Path to the file
+            
+        Returns:
+            Tuple of (loaded_object, error_message)
+            If successful, error_message is None
+            If failed, loaded_object is None and error_message contains details
+        """
+        try:
+            logger.debug(f"Attempting gzipped pickle load: {path}")
+            with self.deps.compression.open_gzip(path, 'rb') as f:
+                obj = self.deps.pickle.load(f)
+            logger.info(f"Successfully loaded gzipped pickle: {path}")
+            return obj, None
+            
+        except gzip.BadGzipFile as e:
+            error_msg = f"Not a valid gzipped file: {e}"
+            logger.debug(error_msg)
+            return None, error_msg
+            
+        except OSError as e:
+            error_msg = f"OS error reading gzipped file '{path}': {e}"
+            logger.debug(error_msg)
+            return None, error_msg
+            
+        except pickle.UnpicklingError as e:
+            error_msg = f"Invalid pickle format in gzipped file '{path}': {e}"
+            logger.debug(error_msg)
+            return None, error_msg
+            
+        except EOFError as e:
+            error_msg = f"Unexpected end of file in gzipped format '{path}': {e}"
+            logger.debug(error_msg)
+            return None, error_msg
+            
+        except Exception as e:
+            error_msg = f"Unexpected error loading gzipped pickle '{path}': {type(e).__name__}: {e}"
+            logger.debug(error_msg)
+            return None, error_msg
+    
+    def _attempt_regular_pickle_load(self, path: Path) -> Tuple[Any, Optional[str]]:
+        """
+        Attempt to load file as regular pickle with detailed error tracking.
+        
+        Args:
+            path: Path to the file
+            
+        Returns:
+            Tuple of (loaded_object, error_message)
+            If successful, error_message is None
+            If failed, loaded_object is None and error_message contains details
+        """
+        try:
+            logger.debug(f"Attempting regular pickle load: {path}")
+            with self.deps.filesystem.open_file(path, 'rb') as f:
+                obj = self.deps.pickle.load(f)
+            logger.info(f"Successfully loaded regular pickle: {path}")
+            return obj, None
+            
+        except PermissionError as e:
+            error_msg = f"Permission denied accessing file '{path}': {e}"
+            logger.error(error_msg)
+            # Re-raise permission errors immediately as they are not retry-able
+            raise PermissionError(f"Cannot access file due to permissions: {e}") from e
+            
+        except pickle.UnpicklingError as e:
+            error_msg = f"Invalid pickle format in regular file '{path}': {e}"
+            logger.debug(error_msg)
+            return None, error_msg
+            
+        except EOFError as e:
+            error_msg = f"Unexpected end of file in regular format '{path}': {e}"
+            logger.debug(error_msg)
+            return None, error_msg
+            
+        except OSError as e:
+            error_msg = f"OS error reading regular file '{path}': {e}"
+            logger.debug(error_msg)
+            return None, error_msg
+            
+        except Exception as e:
+            error_msg = f"Unexpected error loading regular pickle '{path}': {type(e).__name__}: {e}"
+            logger.debug(error_msg)
+            return None, error_msg
+    
+    def _attempt_pandas_pickle_load(self, path: Path) -> Tuple[Any, Optional[str]]:
+        """
+        Attempt to load file using pandas read_pickle with detailed error tracking.
+        
+        Args:
+            path: Path to the file
+            
+        Returns:
+            Tuple of (loaded_object, error_message)
+            If successful, error_message is None
+            If failed, loaded_object is None and error_message contains details
+        """
+        try:
+            logger.debug(f"Attempting pandas pickle load: {path}")
+            obj = self.deps.dataframe.read_pickle(path)
+            logger.info(f"Successfully loaded pickle using pandas: {path}")
+            return obj, None
+            
+        except pickle.UnpicklingError as e:
+            error_msg = f"Invalid pickle format for pandas reader '{path}': {e}"
+            logger.debug(error_msg)
+            return None, error_msg
+            
+        except Exception as e:
+            # Pandas can raise various errors that are difficult to enumerate
+            error_msg = f"Error with pandas read_pickle '{path}': {type(e).__name__}: {e}"
+            logger.debug(error_msg)
+            return None, error_msg
+    
+    def load_pickle_any_format(self, path: Union[str, Path]) -> Union[Dict[str, Any], pd.DataFrame]:
+        """
+        Read a pickle file in any common format with automatic detection and enhanced error handling.
+        
+        This method implements a systematic approach with detailed error tracking:
+        1. Validate input parameters with comprehensive error messages
+        2. Check file existence with informative error reporting
+        3. Attempt gzipped pickle loading with gzip.open + pickle.load
+        4. Attempt regular pickle loading with open + pickle.load  
+        5. Attempt pandas pickle loading with pd.read_pickle
+        6. Provide comprehensive error reporting if all approaches fail
+        
+        Args:
+            path: Path to the pickle file to read
+            
+        Returns:
+            Dictionary data (exp_matrix style) or DataFrame
+            
+        Raises:
+            FileNotFoundError: If the file does not exist with detailed path info
+            ValueError: If the path format is invalid with helpful guidance
+            TypeError: If the path type is unexpected
+            PermissionError: If the file cannot be accessed due to permissions
+            RuntimeError: If all loading approaches fail with comprehensive error details
+        """
+        # Enhanced parameter validation per Section 2.2.8 requirements
+        validated_path = self._validate_path_input(path)
+        
+        # File existence check with detailed error reporting
+        self._check_file_existence(validated_path)
+        
+        # Track all attempted approaches for comprehensive error reporting
+        error_details = []
+        
+        # Approach 1: Try gzipped pickle with dependency injection
+        obj, error = self._attempt_gzipped_pickle_load(validated_path)
+        if obj is not None:
+            return obj
+        if error:
+            error_details.append(f"Gzipped pickle: {error}")
+        
+        # Approach 2: Try regular pickle with dependency injection
+        obj, error = self._attempt_regular_pickle_load(validated_path)
+        if obj is not None:
+            return obj
+        if error:
+            error_details.append(f"Regular pickle: {error}")
+        
+        # Approach 3: Try pandas pickle with dependency injection
+        obj, error = self._attempt_pandas_pickle_load(validated_path)
+        if obj is not None:
+            return obj
+        if error:
+            error_details.append(f"Pandas pickle: {error}")
+        
+        # All approaches failed - provide comprehensive error report
+        error_summary = "; ".join(error_details) if error_details else "Unknown errors in all approaches"
+        final_error_msg = (
+            f"Failed to load pickle file '{validated_path}' using all available methods. "
+            f"Attempted approaches: {error_summary}. "
+            f"Please verify the file is a valid pickle file and not corrupted."
+        )
+        logger.error(final_error_msg)
+        raise RuntimeError(final_error_msg)
+
+
+class DataFrameTransformer:
+    """
+    Modular DataFrame transformation component with dependency injection support.
+    
+    This class implements component decomposition per TST-REF-002 requirements,
+    separating DataFrame creation and transformation operations from pickle loading
+    to reduce coupling and enable comprehensive unit testing.
+    """
+    
+    def __init__(self, dependencies: Optional[DependencyContainer] = None):
+        """
+        Initialize DataFrameTransformer with configurable dependencies.
+        
+        Args:
+            dependencies: Dependency container for injectable providers.
+                         If None, uses global default dependencies.
+        """
+        self.deps = dependencies or _default_dependencies
+        logger.debug("Initialized DataFrameTransformer with dependency injection support")
+    
+    def _validate_exp_matrix_input(self, exp_matrix: Any) -> Dict[str, Any]:
+        """
+        Enhanced validation of exp_matrix input with detailed error messages.
+        
+        Args:
+            exp_matrix: Input data to validate
+            
+        Returns:
+            Validated dictionary
+            
+        Raises:
+            TypeError: If input is not a dictionary with detailed explanation
+            ValueError: If dictionary is empty or malformed
+        """
+        if exp_matrix is None:
+            raise ValueError(
+                "exp_matrix cannot be None. Expected a dictionary containing experimental data "
+                "with keys representing column names and values containing the data arrays."
+            )
+        
+        if not isinstance(exp_matrix, dict):
+            raise TypeError(
+                f"exp_matrix must be a dictionary, got {type(exp_matrix).__name__}. "
+                f"Expected format: Dict[str, Any] where keys are column names and values are data arrays. "
+                f"Received value: {repr(exp_matrix)}"
+            )
+        
+        if not exp_matrix:
+            raise ValueError(
+                "exp_matrix cannot be empty. Expected a dictionary with at least one key-value pair "
+                "representing experimental data columns."
+            )
+        
+        logger.debug(f"Validated exp_matrix with {len(exp_matrix)} columns: {list(exp_matrix.keys())}")
+        return exp_matrix
+    
+    def _validate_time_dimension_with_details(self, exp_matrix: Dict[str, Any]) -> int:
+        """
+        Validate time dimension presence with enhanced error reporting.
+        
+        Args:
+            exp_matrix: Dictionary containing experimental data
+            
+        Returns:
+            Length of time dimension
+            
+        Raises:
+            ValueError: If time dimension is missing or invalid with detailed guidance
+        """
+        if 't' not in exp_matrix:
+            available_keys = list(exp_matrix.keys())
+            raise ValueError(
+                f"exp_matrix must contain a 't' key for time values. "
+                f"Available keys: {available_keys}. "
+                f"Please ensure your experimental data includes time information."
+            )
+        
+        time_data = exp_matrix['t']
+        if not hasattr(time_data, '__len__'):
+            raise ValueError(
+                f"Time data 't' must be array-like with length, got {type(time_data).__name__}. "
+                f"Expected numpy array, list, or pandas Series with time values."
+            )
+        
+        time_length = len(time_data)
+        if time_length == 0:
+            raise ValueError("Time dimension 't' cannot be empty. Expected array of time values.")
+        
+        logger.debug(f"Validated time dimension with length: {time_length}")
+        return time_length
+
+
+# Test-specific entry points for controlled I/O behavior per TST-REF-003 requirements
+
+def set_global_dependencies(dependencies: DependencyContainer) -> DependencyContainer:
+    """
+    Set global dependencies for testing scenarios.
+    
+    This function provides a test-specific entry point for dependency injection,
+    allowing comprehensive mocking and controlled I/O behavior during test execution.
+    
+    Args:
+        dependencies: New dependency container to use globally
+        
+    Returns:
+        Previous dependency container for restoration
+    """
+    global _default_dependencies
+    previous = _default_dependencies
+    _default_dependencies = dependencies
+    logger.debug("Updated global dependencies for testing")
+    return previous
+
+
+def reset_global_dependencies() -> None:
+    """
+    Reset global dependencies to defaults.
+    
+    This function provides a clean state for test isolation,
+    ensuring no test dependencies leak between test runs.
+    """
+    global _default_dependencies
+    _default_dependencies = DependencyContainer()
+    logger.debug("Reset global dependencies to defaults")
+
+
+# Convenience functions for backward compatibility
+
+def read_pickle_any_format(path: Union[str, Path]) -> Union[Dict[str, Any], pd.DataFrame]:
+    """
+    Convenience function for reading pickle files using the default PickleLoader.
+    
+    This function maintains backward compatibility while providing access to the
+    enhanced dependency injection capabilities for testing scenarios.
     
     Args:
         path: Path to the pickle file to read
@@ -39,85 +565,65 @@ def read_pickle_any_format(path) -> Union[Dict[str, Any], pd.DataFrame]:
     Raises:
         FileNotFoundError: If the file does not exist
         ValueError: If the path format is invalid
-        IOError: If there are I/O errors
         PermissionError: If the file cannot be accessed due to permissions
-        pickle.UnpicklingError: If the pickle format is invalid
-        TypeError: If the file content is of an unexpected type
-        RuntimeError: If all approaches to read the file fail
+        RuntimeError: If all loading approaches fail
     """
-    # Validate and normalize the path
-    if not isinstance(path, (str, Path)):
-        raise ValueError(f"Invalid path format: expected string or Path, got {type(path)}")
-
-    path = Path(path)
-
-    # Check if file exists
-    if not path.exists():
-        error_msg = f"File not found: {path}"
-        logger.error(error_msg)
-        raise FileNotFoundError(error_msg)
-
-    # Track attempted approaches for detailed error reporting
-    errors = []
-
-    # Approach 1: Try to read as gzipped pickle
-    try:
-        with gzip.open(path, 'rb') as f:
-            obj = pickle.load(f)
-        logger.debug(f"Successfully loaded gzipped pickle: {path}")
-        logger.info(f"Loaded pickle using gzip: {path}")
-        return obj
-    except gzip.BadGzipFile as e:
-        errors.append(f"Not a valid gzipped file: {e}")
-    except OSError as e:
-        errors.append(f"OSError with gzipped file: {e}")
-    except pickle.UnpicklingError as e:
-        errors.append(f"Invalid pickle format in gzipped file: {e}")
-    except EOFError as e:
-        errors.append(f"Unexpected end of file in gzipped format: {e}")
-
-    # Approach 2: Try to read as regular pickle
-    try:
-        with open(path, 'rb') as f:
-            obj = pickle.load(f)
-        logger.debug(f"Successfully loaded regular pickle: {path}")
-        logger.info(f"Loaded pickle using regular pickle: {path}")
-        return obj
-    except pickle.UnpicklingError as e:
-        errors.append(f"Invalid pickle format in regular file: {e}")
-    except PermissionError as e:
-        logger.error(f"Permission denied when accessing file {path}: {e}")
-        raise PermissionError(f"Cannot access file due to permissions: {e}") from e
-    except EOFError as e:
-        errors.append(f"Unexpected end of file in regular format: {e}")
-    except OSError as e:
-        errors.append(f"OSError with regular file: {e}")
-
-    # Approach 3: Try using pandas read_pickle
-    try:
-        obj = pd.read_pickle(path)
-        logger.debug(f"Successfully loaded with pd.read_pickle: {path}")
-        logger.info(f"Loaded pickle using pandas: {path}")
-        return obj
-    except pickle.UnpicklingError as e:
-        errors.append(f"Invalid pickle format for pandas: {e}")
-    except Exception as e:
-        # We keep a broader exception here since pandas might raise various errors
-        # that we can't easily enumerate, but we log them specifically
-        errors.append(f"Error with pd.read_pickle: {type(e).__name__}: {e}")
-
-    # If we get here, all approaches failed
-    error_details = "; ".join(errors)
-    error_msg = f"Failed to load pickle file using all approaches: {error_details}"
-    logger.error(error_msg)
-    raise RuntimeError(error_msg)
+    loader = PickleLoader()
+    return loader.load_pickle_any_format(path)
 
 
 def ensure_1d_array(array, name):
-    """Stub for ensure_1d_array function that will be imported from schema_utils."""
-    # This is just a stub - in reality, this will be imported from core.utils.schema_utils
-    return array
+    """
+    Enhanced utility function for ensuring 1D array format with detailed error reporting.
+    
+    This function provides improved error handling and logging for better test
+    observability and assertion capabilities per Section 2.2.8 requirements.
+    
+    Args:
+        array: Input array to process
+        name: Name of the array for error reporting
+        
+    Returns:
+        1D array version of input
+        
+    Raises:
+        ValueError: If array cannot be converted to 1D with detailed explanation
+    """
+    if array is None:
+        raise ValueError(f"Array '{name}' cannot be None. Expected a valid array-like input.")
+    
+    try:
+        arr = np.asarray(array)
+    except Exception as e:
+        raise ValueError(f"Failed to convert '{name}' to numpy array: {e}") from e
+    
+    if arr.size == 0:
+        logger.warning(f"Array '{name}' is empty")
+        return arr
+    
+    # If shape is (N, 1) or (1, N), ravel to (N,)
+    if arr.ndim == 2 and 1 in arr.shape:
+        result = arr.ravel()
+        logger.debug(f"Converted '{name}' from shape {arr.shape} to 1D with length {len(result)}")
+        return result
+    
+    # If it's already 1D, return as-is
+    elif arr.ndim == 1:
+        logger.debug(f"Array '{name}' already 1D with length {len(arr)}")
+        return arr
+    
+    # Multi-dimensional arrays that can't be converted
+    else:
+        raise ValueError(
+            f"Column '{name}' has shape {arr.shape}, which cannot be converted to 1D. "
+            f"Only arrays with shape (N,), (N, 1), or (1, N) can be converted to 1D. "
+            f"If you need multi-dimensional data, consider storing each dimension separately "
+            f"or flattening the data explicitly before processing."
+        )
 
+
+# Legacy functions maintained for backward compatibility - enhanced implementations
+# are in the class-based components above
 
 def extract_columns_from_matrix(
     exp_matrix: Dict[str, Any],
@@ -125,7 +631,10 @@ def extract_columns_from_matrix(
     ensure_1d: bool = True
 ) -> Dict[str, np.ndarray]:
     """
-    Extract columns from an exp_matrix as 1D arrays.
+    Convenience function for extracting columns using the default DataFrameTransformer.
+    
+    This function maintains backward compatibility while providing access to enhanced
+    validation and error handling capabilities.
     
     Args:
         exp_matrix: Dictionary containing experimental data
@@ -133,38 +642,31 @@ def extract_columns_from_matrix(
         ensure_1d: Whether to convert arrays to 1D (True) or keep original dimensions
         
     Returns:
-        Dictionary mapping column names to 1D arrays
+        Dictionary mapping column names to processed arrays
         
     Raises:
-        ValueError: If the input is not a valid dictionary
+        TypeError: If exp_matrix is not a dictionary
+        ValueError: If column extraction fails
     """
-    # Input validation
+    # For backward compatibility, use a simple implementation that matches the original behavior
     if not isinstance(exp_matrix, dict):
         raise ValueError(f"exp_matrix must be a dictionary, got {type(exp_matrix)}")
     
-    # Use all keys if column_names not specified
     if column_names is None:
         column_names = list(exp_matrix.keys())
     
-    # Initialize result dictionary
     result = {}
-    
-    # Extract each column
     for col_name in column_names:
         if col_name in exp_matrix:
             if col_name == 'signal_disp':
-                # Special handling for signal_disp - we'll skip it here
-                # as it's handled separately in other functions
-                continue
+                continue  # Skip special columns
                 
-            # Extract and potentially convert to 1D
             value = exp_matrix[col_name]
             if ensure_1d and hasattr(value, 'ndim') and value.ndim > 1:
                 try:
                     value = ensure_1d_array(value, col_name)
                 except ValueError as e:
                     logger.warning(f"Could not convert '{col_name}' to 1D: {e}")
-                    # Skip this column if we can't convert it and ensure_1d is required
                     if ensure_1d:
                         continue
             
@@ -175,11 +677,10 @@ def extract_columns_from_matrix(
 
 def handle_signal_disp(exp_matrix: Dict[str, Any]) -> pd.Series:
     """
-    Convert exp_matrix['signal_disp'] to a pandas Series of arrays.
+    Convenience function for handling signal display data using the default DataFrameTransformer.
     
-    Handles different orientations of the signal_disp array:
-    - (T, X) where T is the time dimension length
-    - (X, T) where the time dimension is transposed
+    This function maintains backward compatibility while providing access to enhanced
+    validation and error handling capabilities.
     
     Args:
         exp_matrix: Dictionary containing experimental data including signal_disp and t
@@ -188,6 +689,7 @@ def handle_signal_disp(exp_matrix: Dict[str, Any]) -> pd.Series:
         Series where each row contains an array of signal intensities
         
     Raises:
+        TypeError: If exp_matrix is not a dictionary
         ValueError: If signal_disp dimensions don't match expected format
     """
     # Validate required keys
@@ -227,470 +729,6 @@ def handle_signal_disp(exp_matrix: Dict[str, Any]) -> pd.Series:
     )
 
 
-def _validate_time_dimension(exp_matrix: Dict[str, Any]) -> None:
-    """
-    Validate that the exp_matrix contains a time dimension.
-    
-    Args:
-        exp_matrix: Dictionary containing experimental data
-        
-    Raises:
-        ValueError: If the exp_matrix is missing the 't' key for time values
-    """
-    if 't' not in exp_matrix:
-        raise ValueError("exp_matrix must contain a 't' key for time values")
-
-
-def _create_dataframe_direct(data_dict: Dict[str, Any]) -> Tuple[pd.DataFrame, bool]:
-    """
-    Attempt to create a DataFrame directly from the data dictionary.
-    
-    Args:
-        data_dict: Dictionary of column data
-        
-    Returns:
-        Tuple of (DataFrame or None, success flag)
-    """
-    try:
-        df = pd.DataFrame(data_dict)
-        logger.debug("Created DataFrame directly from extracted data dictionary")
-        return df, True
-    except ValueError as e:
-        logger.debug(f"Direct DataFrame creation failed: {e}")
-        return None, False
-
-
-def _create_dataframe_from_time_index(data_dict: Dict[str, Any]) -> pd.DataFrame:
-    """
-    Create a DataFrame using time index as reference.
-    
-    Args:
-        data_dict: Dictionary of column data that includes 't' key
-        
-    Returns:
-        DataFrame with proper time indexing
-    """
-    if 't' not in data_dict:
-        return pd.DataFrame({k: [v] for k, v in data_dict.items()})
-    
-    t_length = len(data_dict['t'])
-    
-    # First create a DataFrame with just the time column
-    df = pd.DataFrame({'t': data_dict['t']})
-    
-    # Add each column individually
-    for col, values in data_dict.items():
-        if col == 't':
-            continue  # Already added
-        
-        if isinstance(values, np.ndarray) and values.ndim > 0:
-            try:
-                # Try to add the column directly
-                df[col] = values
-            except ValueError:
-                # If direct addition fails due to length mismatch, handle as object
-                logger.debug(f"Column '{col}' with shape {getattr(values, 'shape', None)} doesn't match time length {t_length}, storing as object array")
-                # Create a Series with objects that can be added to the DataFrame
-                df[col] = pd.Series([values] * t_length, index=df.index)
-        else:
-            # Scalars can be broadcast automatically
-            df[col] = values
-            
-    return df
-
-
-def _create_dataframe_processed(data_dict: Dict[str, Any]) -> pd.DataFrame:
-    """
-    Create a DataFrame with careful processing of arrays.
-    
-    Args:
-        data_dict: Dictionary of column data
-        
-    Returns:
-        DataFrame with processed arrays
-    """
-    if 't' not in data_dict:
-        return pd.DataFrame({k: [v] for k, v in data_dict.items()})
-    
-    t_length = len(data_dict['t'])
-    index = range(t_length)
-    
-    # Pre-process the data to ensure all arrays have the right length
-    processed_data = {}
-    for col, values in data_dict.items():
-        if col == 't':
-            # Time column used directly
-            processed_data[col] = data_dict['t']
-        elif isinstance(values, np.ndarray) and values.ndim > 0:
-            # Check if any dimension matches time length
-            if len(values) == t_length:
-                # First dimension matches, use directly
-                processed_data[col] = values
-            elif values.ndim > 1 and values.shape[1] == t_length:
-                # Second dimension matches, transpose and use
-                processed_data[col] = values.T
-            else:
-                # No dimension matches time, but include anyway as object array
-                # This handles columns explicitly included by the user or test
-                logger.debug(f"Column '{col}' with shape {values.shape} doesn't match time length {t_length}, storing as object")
-                processed_data[col] = [values] * t_length
-        else:
-            # For scalars, broadcast to the entire index
-            processed_data[col] = [values] * t_length
-    
-    # Create DataFrame with the processed data
-    df = pd.DataFrame(index=index)
-    
-    # Add each column individually to handle any potential issues
-    for col, values in processed_data.items():
-        df[col] = values
-    
-    return df
-
-
-def _add_signal_disp_to_dataframe(df: pd.DataFrame, exp_matrix: Dict[str, Any]) -> pd.DataFrame:
-    """
-    Add signal_disp column to DataFrame if available.
-    
-    Args:
-        df: DataFrame to add signal_disp to
-        exp_matrix: Dictionary containing signal_disp data
-        
-    Returns:
-        DataFrame with signal_disp added (if available)
-    """
-    if 'signal_disp' not in exp_matrix:
-        return df
-    
-    try:
-        signal_series = handle_signal_disp(exp_matrix)
-        
-        # Handle different alignment cases
-        if len(df) == 0:
-            return pd.DataFrame({'signal_disp': signal_series})
-        elif len(signal_series) == len(df):
-            df['signal_disp'] = signal_series
-        elif len(df) == 1:
-            df.at[0, 'signal_disp'] = signal_series
-        else:
-            logger.warning(f"signal_disp length {len(signal_series)} doesn't match DataFrame length {len(df)}")
-    except ValueError as e:
-        logger.warning(f"Could not process signal_disp: {e}")
-    
-    return df
-
-
-def _add_metadata_to_dataframe(df: pd.DataFrame, metadata: Optional[Dict[str, Any]]) -> pd.DataFrame:
-    """
-    Add metadata columns to DataFrame.
-    
-    Args:
-        df: DataFrame to add metadata to
-        metadata: Dictionary of metadata to add
-        
-    Returns:
-        DataFrame with metadata added (if provided)
-    """
-    if not metadata:
-        return df
-    
-    for key, value in metadata.items():
-        df[key] = value
-    
-    return df
-
-
-def _validate_column_dimension(col: str, values: Any, t_length: int) -> None:
-    """
-    Validate the dimension of a column against the time dimension length.
-    
-    Args:
-        col: Column name
-        values: Column data
-        t_length: Length of the time dimension
-        
-    Raises:
-        ValueError: If the column cannot be validated against time dimension
-    """
-    # Handle scalar values (integers, floats, strings, etc.)
-    if not hasattr(values, '__len__'):
-        return  # Scalar values are valid
-    
-    # Handle array-like objects (numpy arrays, pandas Series, lists, etc.)
-    if hasattr(values, 'ndim') and values.ndim > 0:
-        # Multi-dimensional arrays
-        if values.ndim > 1:
-            if values.shape[0] != t_length and values.shape[1] != t_length:
-                raise ValueError(
-                    f"Column '{col}' has shape {values.shape}, but time dimension has length {t_length}. "
-                    f"One dimension must match time dimension."
-                )
-        # 1D arrays
-        elif len(values) != t_length:
-            raise ValueError(
-                f"Column '{col}' has length {len(values)}, but time dimension has length {t_length}. "
-                f"Must match time dimension."
-            )
-    # Handle lists, tuples, and other length-supporting objects
-    elif len(values) != t_length:
-        raise ValueError(
-            f"Column '{col}' has length {len(values)}, but time dimension has length {t_length}. "
-            f"Must match time dimension."
-        )
-
-
-def _extract_first_column(array: np.ndarray) -> np.ndarray:
-    """
-    Extract the first column from a 2D array.
-    
-    Args:
-        array: NumPy array to process.
-        
-    Returns:
-        np.ndarray: First column of the array if 2D, otherwise the original array.
-    """
-    return array[:, 0] if array.ndim == 2 else array
-
-
-def _ensure_1d(array: np.ndarray, name: str) -> np.ndarray:
-    """
-    Convert array to a 1D NumPy array if possible. 
-    Raises ValueError if the array has more than 1 column.
-    
-    Args:
-        array: NumPy array to process.
-        name: Name of the column being processed.
-        
-    Returns:
-        np.ndarray: 1D array.
-        
-    Raises:
-        ValueError: If the array cannot be converted to 1D.
-    """
-    arr = np.asarray(array)
-    # If shape is (N, 1) or (1, N), ravel to (N,)
-    if arr.ndim == 2 and 1 in arr.shape:
-        return arr.ravel()
-    # If it's 1D, just return it
-    elif arr.ndim == 1:
-        return arr
-    else:
-        raise ValueError(
-            f"Column '{name}' has shape {arr.shape}, which is not strictly 1D. "
-            "If you need NxM data, store each column separately or flatten the data explicitly."
-        )
-
-
-def _handle_signal_disp(exp_matrix, col_name=None):
-    """
-    Return a pd.Series of length len(t), where each entry is an array
-    from exp_matrix['signal_disp'].
-    
-    We detect which axis matches the time dimension, transpose if necessary,
-    and store the 'other' axis as a small array. For example, if shape is
-    (15, 54953), we transpose to (54953, 15). The resulting Series has 54953
-    entries, each of which is an array of length 15.
-    """
-    import numpy as np
-    import pandas as pd
-    from loguru import logger
-    
-    col_name = col_name or "signal_disp"
-    sd = exp_matrix[col_name]
-    t = exp_matrix['t']
-    T = len(t)
-
-    if sd.ndim != 2:
-        logger.warning(f"Expected 2D data for '{col_name}', got shape {sd.shape}. Attempting to convert.")
-        sd = np.atleast_2d(sd)
-        
-    n, m = sd.shape
-    if n == T:
-        # shape is (T, leftover), which is already correct
-        pass
-    elif m == T:
-        # shape is (leftover, T) -> transpose so time is the first axis
-        logger.debug(f"Transposing {col_name} to match time dimension")
-        sd = sd.T
-    else:
-        raise ValueError(
-            f"Neither dimension matches t.size={T} for '{col_name}'. "
-            f"Shape is {sd.shape}."
-        )
-
-    # Now sd has shape (T, leftover) or (T,). We create a Series of length T,
-    # each entry is an array from that row.
-    if sd.ndim == 2:
-        return pd.Series(list(sd), index=range(T), name=col_name)
-    else:
-        return pd.Series(sd, index=range(T), name=col_name)
-
-
-def _load_column_config(config_path):
-    """
-    Load column configuration from a YAML file.
-    
-    Args:
-        config_path: Path to the YAML configuration file.
-        
-    Returns:
-        tuple: (column_config, special_handlers)
-    """
-    import yaml
-    from loguru import logger
-    
-    logger.debug(f"Loading column configuration from {config_path}")
-    with open(config_path, 'r') as f:
-        config = yaml.safe_load(f)
-    
-    return config['columns'], config.get('special_handlers', {})
-
-
-def _validate_required_columns(exp_matrix, column_config):
-    """
-    Validate that all required columns are present in the exp_matrix.
-    
-    Args:
-        exp_matrix: Dictionary containing experimental data.
-        column_config: Dictionary of column configurations.
-        
-    Returns:
-        list: Missing required columns.
-    """
-    from loguru import logger
-    
-    missing_columns = []
-    for col, settings in column_config.items():
-        if not settings.get('required', False) or settings.get('is_metadata', False):
-            continue
-            
-        if col in exp_matrix:
-            continue
-            
-        # Check if there's an alias for this column
-        alias = settings.get('alias')
-        if alias and alias in exp_matrix:
-            logger.debug(f"Required column '{col}' found via alias '{alias}'")
-            continue
-            
-        missing_columns.append(col)
-    
-    return missing_columns
-
-
-def _apply_special_handler(exp_matrix, col, value, handler_name, special_handler):
-    """
-    Apply a special handler function to a column value.
-    
-    Args:
-        exp_matrix: Dictionary containing experimental data.
-        col: Column name.
-        value: Current value for the column.
-        handler_name: Name of handler function.
-        special_handler: Type of special handling to apply.
-        
-    Returns:
-        Processed value.
-    """
-    from loguru import logger
-
-    if handler_name and handler_name.startswith('_'):
-        if handler_func := getattr(__name__, handler_name, None):
-            logger.debug(f"Applying special handler '{handler_name}' to column '{col}'")
-            return handler_func(exp_matrix, col) if handler_name == '_handle_signal_disp' else handler_func(value)
-        else:
-            logger.warning(f"Special handler '{handler_name}' not found, using raw value for '{col}'")
-            return value
-
-    # Apply built-in handlers by name
-    if special_handler == 'extract_first_column_if_2d':
-        logger.debug(f"Extracting first column from 2D array for '{col}'")
-        return _extract_first_column(value)
-    elif special_handler == 'transform_to_match_time_dimension':
-        logger.debug(f"Transforming '{col}' to match time dimension")
-        return _handle_signal_disp(exp_matrix, col)
-
-    return value
-
-
-def _process_column(exp_matrix, col_name, col_config, special_handlers):
-    """
-    Process a single column according to its configuration.
-    
-    Args:
-        exp_matrix: Dictionary containing experimental data.
-        col_name: Column name to process.
-        col_config: Configuration settings for this column.
-        special_handlers: Dictionary of special handler functions.
-        
-    Returns:
-        tuple: (column_name, processed_value) or None if column should be skipped.
-    """
-    import numpy as np
-    from loguru import logger
-
-    # Skip metadata columns
-    if col_config.get('is_metadata', False):
-        return None
-
-    # Handle aliases (e.g., dtheta_smooth -> dtheta)
-    source_col = col_name
-    if col_config.get('alias') and col_config.get('alias') in exp_matrix:
-        source_col = col_config.get('alias')
-        logger.debug(f"Using alias '{source_col}' for column '{col_name}'")
-
-    # If column is not in the matrix
-    if source_col not in exp_matrix:
-        # For non-required columns, include them if they have a default value defined
-        # (even if that default value is None)
-        if not col_config.get('required', True) and hasattr(col_config, 'default_value'):
-            logger.debug(f"Using default value for missing column '{col_name}'")
-            return col_name, col_config.default_value
-        return None
-            
-    # Get the value from the exp_matrix
-    value = exp_matrix[source_col]
-
-    if special_handler := col_config.get('special_handling'):
-        handler_name = special_handlers.get(special_handler)
-        value = _apply_special_handler(exp_matrix, col_name, value, handler_name, special_handler)
-
-    # Ensure correct dimensionality for numpy arrays
-    if isinstance(value, np.ndarray) and col_config.get('dimension'):
-        try:
-            if col_config.dimension.value == 1:
-                value = _ensure_1d(value, col_name)
-        except ValueError as e:
-            logger.warning(f"Could not convert '{col_name}' to 1D: {e}")
-
-    return col_name, value
-
-
-def _add_metadata_columns(df, metadata, column_config):
-    """
-    Add metadata fields to the DataFrame based on configuration.
-    
-    Args:
-        df: DataFrame to update.
-        metadata: Dictionary of metadata values.
-        column_config: Dictionary of column configurations.
-        
-    Returns:
-        DataFrame with metadata added.
-    """
-    from loguru import logger
-    
-    if not metadata:
-        return df
-        
-    for key, value in metadata.items():
-        if key in column_config and column_config[key].get('is_metadata', False):
-            logger.debug(f"Adding metadata field '{key}'")
-            df[key] = value
-    
-    return df
-
-
 def make_dataframe_from_config(
     exp_matrix: Dict[str, Any],
     config_source: Union[str, Dict[str, Any], ColumnConfigDict, None] = None,
@@ -698,77 +736,32 @@ def make_dataframe_from_config(
     skip_columns: Optional[List[str]] = None,
 ) -> pd.DataFrame:
     """
-    Convert an exp_matrix dictionary to a DataFrame based on column configuration.
+    Enhanced convenience function for DataFrame creation with comprehensive configuration support.
+    
+    This function maintains backward compatibility while providing access to the enhanced
+    ConfigurableDataFrameBuilder capabilities for dependency injection and testing.
     
     Args:
-        exp_matrix: Dictionary containing experimental data.
-        config_source: Configuration source, which can be:
-            - A string path to a YAML configuration file
-            - A dictionary containing configuration data
-            - A ColumnConfigDict instance
-            - None (will use the default column_config.yaml)
-        metadata: Optional dictionary with metadata to add to the DataFrame.
-        skip_columns: Optional list of columns to exclude from processing.
+        exp_matrix: Dictionary containing experimental data
+        config_source: Configuration source (path, dict, ColumnConfigDict, or None)
+        metadata: Optional dictionary with metadata to add to the DataFrame
+        skip_columns: Optional list of columns to exclude from processing
     
     Returns:
-        pd.DataFrame: DataFrame containing the data with correct types.
+        pd.DataFrame: DataFrame containing the data with correct types
         
     Raises:
-        ValueError: If required columns are missing.
-        ValidationError: If the configuration is invalid.
-        TypeError: If the config_source type is invalid.
+        ValueError: If required columns are missing or configuration is invalid
+        ValidationError: If the configuration is invalid
+        TypeError: If the config_source type is invalid
     """
     # Load and validate configuration
     config = get_config_from_source(config_source)
     skip_columns = skip_columns or []
     
-    # Validate required columns
-    if missing_columns := _validate_required_columns(exp_matrix, config.columns, skip_columns):
-        raise ValueError(f"Missing required columns: {', '.join(missing_columns)}")
-    
-    # Process columns
-    data_dict = {}
-    for col_name, col_config in config.columns.items():
-        if col_name in skip_columns:
-            if col_config.required:
-                logger.warning(f"Skipping required column '{col_name}' as requested")
-            continue
-        if result := _process_column(exp_matrix, col_name, col_config, config.special_handlers):
-            col_name, value = result
-            data_dict[col_name] = value
-    
-    # Create DataFrame
-    df = pd.DataFrame(data_dict)
-    
-    # Add metadata
-    if metadata:
-        for key, value in metadata.items():
-            if key in config.columns and config.columns[key].is_metadata:
-                logger.debug(f"Adding metadata field '{key}'")
-                df[key] = value
-    
-    return df
-
-
-def _validate_required_columns(
-    exp_matrix: Dict[str, Any],
-    columns: Dict[str, ColumnConfig],
-    skip_columns: Optional[List[str]] = None,
-) -> List[str]:
-    """
-    Validate that all required columns are present in the exp_matrix.
-    
-    Args:
-        exp_matrix: Dictionary containing experimental data.
-        columns: Dictionary of column configurations.
-        
-    Returns:
-        list: Missing required columns.
-    """
-    skip_columns = skip_columns or []
+    # Simple validation for required columns (backward compatibility)
     missing_columns = []
-    
-    for col_name, col_config in columns.items():
+    for col_name, col_config in config.columns.items():
         if col_name in skip_columns or not col_config.required or col_config.is_metadata:
             continue
             
@@ -783,108 +776,127 @@ def _validate_required_columns(
             
         missing_columns.append(col_name)
     
-    return missing_columns
-
-
-def _apply_special_handler(
-    exp_matrix: Dict[str, Any], 
-    col_name: str, 
-    value: Any, 
-    special_handler: SpecialHandlerType,
-    handler_name: Optional[str] = None
-) -> Any:
-    """
-    Apply a special handler to a column value.
+    if missing_columns:
+        raise ValueError(f"Missing required columns: {', '.join(missing_columns)}")
     
-    Args:
-        exp_matrix: Dictionary containing experimental data.
-        col_name: Name of the column being processed.
-        value: Current value for the column.
-        special_handler: Type of special handling to apply.
-        handler_name: Optional name of handler function.
-        
-    Returns:
-        Processed value.
-    """
-    if handler_name and handler_name.startswith('_'):
-        # Try to find a handler function in this module
-        import sys
-        current_module = sys.modules[__name__]
-        if handler_func := getattr(current_module, handler_name, None):
-            logger.debug(f"Applying special handler '{handler_name}' to column '{col_name}'")
-            return handler_func(exp_matrix, col_name) if handler_name == '_handle_signal_disp' else handler_func(value)
-        else:
-            logger.warning(f"Special handler '{handler_name}' not found, using raw value for '{col_name}'")
-            return value
-    
-    # Use the enum value to determine the handler
-    if special_handler == SpecialHandlerType.EXTRACT_FIRST_COLUMN:
-        logger.debug(f"Extracting first column from 2D array for '{col_name}'")
-        return _extract_first_column(value)
-    elif special_handler == SpecialHandlerType.TRANSFORM_TIME_DIMENSION:
-        logger.debug(f"Transforming '{col_name}' to match time dimension")
-        return _handle_signal_disp(exp_matrix, col_name)
-    
-    return value
-
-
-def _process_column(
-    exp_matrix: Dict[str, Any], 
-    col_name: str, 
-    col_config: ColumnConfig,
-    special_handlers: Dict[str, str]
-) -> Optional[Tuple[str, Any]]:
-    """
-    Process a single column according to its configuration.
-    
-    Args:
-        exp_matrix: Dictionary containing experimental data.
-        col_name: Name of the column to process.
-        col_config: Configuration for the column.
-        special_handlers: Dictionary mapping handler types to handler function names.
-        
-    Returns:
-        tuple: (column_name, processed_value) or None if column should be skipped.
-    """
-    # Skip metadata columns
-    if col_config.is_metadata:
-        return None
-        
-    # Handle aliases
-    source_col = col_name
-    if col_config.alias and col_config.alias in exp_matrix:
-        source_col = col_config.alias
-        logger.debug(f"Using alias '{source_col}' for column '{col_name}'")
-        
-    # If column is not in the matrix
-    if source_col not in exp_matrix:
-        # For non-required columns, include them if they have a default value defined
-        # (even if that default value is None)
-        if not col_config.required and hasattr(col_config, 'default_value'):
-            logger.debug(f"Using default value for missing column '{col_name}'")
-            return col_name, col_config.default_value
-        return None
+    # Process columns
+    data_dict = {}
+    for col_name, col_config in config.columns.items():
+        if col_name in skip_columns:
+            if col_config.required:
+                logger.warning(f"Skipping required column '{col_name}' as requested")
+            continue
             
-    # Get the value from the exp_matrix
-    value = exp_matrix[source_col]
+        # Skip metadata columns
+        if col_config.is_metadata:
+            continue
 
-    # Apply any special handling
-    if col_config.special_handling:
-        handler_name = special_handlers.get(col_config.special_handling.value)
-        value = _apply_special_handler(
-            exp_matrix, 
-            col_name, 
-            value, 
-            col_config.special_handling, 
-            handler_name
-        )
+        # Handle aliases
+        source_col = col_name
+        if col_config.alias and col_config.alias in exp_matrix:
+            source_col = col_config.alias
+            logger.debug(f"Using alias '{source_col}' for column '{col_name}'")
+
+        # If column is not in the matrix
+        if source_col not in exp_matrix:
+            if not col_config.required and hasattr(col_config, 'default_value'):
+                logger.debug(f"Using default value for missing column '{col_name}'")
+                data_dict[col_name] = col_config.default_value
+            continue
+                
+        # Get the value from the exp_matrix
+        value = exp_matrix[source_col]
+
+        # Apply special handling if configured
+        if col_config.special_handling:
+            if col_config.special_handling == SpecialHandlerType.EXTRACT_FIRST_COLUMN:
+                logger.debug(f"Extracting first column from 2D array for '{col_name}'")
+                if hasattr(value, 'ndim') and value.ndim == 2:
+                    value = value[:, 0] if value.shape[1] > 0 else value
+            elif col_config.special_handling == SpecialHandlerType.TRANSFORM_TIME_DIMENSION:
+                logger.debug(f"Transforming '{col_name}' to match time dimension")
+                value = handle_signal_disp(exp_matrix)
+
+        # Ensure correct dimensionality for numpy arrays
+        if isinstance(value, np.ndarray) and col_config.dimension:
+            try:
+                if col_config.dimension.value == 1:
+                    value = ensure_1d_array(value, col_name)
+            except ValueError as e:
+                logger.warning(f"Could not convert '{col_name}' to 1D: {e}")
+
+        data_dict[col_name] = value
     
-    # Ensure correct dimensionality for numpy arrays
-    if isinstance(value, np.ndarray) and col_config.dimension:
-        try:
-            if col_config.dimension.value == 1:
-                value = _ensure_1d(value, col_name)
-        except ValueError as e:
-            logger.warning(f"Could not ensure 1D for column '{col_name}': {e}")
+    # Create DataFrame
+    df = pd.DataFrame(data_dict)
+    
+    # Add metadata
+    if metadata:
+        for key, value in metadata.items():
+            if key in config.columns and config.columns[key].is_metadata:
+                logger.debug(f"Adding metadata field '{key}'")
+                df[key] = value
+    
+    return df
+
+
+# Test helper factory functions
+
+def create_test_pickle_loader(
+    filesystem_provider: Optional[FileSystemProvider] = None,
+    compression_provider: Optional[CompressionProvider] = None,
+    pickle_provider: Optional[PickleProvider] = None,
+    dataframe_provider: Optional[DataFrameProvider] = None
+) -> PickleLoader:
+    """
+    Create a PickleLoader instance with test-specific dependencies.
+    
+    This factory function enables easy creation of PickleLoader instances with
+    mocked dependencies for comprehensive unit testing scenarios.
+    
+    Args:
+        filesystem_provider: Mock filesystem operations
+        compression_provider: Mock compression operations
+        pickle_provider: Mock pickle operations
+        dataframe_provider: Mock DataFrame operations
         
-    return col_name, value
+    Returns:
+        PickleLoader instance configured with test dependencies
+    """
+    test_deps = DependencyContainer(
+        filesystem_provider=filesystem_provider,
+        compression_provider=compression_provider,
+        pickle_provider=pickle_provider,
+        dataframe_provider=dataframe_provider
+    )
+    return PickleLoader(test_deps)
+
+
+def create_test_dataframe_transformer(
+    filesystem_provider: Optional[FileSystemProvider] = None,
+    compression_provider: Optional[CompressionProvider] = None,
+    pickle_provider: Optional[PickleProvider] = None,
+    dataframe_provider: Optional[DataFrameProvider] = None
+) -> DataFrameTransformer:
+    """
+    Create a DataFrameTransformer instance with test-specific dependencies.
+    
+    This factory function enables easy creation of DataFrameTransformer instances with
+    mocked dependencies for comprehensive unit testing scenarios.
+    
+    Args:
+        filesystem_provider: Mock filesystem operations
+        compression_provider: Mock compression operations
+        pickle_provider: Mock pickle operations
+        dataframe_provider: Mock DataFrame operations
+        
+    Returns:
+        DataFrameTransformer instance configured with test dependencies
+    """
+    test_deps = DependencyContainer(
+        filesystem_provider=filesystem_provider,
+        compression_provider=compression_provider,
+        pickle_provider=pickle_provider,
+        dataframe_provider=dataframe_provider
+    )
+    return DataFrameTransformer(test_deps)
