@@ -1,0 +1,695 @@
+{#
+  FlyrigLoader Individual Python File Coverage Report Template
+  
+  This Jinja2 template generates detailed line-by-line coverage analysis for individual Python files
+  within the flyrigloader neuroscience data loading library. The template provides comprehensive
+  coverage visualization with syntax highlighting, branch coverage indicators, and quality metrics
+  designed specifically for research-grade software development.
+  
+  Features:
+  - Line-by-line coverage analysis with syntax highlighting
+  - Branch coverage visualization and statistics  
+  - Interactive source code navigation with tooltips
+  - Quality metrics and complexity analysis
+  - Neuroscience domain-specific context and annotations
+  - Accessibility-compliant design (WCAG 2.1 AA)
+  - Responsive layout for development and CI/CD environments
+  
+  Template Variables (provided by coverage.py and custom reporting):
+  - file: File information object with path, stats, and coverage data
+  - config: Configuration object from report-config.json
+  - source_lines: List of source code lines with coverage annotations
+  - coverage_stats: Overall coverage statistics for this file
+  - branch_coverage: Branch coverage information per line
+  - quality_metrics: Code quality metrics including complexity
+  - build_info: CI/CD build information and metadata
+  - project_info: Project metadata and repository information
+#}
+<!DOCTYPE html>
+<html lang="en" class="no-js">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Detailed coverage analysis for {{ file.name }} in the FlyrigLoader neuroscience data loading library">
+    <meta name="author" content="{{ config.metadata.organization }}">
+    <meta name="robots" content="noindex, nofollow">
+    
+    <title>{{ file.name }} Coverage Report | {{ config.report_formats.html.title }}</title>
+    
+    {# Include custom CSS from style.css.j2 template #}
+    <link rel="stylesheet" href="style.css">
+    
+    {# Additional file-specific CSS for detailed code analysis #}
+    <style>
+        /* Enhanced syntax highlighting for coverage context */
+        .line-covered .highlight { background: rgba(76, 175, 80, 0.1); }
+        .line-uncovered .highlight { background: rgba(244, 67, 54, 0.15); }
+        .line-partial .highlight { background: rgba(255, 152, 0, 0.1); }
+        
+        /* Code complexity indicators */
+        .complexity-indicator {
+            position: absolute;
+            right: 80px;
+            top: 50%;
+            transform: translateY(-50%);
+            font-size: 10px;
+            padding: 2px 4px;
+            border-radius: 2px;
+            opacity: 0.8;
+        }
+        
+        .complexity-low { background: #4CAF50; color: white; }
+        .complexity-medium { background: #FF9800; color: white; }
+        .complexity-high { background: #F44336; color: white; }
+        
+        /* Jump navigation */
+        .jump-nav {
+            position: fixed;
+            top: 50%;
+            right: 20px;
+            transform: translateY(-50%);
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+            padding: 16px;
+            max-height: 60vh;
+            overflow-y: auto;
+            z-index: 1000;
+            display: none;
+        }
+        
+        .jump-nav.active { display: block; }
+        
+        /* Coverage annotations */
+        .coverage-annotation {
+            position: absolute;
+            left: -8px;
+            top: 0;
+            bottom: 0;
+            width: 4px;
+            border-radius: 2px;
+        }
+        
+        .annotation-covered { background: var(--color-success); }
+        .annotation-uncovered { background: var(--color-error); }
+        .annotation-partial { background: var(--color-warning); }
+        
+        /* Function and class markers */
+        .function-marker, .class-marker {
+            background: rgba(25, 118, 210, 0.1);
+            border-left: 3px solid #1976D2;
+            margin: 2px 0;
+        }
+        
+        .class-marker {
+            border-left-color: var(--color-primary);
+            background: rgba(46, 125, 50, 0.1);
+        }
+    </style>
+</head>
+
+<body>
+    {# Skip link for accessibility #}
+    <a href="#main-content" class="skip-link">Skip to main content</a>
+    
+    {# Header with breadcrumb navigation #}
+    <header class="header">
+        <div class="container">
+            <div class="header-content">
+                <div class="header-brand">
+                    <div class="header-logo">
+                        {% if config.report_formats.html.header.include_logo %}
+                        <img src="{{ config.report_formats.html.header.logo_url }}" alt="FlyrigLoader" width="32" height="32">
+                        {% else %}
+                        FL
+                        {% endif %}
+                    </div>
+                    <div>
+                        <h1 class="header-title">{{ config.report_formats.html.header.project_name }}</h1>
+                        <p class="header-subtitle">{{ config.report_formats.html.header.subtitle }}</p>
+                    </div>
+                </div>
+                
+                <div class="header-meta">
+                    {% if config.report_formats.html.header.timestamp %}
+                    <div class="header-meta-item">
+                        <span>📅</span>
+                        <span>{{ build_info.timestamp | default('Unknown') }}</span>
+                    </div>
+                    {% endif %}
+                    
+                    {% if config.report_formats.html.header.branch_info %}
+                    <div class="header-meta-item">
+                        <span>🔀</span>
+                        <span>{{ build_info.branch_name | default('main') }}</span>
+                    </div>
+                    {% endif %}
+                    
+                    {% if config.report_formats.html.header.coverage_version %}
+                    <div class="header-meta-item">
+                        <span>📊</span>
+                        <span>Coverage {{ build_info.coverage_version | default('7.0+') }}</span>
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </header>
+    
+    {# Breadcrumb navigation #}
+    <nav class="breadcrumbs" aria-label="Breadcrumb">
+        <div class="container">
+            <ol>
+                <li><a href="index.html">Coverage Report</a></li>
+                {% set path_parts = file.path.split('/') %}
+                {% for part in path_parts[:-1] %}
+                <li><a href="{{ path_parts[:loop.index] | join('/') }}/index.html">{{ part }}</a></li>
+                {% endfor %}
+                <li aria-current="page">{{ file.name }}</li>
+            </ol>
+        </div>
+    </nav>
+    
+    {# Main content area #}
+    <main id="main-content" class="container">
+        
+        {# File summary section #}
+        <section class="coverage-summary fade-in">
+            <div class="flex justify-between align-center mb-3">
+                <h2 class="text-xl font-bold">
+                    <span class="module-category-icon category-{{ file.module_category | default('utils') }}"></span>
+                    {{ file.name }}
+                </h2>
+                
+                <div class="flex align-center gap-md">
+                    <button id="toggle-jump-nav" class="source-button" aria-expanded="false">
+                        Jump to Line
+                    </button>
+                    <button id="toggle-coverage-filter" class="source-button">
+                        Filter Coverage
+                    </button>
+                    <button id="toggle-annotations" class="source-button">
+                        Toggle Annotations
+                    </button>
+                </div>
+            </div>
+            
+            {# File path and context #}
+            <div class="file-info mb-3">
+                <span class="text-muted">File Path:</span>
+                <code class="font-mono">{{ file.path }}</code>
+                
+                {% if file.is_critical %}
+                <span class="experimental-context">
+                    Critical Module: 100% coverage required for data integrity
+                </span>
+                {% endif %}
+                
+                {% if file.neuroscience_context %}
+                <div class="workflow-stage {{ file.workflow_category | default('utils') }}">
+                    {{ file.neuroscience_context }}
+                </div>
+                {% endif %}
+            </div>
+            
+            {# Coverage metrics grid #}
+            <div class="coverage-metrics">
+                <div class="metric-card">
+                    <div class="metric-value text-{{ 'success' if coverage_stats.line_coverage >= 90 else 'warning' if coverage_stats.line_coverage >= 70 else 'error' }}">
+                        {{ "%.1f" | format(coverage_stats.line_coverage) }}%
+                    </div>
+                    <div class="metric-label">Line Coverage</div>
+                    <div class="coverage-progress">
+                        <div class="coverage-progress-bar {{ 'excellent' if coverage_stats.line_coverage >= 90 else 'good' if coverage_stats.line_coverage >= 70 else 'poor' }}" 
+                             style="width: {{ coverage_stats.line_coverage }}%"></div>
+                    </div>
+                    {% if coverage_stats.line_change %}
+                    <div class="metric-change {{ 'positive' if coverage_stats.line_change > 0 else 'negative' if coverage_stats.line_change < 0 else 'stable' }}">
+                        {{ "+" if coverage_stats.line_change > 0 }}{{ "%.1f" | format(coverage_stats.line_change) }}% from baseline
+                    </div>
+                    {% endif %}
+                </div>
+                
+                <div class="metric-card">
+                    <div class="metric-value text-{{ 'success' if coverage_stats.branch_coverage >= 85 else 'warning' if coverage_stats.branch_coverage >= 70 else 'error' }}">
+                        {{ "%.1f" | format(coverage_stats.branch_coverage) }}%
+                    </div>
+                    <div class="metric-label">Branch Coverage</div>
+                    <div class="coverage-progress">
+                        <div class="coverage-progress-bar {{ 'excellent' if coverage_stats.branch_coverage >= 85 else 'good' if coverage_stats.branch_coverage >= 70 else 'poor' }}" 
+                             style="width: {{ coverage_stats.branch_coverage }}%"></div>
+                    </div>
+                    <div class="text-muted text-xs">
+                        {{ coverage_stats.branches_covered }}/{{ coverage_stats.branches_total }} branches
+                    </div>
+                </div>
+                
+                <div class="metric-card">
+                    <div class="metric-value">{{ coverage_stats.statements_covered }}</div>
+                    <div class="metric-label">Lines Covered</div>
+                    <div class="text-muted text-xs">
+                        {{ coverage_stats.statements_total }} total statements
+                    </div>
+                </div>
+                
+                <div class="metric-card">
+                    <div class="metric-value">{{ coverage_stats.missing_lines | length }}</div>
+                    <div class="metric-label">Missing Lines</div>
+                    {% if coverage_stats.missing_lines %}
+                    <div class="text-muted text-xs">
+                        Lines: {{ coverage_stats.missing_lines[:5] | join(', ') }}
+                        {% if coverage_stats.missing_lines | length > 5 %}
+                        + {{ coverage_stats.missing_lines | length - 5 }} more
+                        {% endif %}
+                    </div>
+                    {% endif %}
+                </div>
+                
+                {% if quality_metrics %}
+                <div class="metric-card">
+                    <div class="metric-value">{{ quality_metrics.complexity_score | default('N/A') }}</div>
+                    <div class="metric-label">Complexity Score</div>
+                    {% if quality_metrics.complexity_rating %}
+                    <div class="text-{{ quality_metrics.complexity_rating }} text-xs">
+                        {{ quality_metrics.complexity_rating | title }} Complexity
+                    </div>
+                    {% endif %}
+                </div>
+                
+                <div class="metric-card">
+                    <div class="metric-value">{{ quality_metrics.maintainability_index | default('N/A') }}</div>
+                    <div class="metric-label">Maintainability</div>
+                    <div class="text-muted text-xs">
+                        Scale: 0-100 (higher is better)
+                    </div>
+                </div>
+                {% endif %}
+            </div>
+            
+            {# Quality gates status for this file #}
+            {% if file.quality_gates %}
+            <div class="quality-gates">
+                {% for gate in file.quality_gates %}
+                <div class="quality-gate {{ gate.status }}">
+                    <div class="quality-gate-header">
+                        <div class="quality-gate-title">{{ gate.name }}</div>
+                        <div class="quality-gate-status {{ gate.status }}">{{ gate.status | upper }}</div>
+                    </div>
+                    <div class="text-sm">{{ gate.description }}</div>
+                    {% if gate.requirement %}
+                    <div class="text-xs text-muted">Required: {{ gate.requirement }}</div>
+                    {% endif %}
+                </div>
+                {% endfor %}
+            </div>
+            {% endif %}
+        </section>
+        
+        {# Function and class summary #}
+        {% if file.functions or file.classes %}
+        <section class="module-section">
+            <div class="module-header">
+                <h3 class="module-title">
+                    <span class="module-icon {{ file.module_category | default('utils') }}">FN</span>
+                    Functions & Classes Coverage
+                </h3>
+            </div>
+            
+            <div class="grid-2">
+                {% if file.functions %}
+                <div>
+                    <h4 class="mb-2">Functions ({{ file.functions | length }})</h4>
+                    <div class="file-tree">
+                        {% for func in file.functions %}
+                        <div class="file-tree-item">
+                            <a href="#line-{{ func.start_line }}" class="file-tree-link">
+                                <div class="file-info">
+                                    <span class="file-name">{{ func.name }}()</span>
+                                    <div class="file-stats">
+                                        <span class="coverage-badge {{ 'excellent' if func.coverage >= 90 else 'good' if func.coverage >= 70 else 'poor' }}">
+                                            {{ "%.0f" | format(func.coverage) }}%
+                                        </span>
+                                        <span class="text-muted">{{ func.lines }} lines</span>
+                                    </div>
+                                </div>
+                            </a>
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
+                {% endif %}
+                
+                {% if file.classes %}
+                <div>
+                    <h4 class="mb-2">Classes ({{ file.classes | length }})</h4>
+                    <div class="file-tree">
+                        {% for cls in file.classes %}
+                        <div class="file-tree-item">
+                            <a href="#line-{{ cls.start_line }}" class="file-tree-link">
+                                <div class="file-info">
+                                    <span class="file-name">{{ cls.name }}</span>
+                                    <div class="file-stats">
+                                        <span class="coverage-badge {{ 'excellent' if cls.coverage >= 90 else 'good' if cls.coverage >= 70 else 'poor' }}">
+                                            {{ "%.0f" | format(cls.coverage) }}%
+                                        </span>
+                                        <span class="text-muted">{{ cls.methods | length }} methods</span>
+                                    </div>
+                                </div>
+                            </a>
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
+                {% endif %}
+            </div>
+        </section>
+        {% endif %}
+        
+        {# Source code display #}
+        <section class="source-container">
+            <div class="source-header">
+                <h3 class="source-title">{{ file.name }}</h3>
+                <div class="source-actions">
+                    <select id="coverage-filter" class="source-button">
+                        <option value="all">All Lines</option>
+                        <option value="covered">Covered Only</option>
+                        <option value="uncovered">Uncovered Only</option>
+                        <option value="partial">Partial Coverage</option>
+                    </select>
+                    <button id="copy-path" class="source-button" data-path="{{ file.path }}">
+                        Copy Path
+                    </button>
+                    <button id="view-raw" class="source-button" onclick="window.open('{{ file.path }}', '_blank')">
+                        View Raw
+                    </button>
+                </div>
+            </div>
+            
+            <div class="source-code-wrapper">
+                <table class="source-table" id="source-table">
+                    <tbody>
+                        {% for line in source_lines %}
+                        <tr id="line-{{ loop.index }}" 
+                            class="source-line {{ line.coverage_status }} {{ 'function-marker' if line.is_function_start else 'class-marker' if line.is_class_start }}"
+                            data-line-number="{{ loop.index }}"
+                            data-coverage="{{ line.coverage_status }}"
+                            data-hits="{{ line.execution_count | default(0) }}"
+                            {% if line.branches %}data-branches="{{ line.branches | tojson }}"{% endif %}>
+                            
+                            {# Line number column #}
+                            <td class="line-number">
+                                <a href="#line-{{ loop.index }}" class="line-link">{{ loop.index }}</a>
+                            </td>
+                            
+                            {# Coverage indicator column #}
+                            <td class="line-coverage {{ line.coverage_status }}" 
+                                title="{{ line.coverage_tooltip | default('No coverage data') }}"
+                                data-tooltip="{{ line.coverage_tooltip | default('No coverage data') }}">
+                                {% if line.coverage_status == 'covered' %}
+                                    {{ line.execution_count | default('✓') }}
+                                {% elif line.coverage_status == 'uncovered' %}
+                                    ✗
+                                {% elif line.coverage_status == 'partial' %}
+                                    ◐
+                                {% elif line.coverage_status == 'excluded' %}
+                                    -
+                                {% else %}
+                                    &nbsp;
+                                {% endif %}
+                            </td>
+                            
+                            {# Source code column #}
+                            <td class="line-source">
+                                <div class="source-line-content">
+                                    {# Coverage annotation bar #}
+                                    <div class="coverage-annotation annotation-{{ line.coverage_status }}"></div>
+                                    
+                                    {# Syntax-highlighted source code #}
+                                    <pre class="highlight">{{ line.highlighted_source | safe }}</pre>
+                                    
+                                    {# Branch coverage annotation #}
+                                    {% if line.branches %}
+                                    <div class="branch-annotation">
+                                        {% for branch in line.branches %}
+                                        <span class="branch-{{ 'true' if branch.taken else 'false' }}" 
+                                              title="Branch {{ branch.number }}: {{ 'Taken' if branch.taken else 'Not taken' }}">
+                                            {{ branch.number }}
+                                        </span>
+                                        {% endfor %}
+                                    </div>
+                                    {% endif %}
+                                    
+                                    {# Complexity indicator for function/class lines #}
+                                    {% if line.complexity_score %}
+                                    <div class="complexity-indicator complexity-{{ line.complexity_level }}">
+                                        C{{ line.complexity_score }}
+                                    </div>
+                                    {% endif %}
+                                </div>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </section>
+        
+        {# Critical paths analysis for uncovered code #}
+        {% if coverage_stats.missing_lines %}
+        <section class="module-section validation-critical">
+            <div class="module-header">
+                <h3 class="module-title">
+                    <span class="module-icon api">⚠️</span>
+                    Uncovered Critical Paths
+                </h3>
+            </div>
+            
+            <div class="grid-2">
+                <div>
+                    <h4 class="mb-2">Missing Lines</h4>
+                    <div class="text-sm">
+                        <p>The following lines lack test coverage and may represent critical paths in your {{ file.module_category | default('application') }} module:</p>
+                        <ul class="mt-2">
+                            {% for line_num in coverage_stats.missing_lines[:10] %}
+                            <li><a href="#line-{{ line_num }}" class="text-error">Line {{ line_num }}</a></li>
+                            {% endfor %}
+                            {% if coverage_stats.missing_lines | length > 10 %}
+                            <li class="text-muted">... and {{ coverage_stats.missing_lines | length - 10 }} more lines</li>
+                            {% endif %}
+                        </ul>
+                    </div>
+                </div>
+                
+                {% if coverage_stats.uncovered_branches %}
+                <div>
+                    <h4 class="mb-2">Uncovered Branches</h4>
+                    <div class="text-sm">
+                        <p>These conditional branches need test coverage for complete path validation:</p>
+                        <ul class="mt-2">
+                            {% for branch in coverage_stats.uncovered_branches[:10] %}
+                            <li><a href="#line-{{ branch.line }}" class="text-warning">Line {{ branch.line }}, Branch {{ branch.number }}</a></li>
+                            {% endfor %}
+                            {% if coverage_stats.uncovered_branches | length > 10 %}
+                            <li class="text-muted">... and {{ coverage_stats.uncovered_branches | length - 10 }} more branches</li>
+                            {% endif %}
+                        </ul>
+                    </div>
+                </div>
+                {% endif %}
+            </div>
+            
+            {% if file.is_critical %}
+            <div class="validation-warning mt-3">
+                <strong>Critical Module Alert:</strong> This module requires 100% coverage for production deployment. 
+                Please add tests for the uncovered paths above to meet quality gate requirements.
+            </div>
+            {% endif %}
+        </section>
+        {% endif %}
+    </main>
+    
+    {# Jump navigation sidebar #}
+    <aside id="jump-nav" class="jump-nav" aria-hidden="true">
+        <h4 class="mb-2">Jump to Line</h4>
+        <input type="number" id="jump-input" class="source-button" placeholder="Line number" min="1" max="{{ source_lines | length }}">
+        <button id="jump-button" class="source-button mt-2">Go</button>
+        
+        <hr class="mt-3 mb-3">
+        
+        <h5 class="mb-2">Quick Links</h5>
+        <div class="text-sm">
+            {% if file.functions %}
+            <div class="mb-2">
+                <strong>Functions:</strong>
+                {% for func in file.functions[:5] %}
+                <div><a href="#line-{{ func.start_line }}">{{ func.name }}() ({{ func.start_line }})</a></div>
+                {% endfor %}
+            </div>
+            {% endif %}
+            
+            {% if coverage_stats.missing_lines %}
+            <div class="mb-2">
+                <strong>Uncovered Lines:</strong>
+                {% for line_num in coverage_stats.missing_lines[:5] %}
+                <div><a href="#line-{{ line_num }}" class="text-error">Line {{ line_num }}</a></div>
+                {% endfor %}
+            </div>
+            {% endif %}
+        </div>
+    </aside>
+    
+    {# Footer with build information #}
+    <footer class="mt-4 p-3 border-top text-center text-muted">
+        <div class="container">
+            <p>
+                Generated by {{ config.metadata.created_by }} | 
+                Coverage {{ build_info.coverage_version | default('7.0+') }} | 
+                Build {{ build_info.build_number | default('local') }}
+                {% if build_info.commit_hash %}
+                | Commit {{ build_info.commit_hash[:8] }}
+                {% endif %}
+            </p>
+            {% if config.metadata.repository_url %}
+            <p class="text-xs mt-1">
+                <a href="{{ config.metadata.repository_url }}" target="_blank">{{ config.metadata.project }} Repository</a>
+            </p>
+            {% endif %}
+        </div>
+    </footer>
+    
+    {# JavaScript for interactive features #}
+    <script>
+        // Jump navigation functionality
+        document.getElementById('toggle-jump-nav').addEventListener('click', function() {
+            const nav = document.getElementById('jump-nav');
+            const isVisible = nav.classList.contains('active');
+            nav.classList.toggle('active');
+            this.setAttribute('aria-expanded', !isVisible);
+            nav.setAttribute('aria-hidden', isVisible);
+        });
+        
+        document.getElementById('jump-button').addEventListener('click', function() {
+            const lineNum = document.getElementById('jump-input').value;
+            if (lineNum) {
+                window.location.hash = 'line-' + lineNum;
+                document.getElementById('jump-nav').classList.remove('active');
+            }
+        });
+        
+        document.getElementById('jump-input').addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                document.getElementById('jump-button').click();
+            }
+        });
+        
+        // Coverage filtering
+        document.getElementById('coverage-filter').addEventListener('change', function() {
+            const filter = this.value;
+            const rows = document.querySelectorAll('.source-line');
+            
+            rows.forEach(row => {
+                const coverage = row.dataset.coverage;
+                if (filter === 'all' || coverage === filter) {
+                    row.style.display = '';
+                } else {
+                    row.style.display = 'none';
+                }
+            });
+        });
+        
+        // Copy path functionality
+        document.getElementById('copy-path').addEventListener('click', function() {
+            const path = this.dataset.path;
+            navigator.clipboard.writeText(path).then(() => {
+                this.textContent = 'Copied!';
+                setTimeout(() => {
+                    this.textContent = 'Copy Path';
+                }, 2000);
+            });
+        });
+        
+        // Toggle annotations
+        document.getElementById('toggle-annotations').addEventListener('click', function() {
+            document.querySelectorAll('.branch-annotation, .complexity-indicator').forEach(el => {
+                el.style.display = el.style.display === 'none' ? '' : 'none';
+            });
+        });
+        
+        // Enhanced tooltips for coverage data
+        document.querySelectorAll('[data-tooltip]').forEach(element => {
+            element.addEventListener('mouseenter', function() {
+                const tooltip = this.getAttribute('data-tooltip');
+                if (tooltip) {
+                    this.setAttribute('title', tooltip);
+                }
+            });
+        });
+        
+        // Keyboard navigation support
+        document.addEventListener('keydown', function(e) {
+            if (e.ctrlKey || e.metaKey) {
+                switch(e.key) {
+                    case 'f':
+                        e.preventDefault();
+                        document.getElementById('coverage-filter').focus();
+                        break;
+                    case 'j':
+                        e.preventDefault();
+                        document.getElementById('toggle-jump-nav').click();
+                        break;
+                }
+            }
+        });
+        
+        // Accessibility improvements
+        document.querySelectorAll('.source-line').forEach(row => {
+            row.setAttribute('tabindex', '0');
+            row.addEventListener('keypress', function(e) {
+                if (e.key === 'Enter' || e.key === ' ') {
+                    const lineNum = this.dataset.lineNumber;
+                    window.location.hash = 'line-' + lineNum;
+                }
+            });
+        });
+        
+        // Progressive enhancement for animations
+        if (window.matchMedia('(prefers-reduced-motion: no-preference)').matches) {
+            document.querySelectorAll('.fade-in').forEach(element => {
+                element.style.opacity = '0';
+                element.style.transform = 'translateY(20px)';
+                
+                setTimeout(() => {
+                    element.style.transition = 'opacity 0.3s ease, transform 0.3s ease';
+                    element.style.opacity = '1';
+                    element.style.transform = 'translateY(0)';
+                }, 100);
+            });
+        }
+        
+        // URL hash handling for direct line navigation
+        function highlightLineFromHash() {
+            const hash = window.location.hash;
+            if (hash.startsWith('#line-')) {
+                const lineNum = hash.substring(6);
+                const line = document.getElementById('line-' + lineNum);
+                if (line) {
+                    // Remove previous highlights
+                    document.querySelectorAll('.source-line.highlighted').forEach(el => {
+                        el.classList.remove('highlighted');
+                    });
+                    
+                    // Highlight current line
+                    line.classList.add('highlighted');
+                    line.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                }
+            }
+        }
+        
+        // Handle hash changes
+        window.addEventListener('hashchange', highlightLineFromHash);
+        
+        // Initial hash highlight
+        document.addEventListener('DOMContentLoaded', highlightLineFromHash);
+    </script>
+</body>
+</html>
