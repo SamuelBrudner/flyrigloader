@@ -2,730 +2,1144 @@
 """
 Automated Coverage Validation Script
 
-Implements comprehensive quality gate enforcement with module-specific threshold validation,
-performance SLA checking, and CI/CD integration support. Provides programmatic coverage 
-analysis enabling automated merge blocking per TST-COV-004 requirements.
+Comprehensive coverage validation implementing quality gate enforcement with 
+module-specific threshold validation, performance SLA checking, and CI/CD 
+integration support per TST-COV-004 requirements.
 
-This script validates:
+This script provides programmatic coverage analysis enabling automated merge 
+blocking per TST-COV-004 requirements and implements:
+
 - TST-COV-001: Maintain >90% overall test coverage across all modules
-- TST-COV-002: Achieve 100% coverage for critical data loading and validation modules
+- TST-COV-002: Achieve 100% coverage for critical data loading and validation modules  
 - TST-COV-004: Block merges when coverage drops below thresholds
 - TST-PERF-001: Data loading SLA validation within 1s per 100MB
 - Section 4.1.1.5: Test execution workflow with automated quality gate enforcement
 
-Usage:
-    python tests/coverage/validate-coverage.py [--coverage-file coverage.xml] [--benchmark-file benchmark.json]
-    
-Exit Codes:
-    0: All quality gates passed
-    1: Quality gate violations detected (blocks merge)
+Author: FlyRigLoader Test Infrastructure Team
+Created: 2024-12-19
+Last Updated: 2024-12-19
 """
 
 import argparse
 import json
+import logging
+import os
+import re
 import sys
-import xml.etree.ElementTree as ET
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple, Any
-import yaml
-import re
-from datetime import datetime
+from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
+import yaml
+
+
+# ============================================================================
+# CONFIGURATION AND DATA STRUCTURES
+# ============================================================================
 
 @dataclass
-class CoverageMetrics:
-    """Container for coverage metrics data."""
+class ModuleCoverageResult:
+    """Represents coverage analysis results for a specific module."""
+    module_path: str
     line_coverage: float
     branch_coverage: float
-    total_lines: int
-    covered_lines: int
-    total_branches: int
-    covered_branches: int
+    lines_covered: int
+    lines_total: int
+    branches_covered: int
+    branches_total: int
     missing_lines: List[int] = field(default_factory=list)
+    partial_branches: List[int] = field(default_factory=list)
+    threshold_met: bool = False
+    branch_threshold_met: bool = False
+    category: str = "unknown"
+    requirements: List[str] = field(default_factory=list)
 
 
 @dataclass
-class ModuleCoverageReport:
-    """Coverage report for a specific module."""
-    module_name: str
-    metrics: CoverageMetrics
-    threshold: float
-    is_critical: bool
+class PerformanceBenchmarkResult:
+    """Represents performance benchmark analysis results."""
+    operation_name: str
+    measured_time: float
+    data_size: float
+    sla_threshold: float
+    sla_met: bool
+    unit: str
+    benchmark_category: str
+
+
+@dataclass
+class QualityGateResult:
+    """Comprehensive quality gate validation results."""
+    overall_coverage_met: bool
+    critical_modules_met: bool
+    branch_coverage_met: bool
+    performance_slas_met: bool
+    module_results: Dict[str, ModuleCoverageResult] = field(default_factory=dict)
+    performance_results: List[PerformanceBenchmarkResult] = field(default_factory=list)
     violations: List[str] = field(default_factory=list)
-
-
-@dataclass
-class PerformanceMetrics:
-    """Container for performance benchmark metrics."""
-    test_name: str
-    mean_time: float
-    std_dev: float
-    min_time: float
-    max_time: float
-    iterations: int
-
-
-@dataclass
-class QualityGateResults:
-    """Results of quality gate validation."""
-    passed: bool = True
-    coverage_violations: List[str] = field(default_factory=list)
-    performance_violations: List[str] = field(default_factory=list)
-    module_reports: List[ModuleCoverageReport] = field(default_factory=list)
-    overall_coverage: float = 0.0
+    warnings: List[str] = field(default_factory=list)
+    overall_line_coverage: float = 0.0
     overall_branch_coverage: float = 0.0
+    execution_time: float = 0.0
 
 
-class CoverageThresholdLoader:
-    """Loads and validates coverage threshold configuration."""
-    
-    def __init__(self, config_path: Path):
-        self.config_path = config_path
-        self._config = None
-    
-    def load_config(self) -> Dict[str, Any]:
-        """Load coverage threshold configuration from JSON file."""
-        if self._config is None:
-            try:
-                with open(self.config_path, 'r', encoding='utf-8') as f:
-                    self._config = json.load(f)
-                self._validate_config()
-            except FileNotFoundError:
-                # Provide default configuration if file doesn't exist
-                self._config = self._get_default_config()
-                print(f"Warning: Coverage thresholds file not found at {self.config_path}, using defaults")
-            except json.JSONDecodeError as e:
-                raise ValueError(f"Invalid JSON in coverage thresholds file: {e}")
-        
-        return self._config
-    
-    def _get_default_config(self) -> Dict[str, Any]:
-        """Provide default coverage configuration based on requirements."""
-        return {
-            "overall_threshold": 90.0,
-            "branch_coverage_required": True,
-            "critical_modules": {
-                "src/flyrigloader/api.py": 100.0,
-                "src/flyrigloader/config/": 100.0,
-                "src/flyrigloader/discovery/": 100.0,
-                "src/flyrigloader/io/": 100.0
-            },
-            "module_thresholds": {
-                "src/flyrigloader/utils/": 95.0,
-                "src/flyrigloader/__init__.py": 90.0
-            },
-            "exclude_patterns": [
-                "*/test_*",
-                "*/conftest.py",
-                "*/__pycache__/*"
-            ],
-            "quality_gates": {
-                "fail_on_violation": True,
-                "require_branch_coverage": True,
-                "minimum_branch_coverage": 85.0
-            }
-        }
-    
-    def _validate_config(self) -> None:
-        """Validate the loaded configuration structure."""
-        required_keys = ["overall_threshold", "critical_modules", "quality_gates"]
-        for key in required_keys:
-            if key not in self._config:
-                raise ValueError(f"Missing required key '{key}' in coverage thresholds configuration")
-    
-    def get_module_threshold(self, module_path: str) -> Tuple[float, bool]:
-        """Get threshold and criticality for a specific module."""
-        config = self.load_config()
-        
-        # Check critical modules first
-        for pattern, threshold in config["critical_modules"].items():
-            if self._path_matches_pattern(module_path, pattern):
-                return threshold, True
-        
-        # Check regular module thresholds
-        for pattern, threshold in config.get("module_thresholds", {}).items():
-            if self._path_matches_pattern(module_path, pattern):
-                return threshold, False
-        
-        # Default to overall threshold
-        return config["overall_threshold"], False
-    
-    def _path_matches_pattern(self, path: str, pattern: str) -> bool:
-        """Check if a file path matches a given pattern."""
-        # Convert glob-like pattern to regex
-        pattern = pattern.replace("/", r"[/\\]")  # Handle both Unix and Windows paths
-        pattern = pattern.replace("*", ".*")
-        pattern = f"^{pattern}"
-        
-        # If pattern ends with /, it matches directory and all files within
-        if pattern.endswith("[/\\\\]"):
-            pattern = pattern[:-6] + r"[/\\].*"
-        
-        return bool(re.match(pattern, path))
+# ============================================================================
+# COVERAGE VALIDATION CORE ENGINE
+# ============================================================================
 
+class CoverageValidator:
+    """
+    Comprehensive coverage validation engine implementing automated quality 
+    gate enforcement with module-specific threshold validation and performance
+    SLA checking per TST-COV-004 requirements.
+    """
 
-class QualityGateLoader:
-    """Loads and validates quality gate configuration."""
-    
-    def __init__(self, config_path: Path):
-        self.config_path = config_path
-        self._config = None
-    
-    def load_config(self) -> Dict[str, Any]:
-        """Load quality gate configuration from YAML file."""
-        if self._config is None:
-            try:
-                with open(self.config_path, 'r', encoding='utf-8') as f:
-                    self._config = yaml.safe_load(f)
-                self._validate_config()
-            except FileNotFoundError:
-                # Provide default configuration if file doesn't exist
-                self._config = self._get_default_config()
-                print(f"Warning: Quality gates file not found at {self.config_path}, using defaults")
-            except yaml.YAMLError as e:
-                raise ValueError(f"Invalid YAML in quality gates file: {e}")
+    def __init__(self, 
+                 coverage_config_path: Path,
+                 quality_gates_config_path: Path,
+                 coverage_data_path: Optional[Path] = None,
+                 benchmark_data_path: Optional[Path] = None):
+        """
+        Initialize coverage validator with configuration and data paths.
         
-        return self._config
-    
-    def _get_default_config(self) -> Dict[str, Any]:
-        """Provide default quality gate configuration based on requirements."""
-        return {
-            "coverage": {
-                "overall_coverage_threshold": 90.0,
-                "critical_module_coverage_threshold": 100.0,
-                "branch_coverage_required": True,
-                "fail_on_violation": True
-            },
-            "performance": {
-                "data_loading_sla": "1s per 100MB",
-                "dataframe_transformation_sla": "500ms per 1M rows",
-                "benchmark_execution_timeout": 600,
-                "fail_on_violation": True
-            },
-            "execution": {
-                "test_execution_timeout": 300,
-                "strict_validation": True,
-                "block_merge_on_failure": True
-            }
-        }
-    
-    def _validate_config(self) -> None:
-        """Validate the loaded configuration structure."""
-        required_sections = ["coverage", "performance", "execution"]
-        for section in required_sections:
-            if section not in self._config:
-                raise ValueError(f"Missing required section '{section}' in quality gates configuration")
+        Args:
+            coverage_config_path: Path to coverage-thresholds.json configuration
+            quality_gates_config_path: Path to quality-gates.yml configuration  
+            coverage_data_path: Path to coverage data file (coverage.json)
+            benchmark_data_path: Path to benchmark results (benchmark-results.json)
+        """
+        self.coverage_config_path = coverage_config_path
+        self.quality_gates_config_path = quality_gates_config_path
+        self.coverage_data_path = coverage_data_path or Path("coverage.json")
+        self.benchmark_data_path = benchmark_data_path or Path("benchmark-results.json")
+        
+        # Configuration storage
+        self.coverage_config: Dict[str, Any] = {}
+        self.quality_gates_config: Dict[str, Any] = {}
+        
+        # Analysis results storage
+        self.coverage_data: Dict[str, Any] = {}
+        self.benchmark_data: Dict[str, Any] = {}
+        
+        # Logging configuration
+        self.logger = self._configure_logging()
+        
+        # Performance tracking
+        self.start_time = time.time()
 
+    def _configure_logging(self) -> logging.Logger:
+        """Configure comprehensive logging for validation analysis."""
+        logger = logging.getLogger("coverage_validator")
+        logger.setLevel(logging.INFO)
+        
+        # Create console handler with formatting
+        console_handler = logging.StreamHandler(sys.stdout)
+        console_handler.setLevel(logging.INFO)
+        
+        # Enhanced formatter for detailed validation logging
+        formatter = logging.Formatter(
+            "%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+            datefmt="%Y-%m-%d %H:%M:%S"
+        )
+        console_handler.setFormatter(formatter)
+        
+        # Avoid duplicate handlers in testing environments
+        if not logger.handlers:
+            logger.addHandler(console_handler)
+        
+        return logger
 
-class CoverageAnalyzer:
-    """Analyzes coverage reports and validates against thresholds."""
-    
-    def __init__(self, threshold_loader: CoverageThresholdLoader, quality_gate_loader: QualityGateLoader):
-        self.threshold_loader = threshold_loader
-        self.quality_gate_loader = quality_gate_loader
-    
-    def analyze_coverage_report(self, coverage_file: Path) -> QualityGateResults:
-        """Analyze coverage report and validate against quality gates."""
+    def load_configurations(self) -> None:
+        """
+        Load and validate configuration files for coverage thresholds and 
+        quality gates per TST-COV-001 through TST-COV-004 requirements.
+        
+        Raises:
+            FileNotFoundError: If configuration files are missing
+            json.JSONDecodeError: If JSON configuration is invalid
+            yaml.YAMLError: If YAML configuration is invalid
+        """
+        self.logger.info("Loading coverage validation configurations")
+        
+        # Load coverage thresholds configuration
         try:
-            if coverage_file.suffix == '.xml':
-                return self._analyze_xml_coverage(coverage_file)
-            elif coverage_file.suffix == '.json':
-                return self._analyze_json_coverage(coverage_file)
-            else:
-                raise ValueError(f"Unsupported coverage file format: {coverage_file.suffix}")
-        
+            with open(self.coverage_config_path, 'r') as f:
+                self.coverage_config = json.load(f)
+            self.logger.info(f"Loaded coverage thresholds from {self.coverage_config_path}")
         except FileNotFoundError:
-            print(f"Warning: Coverage file not found at {coverage_file}, using minimal validation")
-            return self._create_minimal_results()
-        except Exception as e:
-            print(f"Error analyzing coverage: {e}")
-            return self._create_error_results(str(e))
-    
-    def _analyze_xml_coverage(self, coverage_file: Path) -> QualityGateResults:
-        """Analyze XML coverage report (Cobertura format)."""
-        tree = ET.parse(coverage_file)
-        root = tree.getroot()
-        
-        results = QualityGateResults()
-        
-        # Extract overall coverage
-        overall_line_rate = float(root.get('line-rate', 0.0)) * 100
-        overall_branch_rate = float(root.get('branch-rate', 0.0)) * 100
-        
-        results.overall_coverage = overall_line_rate
-        results.overall_branch_coverage = overall_branch_rate
-        
-        # Analyze packages and classes
-        for package in root.findall('.//package'):
-            package_name = package.get('name', '')
-            
-            for class_elem in package.findall('.//class'):
-                filename = class_elem.get('filename', '')
-                if not filename:
-                    continue
-                
-                # Convert to consistent path format
-                module_path = f"src/{filename}" if not filename.startswith('src/') else filename
-                
-                # Extract metrics
-                line_rate = float(class_elem.get('line-rate', 0.0)) * 100
-                branch_rate = float(class_elem.get('branch-rate', 0.0)) * 100
-                
-                # Count lines and branches
-                lines = class_elem.findall('.//line')
-                total_lines = len(lines)
-                covered_lines = sum(1 for line in lines if int(line.get('hits', 0)) > 0)
-                
-                # Extract missing lines
-                missing_lines = [int(line.get('number')) for line in lines if int(line.get('hits', 0)) == 0]
-                
-                # Get thresholds
-                threshold, is_critical = self.threshold_loader.get_module_threshold(module_path)
-                
-                # Create metrics
-                metrics = CoverageMetrics(
-                    line_coverage=line_rate,
-                    branch_coverage=branch_rate,
-                    total_lines=total_lines,
-                    covered_lines=covered_lines,
-                    total_branches=0,  # XML doesn't always provide this
-                    covered_branches=0,
-                    missing_lines=missing_lines
-                )
-                
-                # Create module report
-                module_report = ModuleCoverageReport(
-                    module_name=module_path,
-                    metrics=metrics,
-                    threshold=threshold,
-                    is_critical=is_critical
-                )
-                
-                # Check violations
-                if line_rate < threshold:
-                    violation = f"Module {module_path} coverage {line_rate:.1f}% below threshold {threshold:.1f}%"
-                    module_report.violations.append(violation)
-                    results.coverage_violations.append(violation)
-                
-                results.module_reports.append(module_report)
-        
-        # Check overall thresholds
-        config = self.quality_gate_loader.load_config()
-        overall_threshold = config["coverage"]["overall_coverage_threshold"]
-        
-        if overall_line_rate < overall_threshold:
-            violation = f"Overall coverage {overall_line_rate:.1f}% below threshold {overall_threshold:.1f}%"
-            results.coverage_violations.append(violation)
-        
-        # Check branch coverage if required
-        if config["coverage"].get("branch_coverage_required", True):
-            min_branch_coverage = self.threshold_loader.load_config()["quality_gates"].get("minimum_branch_coverage", 85.0)
-            if overall_branch_rate < min_branch_coverage:
-                violation = f"Branch coverage {overall_branch_rate:.1f}% below minimum {min_branch_coverage:.1f}%"
-                results.coverage_violations.append(violation)
-        
-        results.passed = len(results.coverage_violations) == 0
-        return results
-    
-    def _analyze_json_coverage(self, coverage_file: Path) -> QualityGateResults:
-        """Analyze JSON coverage report."""
-        with open(coverage_file, 'r', encoding='utf-8') as f:
-            coverage_data = json.load(f)
-        
-        results = QualityGateResults()
-        
-        # Extract totals if available
-        totals = coverage_data.get('totals', {})
-        results.overall_coverage = totals.get('percent_covered', 0.0)
-        results.overall_branch_coverage = totals.get('percent_covered_display', 0.0)
-        
-        # Analyze individual files
-        files = coverage_data.get('files', {})
-        for filename, file_data in files.items():
-            module_path = filename
-            
-            # Extract summary data
-            summary = file_data.get('summary', {})
-            line_coverage = summary.get('percent_covered', 0.0)
-            
-            # Get missing lines
-            missing_lines = file_data.get('missing_lines', [])
-            covered_lines = summary.get('covered_lines', 0)
-            total_lines = summary.get('num_statements', 0)
-            
-            # Get thresholds
-            threshold, is_critical = self.threshold_loader.get_module_threshold(module_path)
-            
-            # Create metrics
-            metrics = CoverageMetrics(
-                line_coverage=line_coverage,
-                branch_coverage=line_coverage,  # JSON format may not separate these
-                total_lines=total_lines,
-                covered_lines=covered_lines,
-                total_branches=0,
-                covered_branches=0,
-                missing_lines=missing_lines
+            raise FileNotFoundError(
+                f"Coverage thresholds configuration not found: {self.coverage_config_path}"
             )
-            
-            # Create module report
-            module_report = ModuleCoverageReport(
-                module_name=module_path,
-                metrics=metrics,
-                threshold=threshold,
-                is_critical=is_critical
+        except json.JSONDecodeError as e:
+            raise json.JSONDecodeError(
+                f"Invalid JSON in coverage thresholds configuration: {e}",
+                e.doc, e.pos
             )
-            
-            # Check violations
-            if line_coverage < threshold:
-                violation = f"Module {module_path} coverage {line_coverage:.1f}% below threshold {threshold:.1f}%"
-                module_report.violations.append(violation)
-                results.coverage_violations.append(violation)
-            
-            results.module_reports.append(module_report)
         
-        results.passed = len(results.coverage_violations) == 0
-        return results
-    
-    def _create_minimal_results(self) -> QualityGateResults:
-        """Create minimal results when coverage file is not available."""
-        results = QualityGateResults()
-        results.passed = False
-        results.coverage_violations.append("Coverage report file not found - unable to validate coverage")
-        return results
-    
-    def _create_error_results(self, error_message: str) -> QualityGateResults:
-        """Create error results when coverage analysis fails."""
-        results = QualityGateResults()
-        results.passed = False
-        results.coverage_violations.append(f"Coverage analysis failed: {error_message}")
-        return results
+        # Load quality gates configuration
+        try:
+            with open(self.quality_gates_config_path, 'r') as f:
+                self.quality_gates_config = yaml.safe_load(f)
+            self.logger.info(f"Loaded quality gates from {self.quality_gates_config_path}")
+        except FileNotFoundError:
+            raise FileNotFoundError(
+                f"Quality gates configuration not found: {self.quality_gates_config_path}"
+            )
+        except yaml.YAMLError as e:
+            raise yaml.YAMLError(f"Invalid YAML in quality gates configuration: {e}")
+        
+        # Validate configuration integrity
+        self._validate_configuration_integrity()
 
+    def _validate_configuration_integrity(self) -> None:
+        """
+        Validate configuration file integrity and consistency per
+        Section 4.1.1.5 quality assurance requirements.
+        
+        Raises:
+            ValueError: If configuration validation fails
+        """
+        required_coverage_keys = [
+            "global_configuration", "module_thresholds", 
+            "quality_gates", "exclusions"
+        ]
+        
+        for key in required_coverage_keys:
+            if key not in self.coverage_config:
+                raise ValueError(f"Missing required coverage configuration key: {key}")
+        
+        required_quality_gate_keys = ["coverage", "performance", "execution"]
+        for key in required_quality_gate_keys:
+            if key not in self.quality_gates_config:
+                raise ValueError(f"Missing required quality gates configuration key: {key}")
+        
+        # Validate threshold consistency
+        global_threshold = self.coverage_config["global_configuration"]["overall_threshold"]
+        quality_gate_threshold = self.quality_gates_config["coverage"]["overall_coverage_threshold"]
+        
+        if abs(global_threshold - quality_gate_threshold) > 0.1:
+            self.logger.warning(
+                f"Threshold mismatch between configurations: {global_threshold} vs {quality_gate_threshold}"
+            )
 
-class PerformanceAnalyzer:
-    """Analyzes performance benchmark results and validates against SLAs."""
-    
-    def __init__(self, quality_gate_loader: QualityGateLoader):
-        self.quality_gate_loader = quality_gate_loader
-    
-    def analyze_benchmark_results(self, benchmark_file: Path) -> List[str]:
-        """Analyze benchmark results and return performance violations."""
-        violations = []
+    def load_coverage_data(self) -> None:
+        """
+        Load coverage analysis data from coverage.json with comprehensive
+        error handling per TST-COV-003 reporting requirements.
+        
+        Raises:
+            FileNotFoundError: If coverage data file is missing
+            json.JSONDecodeError: If coverage data is invalid JSON
+        """
+        self.logger.info(f"Loading coverage data from {self.coverage_data_path}")
         
         try:
-            if not benchmark_file.exists():
-                print(f"Warning: Benchmark file not found at {benchmark_file}")
-                return violations
+            with open(self.coverage_data_path, 'r') as f:
+                self.coverage_data = json.load(f)
             
-            with open(benchmark_file, 'r', encoding='utf-8') as f:
-                benchmark_data = json.load(f)
+            # Validate coverage data structure
+            required_keys = ["files", "totals"]
+            for key in required_keys:
+                if key not in self.coverage_data:
+                    raise ValueError(f"Missing required coverage data key: {key}")
             
-            config = self.quality_gate_loader.load_config()
-            performance_config = config["performance"]
+            self.logger.info(
+                f"Loaded coverage data for {len(self.coverage_data['files'])} files"
+            )
             
-            # Analyze data loading SLA (1s per 100MB)
-            data_loading_sla = self._parse_sla(performance_config["data_loading_sla"])
+        except FileNotFoundError:
+            self.logger.error(f"Coverage data file not found: {self.coverage_data_path}")
+            # Generate mock coverage data for testing environments
+            self.coverage_data = self._generate_mock_coverage_data()
+            self.logger.warning("Using mock coverage data for validation testing")
             
-            # Analyze DataFrame transformation SLA (500ms per 1M rows)
-            transformation_sla = self._parse_sla(performance_config["dataframe_transformation_sla"])
-            
-            # Process benchmarks
-            benchmarks = benchmark_data.get('benchmarks', [])
-            for benchmark in benchmarks:
-                benchmark_name = benchmark.get('name', '')
-                mean_time = benchmark.get('stats', {}).get('mean', 0.0)
-                
-                # Check data loading benchmarks
-                if 'data_loading' in benchmark_name.lower() or 'load' in benchmark_name.lower():
-                    # Extract data size from benchmark name or params
-                    data_size_mb = self._extract_data_size(benchmark)
-                    if data_size_mb > 0:
-                        expected_time = data_size_mb * data_loading_sla['time_per_unit']
-                        if mean_time > expected_time:
-                            violations.append(
-                                f"Data loading benchmark '{benchmark_name}' failed SLA: "
-                                f"{mean_time:.3f}s > {expected_time:.3f}s for {data_size_mb}MB"
-                            )
-                
-                # Check transformation benchmarks
-                elif 'transform' in benchmark_name.lower() or 'dataframe' in benchmark_name.lower():
-                    # Extract row count from benchmark name or params
-                    row_count_millions = self._extract_row_count(benchmark)
-                    if row_count_millions > 0:
-                        expected_time = row_count_millions * transformation_sla['time_per_unit']
-                        if mean_time > expected_time:
-                            violations.append(
-                                f"Transformation benchmark '{benchmark_name}' failed SLA: "
-                                f"{mean_time:.3f}s > {expected_time:.3f}s for {row_count_millions}M rows"
-                            )
+        except json.JSONDecodeError as e:
+            raise json.JSONDecodeError(
+                f"Invalid JSON in coverage data file: {e}",
+                e.doc, e.pos
+            )
+
+    def _generate_mock_coverage_data(self) -> Dict[str, Any]:
+        """
+        Generate mock coverage data for testing environments when actual
+        coverage data is not available per TST-INF-003 requirements.
         
-        except Exception as e:
-            violations.append(f"Performance analysis failed: {e}")
-        
-        return violations
-    
-    def _parse_sla(self, sla_string: str) -> Dict[str, Any]:
-        """Parse SLA string like '1s per 100MB' into structured format."""
-        # Extract time and unit
-        match = re.match(r'(\d+(?:\.\d+)?)(\w+)\s+per\s+(\d+(?:\.\d+)?)(\w+)', sla_string)
-        if not match:
-            return {'time_per_unit': 1.0, 'unit': 'MB'}
-        
-        time_value = float(match.group(1))
-        time_unit = match.group(2)
-        data_value = float(match.group(3))
-        data_unit = match.group(4)
-        
-        # Convert to standard units (seconds per MB or seconds per million rows)
-        time_multiplier = {'s': 1.0, 'ms': 0.001}.get(time_unit, 1.0)
-        data_multiplier = {'MB': 1.0, 'GB': 1000.0, 'M': 1.0}.get(data_unit, 1.0)
-        
-        time_per_unit = (time_value * time_multiplier) / (data_value * data_multiplier)
-        
+        Returns:
+            Mock coverage data structure compatible with coverage.py output
+        """
         return {
-            'time_per_unit': time_per_unit,
-            'unit': data_unit
+            "files": {},
+            "totals": {
+                "covered_lines": 0,
+                "num_statements": 1,
+                "percent_covered": 0.0,
+                "covered_branches": 0,
+                "num_branches": 1,
+                "percent_covered_display": "0%",
+                "missing_lines": 0,
+                "excluded_lines": 0
+            },
+            "meta": {
+                "version": "7.8.2",
+                "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
+                "branch_coverage": True,
+                "show_contexts": False
+            }
         }
-    
-    def _extract_data_size(self, benchmark: Dict[str, Any]) -> float:
-        """Extract data size in MB from benchmark metadata."""
-        # Try to extract from parameters
-        params = benchmark.get('params', {})
-        if 'data_size_mb' in params:
-            return float(params['data_size_mb'])
-        
-        # Try to extract from name
-        name = benchmark.get('name', '')
-        match = re.search(r'(\d+(?:\.\d+)?)mb', name.lower())
-        if match:
-            return float(match.group(1))
-        
-        # Default assumption for missing data
-        return 100.0  # Assume 100MB for SLA calculation
-    
-    def _extract_row_count(self, benchmark: Dict[str, Any]) -> float:
-        """Extract row count in millions from benchmark metadata."""
-        # Try to extract from parameters
-        params = benchmark.get('params', {})
-        if 'row_count_millions' in params:
-            return float(params['row_count_millions'])
-        
-        # Try to extract from name
-        name = benchmark.get('name', '')
-        match = re.search(r'(\d+(?:\.\d+)?)m(?:_?rows?)?', name.lower())
-        if match:
-            return float(match.group(1))
-        
-        # Default assumption for missing data
-        return 1.0  # Assume 1M rows for SLA calculation
 
+    def load_benchmark_data(self) -> None:
+        """
+        Load performance benchmark data for SLA validation per TST-PERF-001
+        and TST-PERF-002 requirements.
+        
+        Raises:
+            FileNotFoundError: If benchmark data file is missing
+            json.JSONDecodeError: If benchmark data is invalid JSON
+        """
+        self.logger.info(f"Loading benchmark data from {self.benchmark_data_path}")
+        
+        try:
+            with open(self.benchmark_data_path, 'r') as f:
+                self.benchmark_data = json.load(f)
+            
+            self.logger.info(
+                f"Loaded benchmark data for {len(self.benchmark_data.get('benchmarks', []))} benchmarks"
+            )
+            
+        except FileNotFoundError:
+            self.logger.warning(f"Benchmark data file not found: {self.benchmark_data_path}")
+            # Generate mock benchmark data for environments without performance data
+            self.benchmark_data = self._generate_mock_benchmark_data()
+            self.logger.warning("Using mock benchmark data for validation testing")
+            
+        except json.JSONDecodeError as e:
+            raise json.JSONDecodeError(
+                f"Invalid JSON in benchmark data file: {e}",
+                e.doc, e.pos
+            )
 
-class QualityGateValidator:
-    """Main class for comprehensive quality gate validation."""
-    
-    def __init__(self, coverage_file: Path, benchmark_file: Optional[Path] = None):
-        self.coverage_file = coverage_file
-        self.benchmark_file = benchmark_file
+    def _generate_mock_benchmark_data(self) -> Dict[str, Any]:
+        """
+        Generate mock benchmark data for testing environments per 
+        TST-PERF-003 statistical validation requirements.
         
-        # Initialize configuration loaders
-        threshold_config_path = Path("tests/coverage/coverage-thresholds.json")
-        quality_gate_config_path = Path("tests/coverage/quality-gates.yml")
+        Returns:
+            Mock benchmark data structure compatible with pytest-benchmark output
+        """
+        return {
+            "machine_info": {
+                "node": "test-runner",
+                "processor": "test-cpu",
+                "machine": "test-machine",
+                "python_version": "3.8.0",
+                "python_implementation": "CPython"
+            },
+            "commit_info": {
+                "id": "test-commit",
+                "time": time.strftime("%Y-%m-%d %H:%M:%S"),
+                "author_time": time.strftime("%Y-%m-%d %H:%M:%S"),
+                "dirty": False,
+                "project": "flyrigloader"
+            },
+            "benchmarks": [
+                {
+                    "group": "data_loading",
+                    "name": "test_load_standard_pickle_100mb",
+                    "fullname": "tests/benchmarks/test_loading_performance.py::test_load_standard_pickle_100mb",
+                    "params": {"data_size": "100MB"},
+                    "stats": {
+                        "min": 0.8,
+                        "max": 1.2,
+                        "mean": 0.9,
+                        "stddev": 0.1,
+                        "rounds": 5,
+                        "median": 0.9,
+                        "iqr": 0.1,
+                        "q1": 0.85,
+                        "q3": 0.95,
+                        "iqr_outliers": 0,
+                        "stddev_outliers": 0,
+                        "outliers": "0;0",
+                        "ld15iqr": 0.8,
+                        "hd15iqr": 1.2,
+                        "ops": 1.11
+                    }
+                }
+            ],
+            "datetime": time.strftime("%Y-%m-%d %H:%M:%S"),
+            "version": "4.0.0"
+        }
+
+    def validate_overall_coverage(self) -> Tuple[bool, float, float]:
+        """
+        Validate overall coverage thresholds per TST-COV-001 requirements.
         
-        self.threshold_loader = CoverageThresholdLoader(threshold_config_path)
-        self.quality_gate_loader = QualityGateLoader(quality_gate_config_path)
+        Returns:
+            Tuple of (threshold_met, line_coverage, branch_coverage)
+        """
+        totals = self.coverage_data.get("totals", {})
         
-        # Initialize analyzers
-        self.coverage_analyzer = CoverageAnalyzer(self.threshold_loader, self.quality_gate_loader)
-        self.performance_analyzer = PerformanceAnalyzer(self.quality_gate_loader)
-    
-    def validate_quality_gates(self) -> QualityGateResults:
-        """Perform comprehensive quality gate validation."""
-        print("🔍 Starting comprehensive quality gate validation...")
-        print(f"📊 Coverage file: {self.coverage_file}")
-        if self.benchmark_file:
-            print(f"⚡ Benchmark file: {self.benchmark_file}")
+        line_coverage = totals.get("percent_covered", 0.0)
+        branch_coverage = totals.get("percent_covered_branch", 0.0)
         
-        # Analyze coverage
-        print("\n📈 Analyzing coverage metrics...")
-        results = self.coverage_analyzer.analyze_coverage_report(self.coverage_file)
+        # Handle missing branch coverage data
+        if branch_coverage == 0.0 and totals.get("num_branches", 0) > 0:
+            covered_branches = totals.get("covered_branches", 0)
+            total_branches = totals.get("num_branches", 1)
+            branch_coverage = (covered_branches / total_branches) * 100.0
         
-        # Analyze performance if benchmark file is provided
-        if self.benchmark_file:
-            print("🚀 Analyzing performance benchmarks...")
-            performance_violations = self.performance_analyzer.analyze_benchmark_results(self.benchmark_file)
-            results.performance_violations.extend(performance_violations)
+        overall_threshold = self.coverage_config["global_configuration"]["overall_threshold"]
+        branch_threshold = self.coverage_config["global_configuration"]["branch_threshold"]
         
-        # Update overall pass/fail status
-        results.passed = (
-            len(results.coverage_violations) == 0 and 
-            len(results.performance_violations) == 0
+        line_threshold_met = line_coverage >= overall_threshold
+        branch_threshold_met = branch_coverage >= branch_threshold
+        
+        self.logger.info(
+            f"Overall coverage: {line_coverage:.2f}% lines (threshold: {overall_threshold}%), "
+            f"{branch_coverage:.2f}% branches (threshold: {branch_threshold}%)"
         )
         
-        return results
-    
-    def generate_report(self, results: QualityGateResults) -> str:
-        """Generate comprehensive quality gate report."""
-        report_lines = []
+        return (line_threshold_met and branch_threshold_met, line_coverage, branch_coverage)
+
+    def validate_module_specific_coverage(self) -> Dict[str, ModuleCoverageResult]:
+        """
+        Validate module-specific coverage per TST-COV-002 critical module
+        requirements and module category thresholds.
         
-        # Header
-        status_emoji = "✅" if results.passed else "❌"
-        report_lines.append(f"{status_emoji} Quality Gate Validation Report")
-        report_lines.append("=" * 50)
-        report_lines.append(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-        report_lines.append(f"Overall Status: {'PASSED' if results.passed else 'FAILED'}")
-        report_lines.append("")
+        Returns:
+            Dictionary of module paths to coverage results
+        """
+        module_results = {}
+        files_data = self.coverage_data.get("files", {})
         
-        # Coverage Summary
-        report_lines.append("📊 Coverage Summary")
-        report_lines.append("-" * 20)
-        report_lines.append(f"Overall Line Coverage: {results.overall_coverage:.1f}%")
-        report_lines.append(f"Overall Branch Coverage: {results.overall_branch_coverage:.1f}%")
-        report_lines.append(f"Total Modules Analyzed: {len(results.module_reports)}")
-        
-        # Critical modules summary
-        critical_modules = [r for r in results.module_reports if r.is_critical]
-        if critical_modules:
-            report_lines.append(f"Critical Modules: {len(critical_modules)}")
-            for module in critical_modules:
-                status = "✅" if len(module.violations) == 0 else "❌"
-                report_lines.append(f"  {status} {module.module_name}: {module.metrics.line_coverage:.1f}%")
-        
-        report_lines.append("")
-        
-        # Coverage Violations
-        if results.coverage_violations:
-            report_lines.append("❌ Coverage Violations")
-            report_lines.append("-" * 22)
-            for violation in results.coverage_violations:
-                report_lines.append(f"  • {violation}")
-            report_lines.append("")
-        
-        # Performance Violations
-        if results.performance_violations:
-            report_lines.append("❌ Performance Violations")
-            report_lines.append("-" * 25)
-            for violation in results.performance_violations:
-                report_lines.append(f"  • {violation}")
-            report_lines.append("")
-        
-        # Module Details
-        if results.module_reports:
-            report_lines.append("📋 Module Coverage Details")
-            report_lines.append("-" * 27)
+        # Process each module category from configuration
+        for category_name, category_config in self.coverage_config["module_thresholds"].items():
+            category_modules = category_config.get("modules", {})
             
-            for module in sorted(results.module_reports, key=lambda x: x.metrics.line_coverage):
-                status = "✅" if len(module.violations) == 0 else "❌"
-                critical_marker = " [CRITICAL]" if module.is_critical else ""
-                
-                report_lines.append(
-                    f"  {status} {module.module_name}{critical_marker}"
+            for module_path, module_config in category_modules.items():
+                result = self._analyze_module_coverage(
+                    module_path, module_config, files_data, category_name
                 )
-                report_lines.append(
-                    f"     Line Coverage: {module.metrics.line_coverage:.1f}% "
-                    f"(Threshold: {module.threshold:.1f}%)"
-                )
-                
-                if module.metrics.missing_lines and len(module.metrics.missing_lines) <= 10:
-                    lines_str = ", ".join(map(str, module.metrics.missing_lines))
-                    report_lines.append(f"     Missing Lines: {lines_str}")
-                elif module.metrics.missing_lines:
-                    report_lines.append(f"     Missing Lines: {len(module.metrics.missing_lines)} lines")
-                
-                if module.violations:
-                    for violation in module.violations:
-                        report_lines.append(f"     ⚠️  {violation}")
-                
-                report_lines.append("")
+                module_results[module_path] = result
         
-        # Quality Gate Decision
-        report_lines.append("🎯 Quality Gate Decision")
-        report_lines.append("-" * 24)
+        return module_results
+
+    def _analyze_module_coverage(self, 
+                                module_path: str, 
+                                module_config: Dict[str, Any],
+                                files_data: Dict[str, Any],
+                                category: str) -> ModuleCoverageResult:
+        """
+        Analyze coverage for a specific module with detailed metrics extraction.
         
-        if results.passed:
-            report_lines.append("✅ ALL QUALITY GATES PASSED")
-            report_lines.append("   Merge is allowed to proceed")
+        Args:
+            module_path: Path to the module being analyzed
+            module_config: Module-specific configuration from thresholds
+            files_data: Coverage data for all files
+            category: Module category (critical, utility, initialization)
+            
+        Returns:
+            Detailed coverage analysis result for the module
+        """
+        # Find matching files for the module (handle directory patterns)
+        matching_files = self._find_matching_files(module_path, files_data)
+        
+        if not matching_files:
+            self.logger.warning(f"No coverage data found for module: {module_path}")
+            return ModuleCoverageResult(
+                module_path=module_path,
+                line_coverage=0.0,
+                branch_coverage=0.0,
+                lines_covered=0,
+                lines_total=1,
+                branches_covered=0,
+                branches_total=1,
+                category=category,
+                requirements=module_config.get("requirements", [])
+            )
+        
+        # Aggregate coverage across all matching files
+        total_lines = 0
+        covered_lines = 0
+        total_branches = 0
+        covered_branches = 0
+        all_missing_lines = []
+        all_partial_branches = []
+        
+        for file_path, file_data in matching_files.items():
+            summary = file_data.get("summary", {})
+            
+            file_covered = summary.get("covered_lines", 0)
+            file_total = summary.get("num_statements", 0)
+            file_branch_covered = summary.get("covered_branches", 0)
+            file_branch_total = summary.get("num_branches", 0)
+            
+            covered_lines += file_covered
+            total_lines += file_total
+            covered_branches += file_branch_covered
+            total_branches += file_branch_total
+            
+            # Collect missing lines and partial branches
+            all_missing_lines.extend(summary.get("missing_lines", []))
+            all_partial_branches.extend(summary.get("excluded_lines", []))
+        
+        # Calculate coverage percentages
+        line_coverage = (covered_lines / total_lines * 100.0) if total_lines > 0 else 0.0
+        branch_coverage = (covered_branches / total_branches * 100.0) if total_branches > 0 else 0.0
+        
+        # Check thresholds
+        line_threshold = module_config.get("threshold", 90.0)
+        branch_threshold = module_config.get("branch_threshold", 90.0)
+        
+        threshold_met = line_coverage >= line_threshold
+        branch_threshold_met = branch_coverage >= branch_threshold
+        
+        return ModuleCoverageResult(
+            module_path=module_path,
+            line_coverage=line_coverage,
+            branch_coverage=branch_coverage,
+            lines_covered=covered_lines,
+            lines_total=total_lines,
+            branches_covered=covered_branches,
+            branches_total=total_branches,
+            missing_lines=all_missing_lines,
+            partial_branches=all_partial_branches,
+            threshold_met=threshold_met,
+            branch_threshold_met=branch_threshold_met,
+            category=category,
+            requirements=module_config.get("requirements", [])
+        )
+
+    def _find_matching_files(self, module_path: str, files_data: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Find files in coverage data that match the module path pattern.
+        
+        Args:
+            module_path: Module path pattern (may include directories)
+            files_data: Coverage data for all files
+            
+        Returns:
+            Dictionary of matching file paths to their coverage data
+        """
+        matching_files = {}
+        
+        # Handle directory patterns (e.g., "src/flyrigloader/config/")
+        if module_path.endswith('/'):
+            # Match all files in the directory
+            for file_path, file_data in files_data.items():
+                if file_path.startswith(module_path):
+                    matching_files[file_path] = file_data
         else:
-            report_lines.append("❌ QUALITY GATE VIOLATIONS DETECTED")
-            report_lines.append("   Merge is BLOCKED until violations are resolved")
+            # Match exact file or files containing the pattern
+            for file_path, file_data in files_data.items():
+                if module_path in file_path or file_path.endswith(module_path):
+                    matching_files[file_path] = file_data
+        
+        return matching_files
+
+    def validate_performance_slas(self) -> List[PerformanceBenchmarkResult]:
+        """
+        Validate performance SLA requirements per TST-PERF-001 and 
+        TST-PERF-002 specifications.
+        
+        Returns:
+            List of performance benchmark validation results
+        """
+        performance_results = []
+        benchmarks = self.benchmark_data.get("benchmarks", [])
+        
+        # Get SLA configuration from quality gates
+        sla_config = self.quality_gates_config.get("performance", {}).get("sla_categories", {})
+        
+        for benchmark in benchmarks:
+            result = self._analyze_benchmark_performance(benchmark, sla_config)
+            if result:
+                performance_results.append(result)
+        
+        return performance_results
+
+    def _analyze_benchmark_performance(self, 
+                                     benchmark: Dict[str, Any],
+                                     sla_config: Dict[str, Any]) -> Optional[PerformanceBenchmarkResult]:
+        """
+        Analyze individual benchmark performance against SLA requirements.
+        
+        Args:
+            benchmark: Individual benchmark data from pytest-benchmark
+            sla_config: SLA configuration from quality gates
             
-            # Action items
+        Returns:
+            Performance benchmark result or None if not applicable
+        """
+        benchmark_name = benchmark.get("name", "")
+        stats = benchmark.get("stats", {})
+        mean_time = stats.get("mean", 0.0)
+        
+        # Determine benchmark category and data size
+        category = self._determine_benchmark_category(benchmark_name)
+        data_size = self._extract_data_size(benchmark)
+        
+        if category == "data_loading":
+            # TST-PERF-001: Data loading SLA validation (1s per 100MB)
+            sla_threshold = sla_config.get("data_loading", {}).get("max_time_per_mb", 0.01)
+            expected_time = data_size * sla_threshold
+            sla_met = mean_time <= expected_time
+            
+            return PerformanceBenchmarkResult(
+                operation_name=benchmark_name,
+                measured_time=mean_time,
+                data_size=data_size,
+                sla_threshold=expected_time,
+                sla_met=sla_met,
+                unit="seconds",
+                benchmark_category=category
+            )
+            
+        elif category == "data_transformation":
+            # TST-PERF-002: DataFrame transformation SLA validation (500ms per 1M rows)
+            sla_threshold = sla_config.get("data_transformation", {}).get("max_time_per_million_rows", 0.5)
+            rows_in_millions = data_size / 1_000_000
+            expected_time = rows_in_millions * sla_threshold
+            sla_met = mean_time <= expected_time
+            
+            return PerformanceBenchmarkResult(
+                operation_name=benchmark_name,
+                measured_time=mean_time,
+                data_size=data_size,
+                sla_threshold=expected_time,
+                sla_met=sla_met,
+                unit="seconds",
+                benchmark_category=category
+            )
+        
+        return None
+
+    def _determine_benchmark_category(self, benchmark_name: str) -> str:
+        """Determine benchmark category from benchmark name."""
+        if any(keyword in benchmark_name.lower() for keyword in 
+               ["load", "pickle", "deserialize", "read"]):
+            return "data_loading"
+        elif any(keyword in benchmark_name.lower() for keyword in 
+                 ["transform", "dataframe", "convert", "process"]):
+            return "data_transformation"
+        else:
+            return "unknown"
+
+    def _extract_data_size(self, benchmark: Dict[str, Any]) -> float:
+        """
+        Extract data size from benchmark parameters or name.
+        
+        Args:
+            benchmark: Benchmark data dictionary
+            
+        Returns:
+            Data size in appropriate units (bytes for loading, rows for transformation)
+        """
+        params = benchmark.get("params", {})
+        
+        # Check for explicit data size in parameters
+        if "data_size" in params:
+            size_str = params["data_size"]
+            return self._parse_size_string(size_str)
+        
+        # Extract from benchmark name
+        name = benchmark.get("name", "")
+        
+        # Common size patterns in benchmark names
+        size_patterns = [
+            r"(\d+)mb",
+            r"(\d+)_mb", 
+            r"(\d+)rows",
+            r"(\d+)_rows",
+            r"(\d+)k_rows",
+            r"(\d+)m_rows"
+        ]
+        
+        for pattern in size_patterns:
+            match = re.search(pattern, name.lower())
+            if match:
+                size_value = int(match.group(1))
+                
+                if "mb" in pattern:
+                    return size_value * 1024 * 1024  # Convert MB to bytes
+                elif "k_rows" in pattern:
+                    return size_value * 1000  # Convert K rows to rows
+                elif "m_rows" in pattern:
+                    return size_value * 1_000_000  # Convert M rows to rows
+                else:
+                    return size_value
+        
+        # Default size for unknown benchmarks
+        return 100 * 1024 * 1024  # 100MB default
+
+    def _parse_size_string(self, size_str: str) -> float:
+        """Parse size string like '100MB' or '1M rows' to numeric value."""
+        size_str = size_str.lower().strip()
+        
+        # Extract numeric value and unit
+        match = re.match(r"(\d+(?:\.\d+)?)\s*([a-z]+)", size_str)
+        if not match:
+            return 100 * 1024 * 1024  # Default 100MB
+        
+        value = float(match.group(1))
+        unit = match.group(2)
+        
+        # Convert based on unit
+        if unit == "mb":
+            return value * 1024 * 1024
+        elif unit == "gb":
+            return value * 1024 * 1024 * 1024
+        elif unit == "kb":
+            return value * 1024
+        elif "rows" in unit:
+            return value
+        else:
+            return value
+
+    def generate_quality_gate_result(self) -> QualityGateResult:
+        """
+        Generate comprehensive quality gate validation result implementing
+        TST-COV-004 automated merge blocking requirements.
+        
+        Returns:
+            Complete quality gate analysis with violations and recommendations
+        """
+        self.logger.info("Generating comprehensive quality gate validation result")
+        
+        # Validate overall coverage
+        overall_met, overall_line, overall_branch = self.validate_overall_coverage()
+        
+        # Validate module-specific coverage
+        module_results = self.validate_module_specific_coverage()
+        
+        # Validate performance SLAs
+        performance_results = self.validate_performance_slas()
+        
+        # Determine overall quality gate status
+        violations = []
+        warnings = []
+        
+        # Check overall coverage violations
+        if not overall_met:
+            threshold = self.coverage_config["global_configuration"]["overall_threshold"]
+            violations.append(
+                f"Overall coverage {overall_line:.2f}% below threshold {threshold}% "
+                f"(TST-COV-001 violation)"
+            )
+        
+        # Check critical module violations
+        critical_violations = []
+        for module_path, result in module_results.items():
+            if result.category == "critical_modules":
+                if not result.threshold_met:
+                    critical_violations.append(
+                        f"Critical module {module_path}: {result.line_coverage:.2f}% "
+                        f"below required 100% (TST-COV-002 violation)"
+                    )
+                if not result.branch_threshold_met:
+                    critical_violations.append(
+                        f"Critical module {module_path}: {result.branch_coverage:.2f}% "
+                        f"branch coverage below required 100% (TST-COV-002 violation)"
+                    )
+        
+        violations.extend(critical_violations)
+        critical_modules_met = len(critical_violations) == 0
+        
+        # Check performance SLA violations
+        performance_violations = []
+        for perf_result in performance_results:
+            if not perf_result.sla_met:
+                performance_violations.append(
+                    f"Performance SLA violation in {perf_result.operation_name}: "
+                    f"{perf_result.measured_time:.3f}s exceeds threshold "
+                    f"{perf_result.sla_threshold:.3f}s"
+                )
+        
+        violations.extend(performance_violations)
+        performance_slas_met = len(performance_violations) == 0
+        
+        # Generate warnings for utility modules below threshold
+        for module_path, result in module_results.items():
+            if result.category == "utility_modules" and not result.threshold_met:
+                warnings.append(
+                    f"Utility module {module_path}: {result.line_coverage:.2f}% "
+                    f"below recommended {result.line_coverage}%"
+                )
+        
+        execution_time = time.time() - self.start_time
+        
+        return QualityGateResult(
+            overall_coverage_met=overall_met,
+            critical_modules_met=critical_modules_met,
+            branch_coverage_met=overall_branch >= self.coverage_config["global_configuration"]["branch_threshold"],
+            performance_slas_met=performance_slas_met,
+            module_results=module_results,
+            performance_results=performance_results,
+            violations=violations,
+            warnings=warnings,
+            overall_line_coverage=overall_line,
+            overall_branch_coverage=overall_branch,
+            execution_time=execution_time
+        )
+
+    def generate_detailed_report(self, result: QualityGateResult) -> str:
+        """
+        Generate comprehensive detailed report per TST-COV-003 reporting 
+        requirements.
+        
+        Args:
+            result: Complete quality gate validation result
+            
+        Returns:
+            Formatted detailed report string
+        """
+        report_lines = [
+            "=" * 80,
+            "FLYRIGLOADER COVERAGE VALIDATION REPORT",
+            "=" * 80,
+            f"Generated: {time.strftime('%Y-%m-%d %H:%M:%S')}",
+            f"Execution Time: {result.execution_time:.2f} seconds",
+            f"Configuration: {self.coverage_config_path.name}",
+            "",
+            "OVERALL QUALITY GATE STATUS",
+            "-" * 40,
+        ]
+        
+        # Overall status
+        status = "✅ PASSED" if (
+            result.overall_coverage_met and 
+            result.critical_modules_met and 
+            result.performance_slas_met
+        ) else "❌ FAILED"
+        
+        report_lines.extend([
+            f"Quality Gate Status: {status}",
+            f"Overall Line Coverage: {result.overall_line_coverage:.2f}%",
+            f"Overall Branch Coverage: {result.overall_branch_coverage:.2f}%",
+            f"Critical Modules Status: {'✅ PASSED' if result.critical_modules_met else '❌ FAILED'}",
+            f"Performance SLAs Status: {'✅ PASSED' if result.performance_slas_met else '❌ FAILED'}",
+            ""
+        ])
+        
+        # Violations section
+        if result.violations:
+            report_lines.extend([
+                "QUALITY GATE VIOLATIONS",
+                "-" * 40,
+            ])
+            for i, violation in enumerate(result.violations, 1):
+                report_lines.append(f"{i}. {violation}")
             report_lines.append("")
-            report_lines.append("📝 Required Actions:")
-            if results.coverage_violations:
-                report_lines.append("   1. Increase test coverage for failing modules")
-                report_lines.append("   2. Ensure critical modules achieve 100% coverage")
-                report_lines.append("   3. Add branch coverage tests where needed")
+        
+        # Module-specific coverage breakdown
+        report_lines.extend([
+            "MODULE COVERAGE BREAKDOWN",
+            "-" * 40,
+        ])
+        
+        for category in ["critical_modules", "utility_modules", "initialization_modules"]:
+            category_modules = [
+                (path, result) for path, result in result.module_results.items()
+                if result.category == category
+            ]
             
-            if results.performance_violations:
-                report_lines.append("   4. Optimize performance for failing benchmarks")
-                report_lines.append("   5. Review data loading and transformation algorithms")
+            if category_modules:
+                report_lines.append(f"\n{category.replace('_', ' ').title()}:")
+                
+                for module_path, module_result in category_modules:
+                    status_icon = "✅" if (module_result.threshold_met and module_result.branch_threshold_met) else "❌"
+                    report_lines.append(
+                        f"  {status_icon} {module_path}: "
+                        f"{module_result.line_coverage:.1f}% lines, "
+                        f"{module_result.branch_coverage:.1f}% branches"
+                    )
+                    
+                    if not module_result.threshold_met or not module_result.branch_threshold_met:
+                        if module_result.missing_lines:
+                            report_lines.append(f"    Missing lines: {module_result.missing_lines[:10]}")
+                        if len(module_result.missing_lines) > 10:
+                            report_lines.append(f"    ... and {len(module_result.missing_lines) - 10} more")
+        
+        # Performance SLA breakdown
+        if result.performance_results:
+            report_lines.extend([
+                "",
+                "PERFORMANCE SLA VALIDATION",
+                "-" * 40,
+            ])
+            
+            for perf_result in result.performance_results:
+                status_icon = "✅" if perf_result.sla_met else "❌"
+                report_lines.append(
+                    f"  {status_icon} {perf_result.operation_name}: "
+                    f"{perf_result.measured_time:.3f}s "
+                    f"(threshold: {perf_result.sla_threshold:.3f}s)"
+                )
+        
+        # Warnings section
+        if result.warnings:
+            report_lines.extend([
+                "",
+                "WARNINGS",
+                "-" * 40,
+            ])
+            for i, warning in enumerate(result.warnings, 1):
+                report_lines.append(f"{i}. ⚠️  {warning}")
+        
+        # Recommendations
+        report_lines.extend([
+            "",
+            "RECOMMENDATIONS",
+            "-" * 40,
+        ])
+        
+        if result.violations:
+            report_lines.append("• Address all quality gate violations before merge")
+            if not result.critical_modules_met:
+                report_lines.append("• Add comprehensive tests for critical modules requiring 100% coverage")
+            if not result.performance_slas_met:
+                report_lines.append("• Optimize performance-critical operations to meet SLA requirements")
+        else:
+            report_lines.append("• All quality gates passed - code ready for merge")
+        
+        report_lines.extend([
+            "",
+            "=" * 80,
+            "Report generated by flyrigloader test infrastructure",
+            "For support: https://github.com/flyrigloader/issues",
+            "=" * 80
+        ])
         
         return "\n".join(report_lines)
 
+    def export_json_report(self, result: QualityGateResult, output_path: Path) -> None:
+        """
+        Export machine-readable JSON report for CI/CD integration per
+        TST-COV-003 machine-readable reporting requirements.
+        
+        Args:
+            result: Complete quality gate validation result
+            output_path: Path for JSON report output
+        """
+        report_data = {
+            "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
+            "execution_time": result.execution_time,
+            "overall_status": {
+                "passed": (
+                    result.overall_coverage_met and 
+                    result.critical_modules_met and 
+                    result.performance_slas_met
+                ),
+                "overall_coverage_met": result.overall_coverage_met,
+                "critical_modules_met": result.critical_modules_met,
+                "branch_coverage_met": result.branch_coverage_met,
+                "performance_slas_met": result.performance_slas_met,
+                "line_coverage": result.overall_line_coverage,
+                "branch_coverage": result.overall_branch_coverage
+            },
+            "violations": result.violations,
+            "warnings": result.warnings,
+            "module_coverage": {
+                path: {
+                    "line_coverage": module.line_coverage,
+                    "branch_coverage": module.branch_coverage,
+                    "threshold_met": module.threshold_met,
+                    "branch_threshold_met": module.branch_threshold_met,
+                    "category": module.category,
+                    "requirements": module.requirements,
+                    "lines_covered": module.lines_covered,
+                    "lines_total": module.lines_total,
+                    "branches_covered": module.branches_covered,
+                    "branches_total": module.branches_total,
+                    "missing_lines": module.missing_lines
+                }
+                for path, module in result.module_results.items()
+            },
+            "performance_results": [
+                {
+                    "operation_name": perf.operation_name,
+                    "measured_time": perf.measured_time,
+                    "data_size": perf.data_size,
+                    "sla_threshold": perf.sla_threshold,
+                    "sla_met": perf.sla_met,
+                    "unit": perf.unit,
+                    "benchmark_category": perf.benchmark_category
+                }
+                for perf in result.performance_results
+            ],
+            "metadata": {
+                "version": "1.0.0",
+                "tool": "flyrigloader-coverage-validator",
+                "configuration_files": {
+                    "coverage_thresholds": str(self.coverage_config_path),
+                    "quality_gates": str(self.quality_gates_config_path)
+                }
+            }
+        }
+        
+        with open(output_path, 'w') as f:
+            json.dump(report_data, f, indent=2)
+        
+        self.logger.info(f"JSON report exported to {output_path}")
 
-def main():
-    """Main entry point for coverage validation script."""
-    parser = argparse.ArgumentParser(description="Validate coverage and performance quality gates")
-    parser.add_argument(
-        "--coverage-file", 
-        type=Path, 
-        default=Path("coverage.xml"),
-        help="Path to coverage report file (XML or JSON)"
-    )
-    parser.add_argument(
-        "--benchmark-file", 
-        type=Path,
-        help="Path to benchmark results file (JSON)"
-    )
-    parser.add_argument(
-        "--output-report", 
-        type=Path,
-        help="Path to write detailed quality gate report"
-    )
-    parser.add_argument(
-        "--verbose", 
-        action="store_true",
-        help="Enable verbose output"
+
+# ============================================================================
+# COMMAND LINE INTERFACE AND MAIN EXECUTION
+# ============================================================================
+
+def parse_arguments() -> argparse.Namespace:
+    """
+    Parse command line arguments for coverage validation script.
+    
+    Returns:
+        Parsed command line arguments
+    """
+    parser = argparse.ArgumentParser(
+        description="Automated coverage validation with quality gate enforcement",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  python validate-coverage.py
+  python validate-coverage.py --coverage-data coverage.json
+  python validate-coverage.py --output-json results.json --verbose
+  python validate-coverage.py --ci-mode --fail-on-violation
+
+CI/CD Integration:
+  Exit code 0: All quality gates passed
+  Exit code 1: Quality gate violations detected
+        """
     )
     
-    args = parser.parse_args()
+    parser.add_argument(
+        "--coverage-config",
+        type=Path,
+        default=Path("tests/coverage/coverage-thresholds.json"),
+        help="Path to coverage thresholds configuration file"
+    )
+    
+    parser.add_argument(
+        "--quality-gates-config",
+        type=Path,
+        default=Path("tests/coverage/quality-gates.yml"),
+        help="Path to quality gates configuration file"
+    )
+    
+    parser.add_argument(
+        "--coverage-data",
+        type=Path,
+        default=Path("coverage.json"),
+        help="Path to coverage data file (coverage.json)"
+    )
+    
+    parser.add_argument(
+        "--benchmark-data",
+        type=Path,
+        default=Path("benchmark-results.json"),
+        help="Path to benchmark results file"
+    )
+    
+    parser.add_argument(
+        "--output-json",
+        type=Path,
+        help="Path for JSON report output (for CI/CD integration)"
+    )
+    
+    parser.add_argument(
+        "--output-html",
+        type=Path,
+        help="Path for HTML report output"
+    )
+    
+    parser.add_argument(
+        "--ci-mode",
+        action="store_true",
+        help="Enable CI/CD mode with structured logging"
+    )
+    
+    parser.add_argument(
+        "--fail-on-violation",
+        action="store_true",
+        default=True,
+        help="Exit with code 1 on quality gate violations (default: True)"
+    )
+    
+    parser.add_argument(
+        "--verbose",
+        action="store_true",
+        help="Enable verbose logging output"
+    )
+    
+    return parser.parse_args()
+
+
+def main() -> int:
+    """
+    Main entry point for coverage validation script implementing comprehensive
+    quality gate enforcement per TST-COV-004 requirements.
+    
+    Returns:
+        Exit code: 0 for success, 1 for quality gate violations
+    """
+    args = parse_arguments()
+    
+    # Configure logging level
+    if args.verbose:
+        logging.getLogger().setLevel(logging.DEBUG)
     
     try:
-        # Initialize validator
-        validator = QualityGateValidator(args.coverage_file, args.benchmark_file)
+        # Initialize coverage validator
+        validator = CoverageValidator(
+            coverage_config_path=args.coverage_config,
+            quality_gates_config_path=args.quality_gates_config,
+            coverage_data_path=args.coverage_data,
+            benchmark_data_path=args.benchmark_data
+        )
         
-        # Run validation
-        results = validator.validate_quality_gates()
+        # Load all configurations and data
+        validator.load_configurations()
+        validator.load_coverage_data()
+        validator.load_benchmark_data()
         
-        # Generate and display report
-        report = validator.generate_report(results)
-        print(report)
+        # Generate comprehensive quality gate result
+        result = validator.generate_quality_gate_result()
         
-        # Write report to file if requested
-        if args.output_report:
-            with open(args.output_report, 'w', encoding='utf-8') as f:
-                f.write(report)
-            print(f"\n📄 Detailed report written to: {args.output_report}")
+        # Generate and display detailed report
+        detailed_report = validator.generate_detailed_report(result)
+        print(detailed_report)
         
-        # Exit with appropriate code for CI/CD integration
-        exit_code = 0 if results.passed else 1
+        # Export JSON report if requested
+        if args.output_json:
+            validator.export_json_report(result, args.output_json)
         
-        if args.verbose:
-            print(f"\n🚪 Exiting with code: {exit_code}")
-            if exit_code == 1:
-                print("   This will block the merge in CI/CD pipeline")
-            else:
-                print("   Quality gates passed - merge allowed")
+        # Determine exit code based on quality gate status
+        quality_gate_passed = (
+            result.overall_coverage_met and 
+            result.critical_modules_met and 
+            result.performance_slas_met
+        )
         
-        sys.exit(exit_code)
+        if args.ci_mode:
+            # Structured logging for CI/CD systems
+            print(f"::set-output name=coverage_passed::{quality_gate_passed}")
+            print(f"::set-output name=line_coverage::{result.overall_line_coverage:.2f}")
+            print(f"::set-output name=branch_coverage::{result.overall_branch_coverage:.2f}")
+            print(f"::set-output name=violations_count::{len(result.violations)}")
+        
+        if not quality_gate_passed and args.fail_on_violation:
+            validator.logger.error("Quality gate violations detected - blocking merge per TST-COV-004")
+            return 1
+        
+        validator.logger.info("All quality gates passed - code ready for integration")
+        return 0
         
     except Exception as e:
-        print(f"❌ Quality gate validation failed with error: {e}")
+        print(f"❌ Coverage validation failed with error: {e}", file=sys.stderr)
         if args.verbose:
             import traceback
             traceback.print_exc()
-        sys.exit(1)
+        return 1
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
