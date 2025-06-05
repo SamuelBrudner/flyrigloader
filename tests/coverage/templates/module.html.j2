@@ -1,1094 +1,763 @@
 <!DOCTYPE html>
-<html lang="en" class="no-js">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="description" content="FlyrigLoader Module Coverage Report for {{ module.name }} - Neuroscience Data Loading Library">
-    <meta name="author" content="FlyrigLoader Coverage Enhancement System">
-    <meta name="robots" content="noindex, nofollow">
-    
-    <title>{{ module.name }} Coverage Report - FlyrigLoader</title>
-    
-    <!-- Preload critical fonts for performance -->
-    <link rel="preload" href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&family=Fira+Code:wght@400;500&display=swap" as="style">
-    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&family=Fira+Code:wght@400;500&display=swap" rel="stylesheet">
-    
-    <!-- Include shared coverage reporting styles -->
-    <link rel="stylesheet" href="style.css">
-    
-    <!-- Module-specific inline styles for enhanced performance -->
-    <style>
-    :root {
-        /* FlyrigLoader Neuroscience Research Color Scheme */
-        --fl-primary: #2E7D32;          /* Deep research green */
-        --fl-secondary: #1976D2;        /* Science blue */
-        --fl-accent: #FF5722;           /* Alert orange */
-        --fl-success: #4CAF50;          /* Coverage success */
-        --fl-warning: #FF9800;          /* Coverage warning */
-        --fl-error: #F44336;            /* Coverage failure */
-        --fl-bg: #FAFAFA;               /* Clean background */
-        --fl-text: #333333;             /* Primary text */
-        --fl-text-secondary: #666666;   /* Secondary text */
-        --fl-border: #E0E0E0;           /* Subtle borders */
-        --fl-code-bg: #F5F5F5;          /* Code background */
-        
-        /* Coverage level colors */
-        --coverage-excellent: #2E7D32;   /* 95-100% */
-        --coverage-good: #4CAF50;        /* 85-94% */
-        --coverage-acceptable: #FF9800;  /* 70-84% */
-        --coverage-poor: #FF5722;        /* 50-69% */
-        --coverage-critical: #F44336;    /* <50% */
-        
-        /* Interactive states */
-        --hover-opacity: 0.8;
-        --focus-ring: 0 0 0 3px rgba(46, 125, 50, 0.3);
-        --transition-fast: 150ms ease-in-out;
-        --transition-standard: 250ms ease-in-out;
-    }
-    
-    /* Module-specific layout */
-    .module-container {
-        max-width: 1400px;
-        margin: 0 auto;
-        padding: 20px;
-        background: white;
-        border-radius: 8px;
-        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
-    }
-    
-    .module-header {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        margin-bottom: 30px;
-        padding: 20px 0;
-        border-bottom: 2px solid var(--fl-primary);
-    }
-    
-    .module-title {
-        display: flex;
-        align-items: center;
-        gap: 15px;
-    }
-    
-    .module-icon {
-        width: 48px;
-        height: 48px;
-        background: var(--fl-primary);
-        border-radius: 8px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        color: white;
-        font-weight: 700;
-        font-size: 20px;
-    }
-    
-    .module-info h1 {
-        margin: 0 0 5px 0;
-        color: var(--fl-primary);
-        font-size: 28px;
-        font-weight: 500;
-    }
-    
-    .module-path {
-        color: var(--fl-text-secondary);
-        font-family: 'Fira Code', monospace;
-        font-size: 14px;
-    }
-    
-    .module-actions {
-        display: flex;
-        gap: 10px;
-    }
-    
-    .action-btn {
-        padding: 8px 16px;
-        border: 1px solid var(--fl-border);
-        background: white;
-        border-radius: 4px;
-        cursor: pointer;
-        transition: all var(--transition-fast);
-        font-size: 14px;
-        text-decoration: none;
-        color: var(--fl-text);
-    }
-    
-    .action-btn:hover {
-        background: var(--fl-primary);
-        color: white;
-        border-color: var(--fl-primary);
-    }
-    
-    /* Coverage summary cards */
-    .coverage-summary {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-        gap: 20px;
-        margin-bottom: 30px;
-    }
-    
-    .coverage-card {
-        background: white;
-        border: 1px solid var(--fl-border);
-        border-radius: 8px;
-        padding: 20px;
-        transition: all var(--transition-standard);
-        position: relative;
-        overflow: hidden;
-    }
-    
-    .coverage-card::before {
-        content: '';
-        position: absolute;
-        top: 0;
-        left: 0;
-        right: 0;
-        height: 4px;
-        background: var(--coverage-good);
-    }
-    
-    .coverage-card.critical::before { background: var(--coverage-critical); }
-    .coverage-card.poor::before { background: var(--coverage-poor); }
-    .coverage-card.acceptable::before { background: var(--coverage-acceptable); }
-    .coverage-card.good::before { background: var(--coverage-good); }
-    .coverage-card.excellent::before { background: var(--coverage-excellent); }
-    
-    .coverage-card:hover {
-        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-        transform: translateY(-2px);
-    }
-    
-    .coverage-metric {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        margin-bottom: 15px;
-    }
-    
-    .metric-label {
-        font-weight: 500;
-        color: var(--fl-text);
-    }
-    
-    .metric-value {
-        font-size: 24px;
-        font-weight: 700;
-        color: var(--fl-primary);
-    }
-    
-    .metric-fraction {
-        font-size: 14px;
-        color: var(--fl-text-secondary);
-        margin-top: 5px;
-    }
-    
-    /* Progress bars for coverage visualization */
-    .progress-bar {
-        width: 100%;
-        height: 8px;
-        background: var(--fl-border);
-        border-radius: 4px;
-        overflow: hidden;
-        margin-top: 10px;
-    }
-    
-    .progress-fill {
-        height: 100%;
-        background: var(--coverage-good);
-        transition: width var(--transition-standard);
-        border-radius: 4px;
-    }
-    
-    /* Function and class breakdown */
-    .breakdown-section {
-        margin-bottom: 30px;
-    }
-    
-    .section-header {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        margin-bottom: 20px;
-        padding: 15px 0;
-        border-bottom: 1px solid var(--fl-border);
-    }
-    
-    .section-title {
-        font-size: 22px;
-        font-weight: 500;
-        color: var(--fl-primary);
-        display: flex;
-        align-items: center;
-        gap: 10px;
-    }
-    
-    .toggle-button {
-        background: none;
-        border: none;
-        cursor: pointer;
-        padding: 5px;
-        border-radius: 4px;
-        transition: background var(--transition-fast);
-    }
-    
-    .toggle-button:hover {
-        background: var(--fl-border);
-    }
-    
-    .breakdown-table {
-        width: 100%;
-        border-collapse: collapse;
-        background: white;
-        border-radius: 8px;
-        overflow: hidden;
-        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
-    }
-    
-    .breakdown-table th {
-        background: var(--fl-primary);
-        color: white;
-        padding: 15px 12px;
-        text-align: left;
-        font-weight: 500;
-        font-size: 14px;
-    }
-    
-    .breakdown-table td {
-        padding: 12px;
-        border-bottom: 1px solid var(--fl-border);
-        vertical-align: top;
-    }
-    
-    .breakdown-table tr:hover {
-        background: #F9F9F9;
-    }
-    
-    .function-name, .class-name {
-        font-family: 'Fira Code', monospace;
-        font-weight: 500;
-        color: var(--fl-primary);
-    }
-    
-    .coverage-percentage {
-        font-weight: 700;
-        text-align: center;
-        padding: 4px 8px;
-        border-radius: 4px;
-        color: white;
-        font-size: 13px;
-    }
-    
-    /* Source code section */
-    .source-section {
-        margin-top: 30px;
-    }
-    
-    .source-controls {
-        display: flex;
-        gap: 15px;
-        margin-bottom: 20px;
-        padding: 15px;
-        background: var(--fl-code-bg);
-        border-radius: 8px;
-        border: 1px solid var(--fl-border);
-    }
-    
-    .source-filter {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-    }
-    
-    .source-filter input[type="checkbox"] {
-        width: 16px;
-        height: 16px;
-        accent-color: var(--fl-primary);
-    }
-    
-    .source-filter label {
-        font-size: 14px;
-        cursor: pointer;
-        user-select: none;
-    }
-    
-    .source-code {
-        background: var(--fl-code-bg);
-        border: 1px solid var(--fl-border);
-        border-radius: 8px;
-        overflow: hidden;
-    }
-    
-    .line-numbers, .source-lines {
-        font-family: 'Fira Code', monospace;
-        font-size: 14px;
-        line-height: 1.5;
-    }
-    
-    .code-line {
-        display: flex;
-        min-height: 21px;
-        position: relative;
-    }
-    
-    .line-number {
-        background: #E8E8E8;
-        padding: 2px 8px;
-        color: var(--fl-text-secondary);
-        text-align: right;
-        min-width: 50px;
-        border-right: 1px solid var(--fl-border);
-        user-select: none;
-    }
-    
-    .line-content {
-        padding: 2px 8px;
-        flex: 1;
-        background: white;
-        white-space: pre;
-        overflow-x: auto;
-    }
-    
-    /* Coverage states for code lines */
-    .line-covered {
-        background: rgba(76, 175, 80, 0.1);
-        border-left: 3px solid var(--coverage-good);
-    }
-    
-    .line-uncovered {
-        background: rgba(244, 67, 54, 0.1);
-        border-left: 3px solid var(--coverage-critical);
-    }
-    
-    .line-partial {
-        background: rgba(255, 152, 0, 0.1);
-        border-left: 3px solid var(--coverage-acceptable);
-    }
-    
-    .line-excluded {
-        background: rgba(158, 158, 158, 0.1);
-        color: var(--fl-text-secondary);
-    }
-    
-    /* Dependency visualization */
-    .dependency-section {
-        margin-top: 30px;
-        padding: 20px;
-        background: #F8F9FA;
-        border-radius: 8px;
-        border: 1px solid var(--fl-border);
-    }
-    
-    .dependency-graph {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-        gap: 15px;
-        margin-top: 20px;
-    }
-    
-    .dependency-node {
-        background: white;
-        border: 1px solid var(--fl-border);
-        border-radius: 6px;
-        padding: 15px;
-        text-align: center;
-        transition: all var(--transition-fast);
-    }
-    
-    .dependency-node:hover {
-        border-color: var(--fl-primary);
-        box-shadow: 0 2px 8px rgba(46, 125, 50, 0.2);
-    }
-    
-    .dependency-name {
-        font-weight: 500;
-        color: var(--fl-primary);
-        margin-bottom: 5px;
-    }
-    
-    .dependency-coverage {
-        font-size: 12px;
-        color: var(--fl-text-secondary);
-    }
-    
-    /* Quality metrics section */
-    .quality-section {
-        margin-top: 30px;
-        padding: 20px;
-        background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
-        border-radius: 8px;
-        border: 1px solid var(--fl-border);
-    }
-    
-    .quality-metrics {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-        gap: 15px;
-        margin-top: 20px;
-    }
-    
-    .quality-metric {
-        background: white;
-        padding: 15px;
-        border-radius: 6px;
-        text-align: center;
-        border: 1px solid var(--fl-border);
-    }
-    
-    .quality-score {
-        font-size: 24px;
-        font-weight: 700;
-        margin-bottom: 5px;
-    }
-    
-    .quality-label {
-        font-size: 12px;
-        color: var(--fl-text-secondary);
-        text-transform: uppercase;
-        letter-spacing: 0.5px;
-    }
-    
-    /* Responsive design */
-    @media (max-width: 768px) {
-        .module-container {
-            padding: 15px;
-        }
-        
-        .module-header {
-            flex-direction: column;
-            align-items: flex-start;
-            gap: 15px;
-        }
-        
-        .coverage-summary {
-            grid-template-columns: 1fr;
-        }
-        
-        .breakdown-table {
-            font-size: 12px;
-        }
-        
-        .breakdown-table th,
-        .breakdown-table td {
-            padding: 8px;
-        }
-        
-        .source-controls {
-            flex-direction: column;
-            gap: 10px;
-        }
-    }
-    
-    /* Accessibility enhancements */
-    @media (prefers-reduced-motion: reduce) {
-        * {
-            animation-duration: 0.01ms !important;
-            animation-iteration-count: 1 !important;
-            transition-duration: 0.01ms !important;
-        }
-    }
-    
-    /* High contrast mode support */
-    @media (prefers-contrast: high) {
-        :root {
-            --fl-border: #000000;
-            --fl-text-secondary: #000000;
-        }
-    }
-    
-    /* Focus management for keyboard navigation */
-    .focusable:focus {
-        outline: none;
-        box-shadow: var(--focus-ring);
-    }
-    
-    /* Print styles */
-    @media print {
-        .module-actions,
-        .source-controls,
-        .toggle-button {
-            display: none;
-        }
-        
-        .coverage-card {
-            break-inside: avoid;
-        }
-        
-        .source-code {
-            break-inside: avoid;
-        }
-    }
-    </style>
-    
-    <!-- JSON-LD structured data for SEO and machine readability -->
+    <meta name="description" content="FlyRigLoader Module Coverage Report - {{ module.name }} - Detailed coverage analysis for neuroscience data loading library">
+    <meta name="generator" content="flyrigloader Coverage Enhancement System v{{ config.metadata.version }}">
+    <title>{{ module.name }} Coverage Report - {{ config.html_report.title }}</title>
+    
+    <!-- Structured Data for Quality Metrics -->
     <script type="application/ld+json">
     {
         "@context": "https://schema.org",
         "@type": "SoftwareApplication",
-        "name": "FlyrigLoader Module Coverage Report",
-        "description": "Detailed test coverage analysis for {{ module.name }} module in the FlyrigLoader neuroscience data loading library",
-        "applicationCategory": "DeveloperApplication",
-        "operatingSystem": "Cross-platform",
-        "programmingLanguage": "Python"
+        "name": "{{ config.metadata.project_name }}",
+        "description": "{{ config.metadata.project_description }}",
+        "applicationCategory": "{{ config.metadata.domain }}",
+        "version": "{{ config.metadata.version }}",
+        "url": "{{ config.metadata.documentation_url }}",
+        "coverage": {
+            "module": "{{ module.name }}",
+            "line_coverage": {{ module.coverage.line_percent }},
+            "branch_coverage": {{ module.coverage.branch_percent }},
+            "function_coverage": {{ module.coverage.function_percent }},
+            "class_coverage": {{ module.coverage.class_percent }}
+        }
     }
     </script>
-</head>
-
-<body>
-    <!-- Skip link for accessibility -->
-    <a href="#main-content" class="sr-only sr-only-focusable">Skip to main content</a>
     
-    <div class="module-container">
-        <!-- Module Header -->
-        <header class="module-header" role="banner">
-            <div class="module-title">
-                <div class="module-icon" aria-hidden="true">
-                    {% if module.category == 'critical' %}🔬
-                    {% elif module.category == 'infrastructure' %}⚙️
-                    {% else %}🛠️
+    <!-- CSS Template Integration -->
+    <style>
+        {% include 'style.css.j2' %}
+    </style>
+    
+    <!-- Module-Specific Enhancement Styles -->
+    <style>
+        /* Module Analysis Enhancements */
+        .module-analysis-grid {
+            display: grid;
+            grid-template-columns: 1fr 2fr;
+            gap: var(--spacing-xl);
+            margin-bottom: var(--spacing-xl);
+        }
+        
+        .module-overview {
+            background: var(--color-surface);
+            border-radius: var(--radius-lg);
+            padding: var(--spacing-xl);
+            box-shadow: var(--shadow-md);
+        }
+        
+        .module-metrics-detailed {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: var(--spacing-md);
+            margin: var(--spacing-lg) 0;
+        }
+        
+        .function-coverage-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-family: var(--font-family-mono);
+            font-size: var(--font-size-small);
+            margin: var(--spacing-lg) 0;
+        }
+        
+        .function-coverage-table th,
+        .function-coverage-table td {
+            padding: var(--spacing-sm);
+            text-align: left;
+            border-bottom: 1px solid rgba(0, 0, 0, 0.1);
+        }
+        
+        .function-coverage-table th {
+            background: var(--color-background);
+            font-weight: 600;
+            position: sticky;
+            top: 0;
+            z-index: 10;
+        }
+        
+        .function-coverage-table tr:hover {
+            background: rgba(0, 0, 0, 0.05);
+        }
+        
+        .class-analysis-section {
+            background: var(--color-surface);
+            border-radius: var(--radius-lg);
+            padding: var(--spacing-xl);
+            margin: var(--spacing-lg) 0;
+            box-shadow: var(--shadow-md);
+        }
+        
+        .complexity-indicator {
+            display: inline-flex;
+            align-items: center;
+            padding: 2px 6px;
+            border-radius: var(--radius-sm);
+            font-size: var(--font-size-small);
+            font-weight: 500;
+        }
+        
+        .complexity-low { background: var(--color-success); color: white; }
+        .complexity-medium { background: var(--color-warning); color: white; }
+        .complexity-high { background: var(--color-error); color: white; }
+        
+        .dependency-visualization {
+            background: var(--color-surface);
+            border-radius: var(--radius-lg);
+            padding: var(--spacing-xl);
+            margin: var(--spacing-lg) 0;
+            box-shadow: var(--shadow-md);
+        }
+        
+        .import-graph {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: var(--spacing-lg);
+            margin: var(--spacing-lg) 0;
+        }
+        
+        .import-list {
+            list-style: none;
+            padding: 0;
+        }
+        
+        .import-item {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: var(--spacing-sm);
+            margin: var(--spacing-xs) 0;
+            background: var(--color-background);
+            border-radius: var(--radius-sm);
+            border-left: 4px solid var(--color-secondary);
+        }
+        
+        .import-coverage {
+            font-size: var(--font-size-small);
+            font-weight: 500;
+        }
+        
+        .critical-validation {
+            background: linear-gradient(45deg, rgba(244, 67, 54, 0.1), rgba(255, 152, 0, 0.1));
+            border: 2px solid var(--color-error);
+            border-radius: var(--radius-lg);
+            padding: var(--spacing-lg);
+            margin: var(--spacing-lg) 0;
+        }
+        
+        .critical-validation.passing {
+            background: linear-gradient(45deg, rgba(76, 175, 80, 0.1), rgba(129, 199, 132, 0.1));
+            border-color: var(--color-success);
+        }
+        
+        .line-detail-modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.8);
+            z-index: var(--z-modal);
+        }
+        
+        .modal-content {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: var(--color-surface);
+            border-radius: var(--radius-lg);
+            padding: var(--spacing-xl);
+            max-width: 80%;
+            max-height: 80%;
+            overflow-y: auto;
+        }
+        
+        .performance-correlation {
+            background: var(--color-surface);
+            border-radius: var(--radius-lg);
+            padding: var(--spacing-xl);
+            margin: var(--spacing-lg) 0;
+            box-shadow: var(--shadow-md);
+        }
+        
+        .sla-indicator {
+            display: inline-flex;
+            align-items: center;
+            gap: var(--spacing-xs);
+            font-size: var(--font-size-small);
+            font-weight: 500;
+        }
+        
+        .sla-passing { color: var(--color-success); }
+        .sla-failing { color: var(--color-error); }
+        .sla-warning { color: var(--color-warning); }
+        
+        @media (max-width: 768px) {
+            .module-analysis-grid {
+                grid-template-columns: 1fr;
+            }
+            
+            .import-graph {
+                grid-template-columns: 1fr;
+            }
+            
+            .function-coverage-table {
+                font-size: var(--font-size-small);
+            }
+        }
+    </style>
+</head>
+<body>
+    <!-- Skip Links for Accessibility -->
+    <a href="#main-content" class="skip-link">Skip to main content</a>
+    <a href="#module-analysis" class="skip-link">Skip to module analysis</a>
+    <a href="#source-code" class="skip-link">Skip to source code</a>
+    
+    <!-- Header Section -->
+    <header class="header" role="banner">
+        <div class="container">
+            <div class="header-content">
+                <div class="header-brand">
+                    <div class="header-logo">
+                        <span class="module-category-icon category-{{ module.category.lower() }}"></span>
+                    </div>
+                    <div>
+                        <h1 class="header-title">{{ module.name }}</h1>
+                        <p class="header-subtitle">{{ config.module_organization[module.category.lower()].description if module.category.lower() in config.module_organization else "Module Coverage Analysis" }}</p>
+                    </div>
+                </div>
+                
+                <div class="header-meta">
+                    <div class="header-meta-item">
+                        <span>🧠</span>
+                        <span>{{ config.metadata.domain.replace('_', ' ').title() }}</span>
+                    </div>
+                    <div class="header-meta-item">
+                        <span>📊</span>
+                        <span>{{ module.coverage.line_percent | round(1) }}% Coverage</span>
+                    </div>
+                    <div class="header-meta-item">
+                        <span>⏱️</span>
+                        <span>{{ report_timestamp | strftime('%Y-%m-%d %H:%M UTC') }}</span>
+                    </div>
+                    <div class="header-meta-item">
+                        <span>🏷️</span>
+                        <span>v{{ config.metadata.version }}</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </header>
+    
+    <!-- Breadcrumb Navigation -->
+    <nav class="breadcrumbs" role="navigation" aria-label="Breadcrumb">
+        <div class="container">
+            <ol>
+                <li><a href="../index.html">Coverage Home</a></li>
+                <li><a href="../index.html#{{ module.category.lower() }}">{{ module.category.replace('_', ' ').title() }} Modules</a></li>
+                <li aria-current="page">{{ module.name }}</li>
+            </ol>
+        </div>
+    </nav>
+    
+    <!-- Main Content -->
+    <main id="main-content" class="container" role="main">
+        
+        <!-- Critical Module Validation Alert -->
+        {% if module.is_critical %}
+        <div class="critical-validation {{ 'passing' if module.coverage.line_percent >= config.coverage_thresholds.critical_modules_minimum else 'failing' }}">
+            <h2>🎯 Critical Module Coverage Validation</h2>
+            <p>
+                {% if module.coverage.line_percent >= config.coverage_thresholds.critical_modules_minimum %}
+                    <strong>✅ PASSING:</strong> This critical {{ module.category.lower() }} module meets the required {{ config.coverage_thresholds.critical_modules_minimum }}% coverage threshold.
+                {% else %}
+                    <strong>❌ FAILING:</strong> This critical {{ module.category.lower() }} module requires {{ config.coverage_thresholds.critical_modules_minimum }}% coverage but currently has {{ module.coverage.line_percent | round(1) }}%.
+                {% endif %}
+            </p>
+            <p class="text-muted">
+                Critical modules in the {{ config.metadata.domain.replace('_', ' ') }} domain require 100% test coverage to ensure data integrity and validation reliability.
+            </p>
+        </div>
+        {% endif %}
+        
+        <!-- Module Analysis Grid -->
+        <div class="module-analysis-grid" id="module-analysis">
+            
+            <!-- Module Overview -->
+            <div class="module-overview">
+                <h2 class="mb-3">📋 Module Overview</h2>
+                
+                <div class="mb-4">
+                    <h3>Module Information</h3>
+                    <ul class="list-unstyled">
+                        <li><strong>Category:</strong> {{ config.module_organization[module.category.lower()].category if module.category.lower() in config.module_organization else module.category }}</li>
+                        <li><strong>Priority:</strong> {{ config.module_organization[module.category.lower()].priority if module.category.lower() in config.module_organization else "standard" }}</li>
+                        <li><strong>File Path:</strong> <code>{{ module.path }}</code></li>
+                        <li><strong>Lines of Code:</strong> {{ module.stats.total_lines }}</li>
+                        <li><strong>Functions:</strong> {{ module.functions | length }}</li>
+                        <li><strong>Classes:</strong> {{ module.classes | length }}</li>
+                    </ul>
+                </div>
+                
+                <div class="mb-4">
+                    <h3>Workflow Context</h3>
+                    {% if module.category.lower() in ['api'] %}
+                        <span class="workflow-stage data-loading">Data Loading</span>
+                    {% elif module.category.lower() in ['config', 'io'] %}
+                        <span class="workflow-stage validation">Validation</span>
+                    {% elif module.category.lower() in ['utils'] %}
+                        <span class="workflow-stage transformation">Transformation</span>
+                    {% endif %}
+                    
+                    {% if module.name in config.html_report.custom_sections.experimental_data_modules %}
+                        <div class="experimental-context mt-2">
+                            This module handles experimental data processing and requires comprehensive validation coverage.
+                        </div>
                     {% endif %}
                 </div>
-                <div class="module-info">
-                    <h1>{{ module.name }}</h1>
-                    <div class="module-path">{{ module.path }}</div>
+                
+                <!-- Quality Indicators -->
+                <div class="mb-4">
+                    <h3>Quality Indicators</h3>
+                    <div class="quality-gates">
+                        <div class="quality-gate {{ 'passing' if module.coverage.line_percent >= config.coverage_thresholds.overall_minimum else 'failing' }}">
+                            <div class="quality-gate-header">
+                                <span class="quality-gate-title">Line Coverage</span>
+                                <span class="quality-gate-status {{ 'passing' if module.coverage.line_percent >= config.coverage_thresholds.overall_minimum else 'failing' }}">
+                                    {{ 'PASS' if module.coverage.line_percent >= config.coverage_thresholds.overall_minimum else 'FAIL' }}
+                                </span>
+                            </div>
+                            <p>{{ module.coverage.line_percent | round(1) }}% / {{ config.coverage_thresholds.overall_minimum }}% required</p>
+                        </div>
+                        
+                        {% if config.coverage_thresholds.branch_coverage_required %}
+                        <div class="quality-gate {{ 'passing' if module.coverage.branch_percent >= 85 else 'failing' }}">
+                            <div class="quality-gate-header">
+                                <span class="quality-gate-title">Branch Coverage</span>
+                                <span class="quality-gate-status {{ 'passing' if module.coverage.branch_percent >= 85 else 'failing' }}">
+                                    {{ 'PASS' if module.coverage.branch_percent >= 85 else 'FAIL' }}
+                                </span>
+                            </div>
+                            <p>{{ module.coverage.branch_percent | round(1) }}% / 85% recommended</p>
+                        </div>
+                        {% endif %}
+                        
+                        <div class="quality-gate {{ 'passing' if module.coverage.function_percent >= 90 else 'warning' if module.coverage.function_percent >= 75 else 'failing' }}">
+                            <div class="quality-gate-header">
+                                <span class="quality-gate-title">Function Coverage</span>
+                                <span class="quality-gate-status {{ 'passing' if module.coverage.function_percent >= 90 else 'warning' if module.coverage.function_percent >= 75 else 'failing' }}">
+                                    {{ 'PASS' if module.coverage.function_percent >= 90 else 'WARN' if module.coverage.function_percent >= 75 else 'FAIL' }}
+                                </span>
+                            </div>
+                            <p>{{ module.coverage.function_percent | round(1) }}% / 90% target</p>
+                        </div>
+                    </div>
                 </div>
             </div>
             
-            <nav class="module-actions" role="navigation" aria-label="Module actions">
-                <a href="index.html" class="action-btn focusable" aria-label="Back to coverage overview">
-                    ← Overview
-                </a>
-                <a href="{{ module.source_file }}" class="action-btn focusable" aria-label="View source code">
-                    📄 Source
-                </a>
-                <button class="action-btn focusable" onclick="window.print()" aria-label="Print this report">
-                    🖨️ Print
-                </button>
-            </nav>
-        </header>
-
-        <!-- Main Content -->
-        <main id="main-content" role="main">
-            <!-- Coverage Summary Dashboard -->
-            <section class="coverage-summary" aria-labelledby="summary-title">
-                <h2 id="summary-title" class="sr-only">Coverage Summary</h2>
+            <!-- Coverage Metrics Dashboard -->
+            <div class="coverage-summary">
+                <h2 class="mb-3">📊 Coverage Metrics Dashboard</h2>
                 
-                <!-- Overall Coverage Card -->
-                <div class="coverage-card {{ module.coverage_class }}" role="region" aria-labelledby="overall-coverage">
-                    <div class="coverage-metric">
-                        <span class="metric-label" id="overall-coverage">Overall Coverage</span>
-                        <span class="metric-value" aria-label="{{ module.coverage_percentage }}% covered">
-                            {{ module.coverage_percentage }}%
-                        </span>
-                    </div>
-                    <div class="metric-fraction">
-                        {{ module.covered_lines }} of {{ module.total_lines }} lines covered
-                    </div>
-                    <div class="progress-bar" role="progressbar" 
-                         aria-valuenow="{{ module.coverage_percentage }}" 
-                         aria-valuemin="0" 
-                         aria-valuemax="100"
-                         aria-label="Coverage progress">
-                        <div class="progress-fill" 
-                             style="width: {{ module.coverage_percentage }}%; background: var(--coverage-{{ module.coverage_class }});">
+                <div class="module-metrics-detailed">
+                    <div class="metric-card">
+                        <div class="metric-value text-{{ 'success' if module.coverage.line_percent >= config.coverage_thresholds.overall_minimum else 'error' }}">
+                            {{ module.coverage.line_percent | round(1) }}%
                         </div>
-                    </div>
-                    {% if module.category == 'critical' and module.coverage_percentage < 100 %}
-                    <div class="coverage-alert" role="alert">
-                        ⚠️ Critical module requires 100% coverage
-                    </div>
-                    {% endif %}
-                </div>
-
-                <!-- Branch Coverage Card -->
-                <div class="coverage-card {{ module.branch_coverage_class }}" role="region" aria-labelledby="branch-coverage">
-                    <div class="coverage-metric">
-                        <span class="metric-label" id="branch-coverage">Branch Coverage</span>
-                        <span class="metric-value" aria-label="{{ module.branch_coverage_percentage }}% branch coverage">
-                            {{ module.branch_coverage_percentage }}%
-                        </span>
-                    </div>
-                    <div class="metric-fraction">
-                        {{ module.covered_branches }} of {{ module.total_branches }} branches covered
-                    </div>
-                    <div class="progress-bar" role="progressbar" 
-                         aria-valuenow="{{ module.branch_coverage_percentage }}" 
-                         aria-valuemin="0" 
-                         aria-valuemax="100"
-                         aria-label="Branch coverage progress">
-                        <div class="progress-fill" 
-                             style="width: {{ module.branch_coverage_percentage }}%; background: var(--coverage-{{ module.branch_coverage_class }});">
+                        <div class="metric-label">Line Coverage</div>
+                        <div class="coverage-progress">
+                            <div class="coverage-progress-bar {{ 'excellent' if module.coverage.line_percent >= 95 else 'good' if module.coverage.line_percent >= 80 else 'poor' }}" 
+                                 style="width: {{ module.coverage.line_percent }}%"></div>
                         </div>
-                    </div>
-                </div>
-
-                <!-- Function Coverage Card -->
-                <div class="coverage-card {{ module.function_coverage_class }}" role="region" aria-labelledby="function-coverage">
-                    <div class="coverage-metric">
-                        <span class="metric-label" id="function-coverage">Function Coverage</span>
-                        <span class="metric-value" aria-label="{{ module.function_coverage_percentage }}% function coverage">
-                            {{ module.function_coverage_percentage }}%
-                        </span>
-                    </div>
-                    <div class="metric-fraction">
-                        {{ module.covered_functions }} of {{ module.total_functions }} functions covered
-                    </div>
-                    <div class="progress-bar" role="progressbar" 
-                         aria-valuenow="{{ module.function_coverage_percentage }}" 
-                         aria-valuemin="0" 
-                         aria-valuemax="100"
-                         aria-label="Function coverage progress">
-                        <div class="progress-fill" 
-                             style="width: {{ module.function_coverage_percentage }}%; background: var(--coverage-{{ module.function_coverage_class }});">
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Class Coverage Card -->
-                <div class="coverage-card {{ module.class_coverage_class }}" role="region" aria-labelledby="class-coverage">
-                    <div class="coverage-metric">
-                        <span class="metric-label" id="class-coverage">Class Coverage</span>
-                        <span class="metric-value" aria-label="{{ module.class_coverage_percentage }}% class coverage">
-                            {{ module.class_coverage_percentage }}%
-                        </span>
-                    </div>
-                    <div class="metric-fraction">
-                        {{ module.covered_classes }} of {{ module.total_classes }} classes covered
-                    </div>
-                    <div class="progress-bar" role="progressbar" 
-                         aria-valuenow="{{ module.class_coverage_percentage }}" 
-                         aria-valuemin="0" 
-                         aria-valuemax="100"
-                         aria-label="Class coverage progress">
-                        <div class="progress-fill" 
-                             style="width: {{ module.class_coverage_percentage }}%; background: var(--coverage-{{ module.class_coverage_class }});">
-                        </div>
-                    </div>
-                </div>
-            </section>
-
-            <!-- Function Breakdown Section -->
-            <section class="breakdown-section" aria-labelledby="functions-title">
-                <div class="section-header">
-                    <h2 class="section-title" id="functions-title">
-                        🔧 Function Coverage Breakdown
-                        <span class="function-count">({{ module.functions|length }} functions)</span>
-                    </h2>
-                    <button class="toggle-button focusable" 
-                            onclick="toggleSection('functions-table')" 
-                            aria-controls="functions-table"
-                            aria-expanded="true"
-                            aria-label="Toggle function breakdown visibility">
-                        ▼
-                    </button>
-                </div>
-                
-                <div id="functions-table" class="table-container">
-                    <table class="breakdown-table" role="table" aria-label="Function coverage details">
-                        <thead>
-                            <tr role="row">
-                                <th scope="col">Function Name</th>
-                                <th scope="col">Line Coverage</th>
-                                <th scope="col">Branch Coverage</th>
-                                <th scope="col">Complexity</th>
-                                <th scope="col">Missing Lines</th>
-                                <th scope="col">Status</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {% for function in module.functions %}
-                            <tr role="row" class="function-row">
-                                <td>
-                                    <span class="function-name">{{ function.name }}</span>
-                                    {% if function.is_async %}
-                                    <span class="function-modifier" title="Async function">async</span>
-                                    {% endif %}
-                                    {% if function.is_property %}
-                                    <span class="function-modifier" title="Property">@property</span>
-                                    {% endif %}
-                                </td>
-                                <td>
-                                    <span class="coverage-percentage {{ function.coverage_class }}" 
-                                          style="background: var(--coverage-{{ function.coverage_class }})">
-                                        {{ function.coverage_percentage }}%
-                                    </span>
-                                    <div class="coverage-fraction">{{ function.covered_lines }}/{{ function.total_lines }}</div>
-                                </td>
-                                <td>
-                                    <span class="coverage-percentage {{ function.branch_coverage_class }}" 
-                                          style="background: var(--coverage-{{ function.branch_coverage_class }})">
-                                        {{ function.branch_coverage_percentage }}%
-                                    </span>
-                                    <div class="coverage-fraction">{{ function.covered_branches }}/{{ function.total_branches }}</div>
-                                </td>
-                                <td>
-                                    <span class="complexity-score">{{ function.complexity }}</span>
-                                </td>
-                                <td>
-                                    {% if function.missing_lines %}
-                                    <span class="missing-lines">{{ function.missing_lines|join(', ') }}</span>
-                                    {% else %}
-                                    <span class="no-missing">All covered</span>
-                                    {% endif %}
-                                </td>
-                                <td>
-                                    {% if function.coverage_percentage == 100 %}
-                                    <span class="status-badge status-complete">✅ Complete</span>
-                                    {% elif function.coverage_percentage >= 85 %}
-                                    <span class="status-badge status-good">✓ Good</span>
-                                    {% elif function.coverage_percentage >= 70 %}
-                                    <span class="status-badge status-partial">⚠️ Partial</span>
-                                    {% else %}
-                                    <span class="status-badge status-poor">❌ Poor</span>
-                                    {% endif %}
-                                </td>
-                            </tr>
-                            {% endfor %}
-                        </tbody>
-                    </table>
-                </div>
-            </section>
-
-            <!-- Class Breakdown Section -->
-            {% if module.classes %}
-            <section class="breakdown-section" aria-labelledby="classes-title">
-                <div class="section-header">
-                    <h2 class="section-title" id="classes-title">
-                        🏗️ Class Coverage Breakdown
-                        <span class="class-count">({{ module.classes|length }} classes)</span>
-                    </h2>
-                    <button class="toggle-button focusable" 
-                            onclick="toggleSection('classes-table')" 
-                            aria-controls="classes-table"
-                            aria-expanded="true"
-                            aria-label="Toggle class breakdown visibility">
-                        ▼
-                    </button>
-                </div>
-                
-                <div id="classes-table" class="table-container">
-                    <table class="breakdown-table" role="table" aria-label="Class coverage details">
-                        <thead>
-                            <tr role="row">
-                                <th scope="col">Class Name</th>
-                                <th scope="col">Line Coverage</th>
-                                <th scope="col">Branch Coverage</th>
-                                <th scope="col">Methods</th>
-                                <th scope="col">Properties</th>
-                                <th scope="col">Status</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {% for class in module.classes %}
-                            <tr role="row" class="class-row">
-                                <td>
-                                    <span class="class-name">{{ class.name }}</span>
-                                    {% if class.is_abstract %}
-                                    <span class="class-modifier" title="Abstract class">ABC</span>
-                                    {% endif %}
-                                    {% if class.is_dataclass %}
-                                    <span class="class-modifier" title="Dataclass">@dataclass</span>
-                                    {% endif %}
-                                </td>
-                                <td>
-                                    <span class="coverage-percentage {{ class.coverage_class }}" 
-                                          style="background: var(--coverage-{{ class.coverage_class }})">
-                                        {{ class.coverage_percentage }}%
-                                    </span>
-                                    <div class="coverage-fraction">{{ class.covered_lines }}/{{ class.total_lines }}</div>
-                                </td>
-                                <td>
-                                    <span class="coverage-percentage {{ class.branch_coverage_class }}" 
-                                          style="background: var(--coverage-{{ class.branch_coverage_class }})">
-                                        {{ class.branch_coverage_percentage }}%
-                                    </span>
-                                    <div class="coverage-fraction">{{ class.covered_branches }}/{{ class.total_branches }}</div>
-                                </td>
-                                <td>
-                                    <span class="method-count">{{ class.covered_methods }}/{{ class.total_methods }}</span>
-                                </td>
-                                <td>
-                                    <span class="property-count">{{ class.covered_properties }}/{{ class.total_properties }}</span>
-                                </td>
-                                <td>
-                                    {% if class.coverage_percentage == 100 %}
-                                    <span class="status-badge status-complete">✅ Complete</span>
-                                    {% elif class.coverage_percentage >= 85 %}
-                                    <span class="status-badge status-good">✓ Good</span>
-                                    {% elif class.coverage_percentage >= 70 %}
-                                    <span class="status-badge status-partial">⚠️ Partial</span>
-                                    {% else %}
-                                    <span class="status-badge status-poor">❌ Poor</span>
-                                    {% endif %}
-                                </td>
-                            </tr>
-                            {% endfor %}
-                        </tbody>
-                    </table>
-                </div>
-            </section>
-            {% endif %}
-
-            <!-- Source Code Section -->
-            <section class="source-section" aria-labelledby="source-title">
-                <div class="section-header">
-                    <h2 class="section-title" id="source-title">📄 Source Code Coverage</h2>
-                    <button class="toggle-button focusable" 
-                            onclick="toggleSection('source-container')" 
-                            aria-controls="source-container"
-                            aria-expanded="true"
-                            aria-label="Toggle source code visibility">
-                        ▼
-                    </button>
-                </div>
-                
-                <div id="source-container">
-                    <!-- Source code filtering controls -->
-                    <div class="source-controls" role="group" aria-labelledby="filter-title">
-                        <h3 id="filter-title" class="sr-only">Source code filtering options</h3>
-                        <div class="source-filter">
-                            <input type="checkbox" id="show-covered" checked onchange="toggleLines('covered')">
-                            <label for="show-covered">Show covered lines</label>
-                        </div>
-                        <div class="source-filter">
-                            <input type="checkbox" id="show-uncovered" checked onchange="toggleLines('uncovered')">
-                            <label for="show-uncovered">Show uncovered lines</label>
-                        </div>
-                        <div class="source-filter">
-                            <input type="checkbox" id="show-partial" checked onchange="toggleLines('partial')">
-                            <label for="show-partial">Show partially covered lines</label>
-                        </div>
-                        <div class="source-filter">
-                            <input type="checkbox" id="show-excluded" onchange="toggleLines('excluded')">
-                            <label for="show-excluded">Show excluded lines</label>
+                        <div class="metric-change">
+                            {{ module.coverage.covered_lines }} / {{ module.coverage.total_lines }} lines
                         </div>
                     </div>
                     
-                    <!-- Source code display -->
-                    <div class="source-code" role="region" aria-labelledby="source-code-title">
-                        <h3 id="source-code-title" class="sr-only">Module source code with coverage annotations</h3>
-                        {% for line in module.source_lines %}
-                        <div class="code-line line-{{ line.coverage_state }}" 
-                             data-line-number="{{ line.number }}"
-                             data-coverage-state="{{ line.coverage_state }}"
-                             {% if line.coverage_state == 'uncovered' %}
-                             title="Line {{ line.number }}: Not covered by tests"
-                             {% elif line.coverage_state == 'partial' %}
-                             title="Line {{ line.number }}: Partially covered ({{ line.branch_coverage }}% branches)"
-                             {% elif line.coverage_state == 'covered' %}
-                             title="Line {{ line.number }}: Fully covered ({{ line.hit_count }} hits)"
-                             {% endif %}>
-                            <span class="line-number">{{ line.number }}</span>
-                            <span class="line-content">{{ line.content }}</span>
-                            {% if line.coverage_state == 'uncovered' %}
-                            <span class="coverage-indicator uncovered" aria-label="Not covered">●</span>
-                            {% elif line.coverage_state == 'partial' %}
-                            <span class="coverage-indicator partial" aria-label="Partially covered">◐</span>
-                            {% elif line.coverage_state == 'covered' %}
-                            <span class="coverage-indicator covered" aria-label="Fully covered">●</span>
-                            {% endif %}
+                    <div class="metric-card">
+                        <div class="metric-value text-{{ 'success' if module.coverage.branch_percent >= 85 else 'warning' if module.coverage.branch_percent >= 70 else 'error' }}">
+                            {{ module.coverage.branch_percent | round(1) }}%
                         </div>
-                        {% endfor %}
+                        <div class="metric-label">Branch Coverage</div>
+                        <div class="coverage-progress">
+                            <div class="coverage-progress-bar {{ 'excellent' if module.coverage.branch_percent >= 90 else 'good' if module.coverage.branch_percent >= 75 else 'poor' }}" 
+                                 style="width: {{ module.coverage.branch_percent }}%"></div>
+                        </div>
+                        <div class="metric-change">
+                            {{ module.coverage.covered_branches }} / {{ module.coverage.total_branches }} branches
+                        </div>
                     </div>
-                </div>
-            </section>
-
-            <!-- Module Dependencies Section -->
-            {% if module.dependencies %}
-            <section class="dependency-section" aria-labelledby="dependencies-title">
-                <div class="section-header">
-                    <h2 class="section-title" id="dependencies-title">🔗 Module Dependencies</h2>
-                    <span class="dependency-count">{{ module.dependencies|length }} dependencies</span>
+                    
+                    <div class="metric-card">
+                        <div class="metric-value text-{{ 'success' if module.coverage.function_percent >= 90 else 'warning' if module.coverage.function_percent >= 75 else 'error' }}">
+                            {{ module.coverage.function_percent | round(1) }}%
+                        </div>
+                        <div class="metric-label">Function Coverage</div>
+                        <div class="coverage-progress">
+                            <div class="coverage-progress-bar {{ 'excellent' if module.coverage.function_percent >= 95 else 'good' if module.coverage.function_percent >= 80 else 'poor' }}" 
+                                 style="width: {{ module.coverage.function_percent }}%"></div>
+                        </div>
+                        <div class="metric-change">
+                            {{ module.coverage.covered_functions }} / {{ module.coverage.total_functions }} functions
+                        </div>
+                    </div>
+                    
+                    <div class="metric-card">
+                        <div class="metric-value text-{{ 'success' if module.coverage.class_percent >= 90 else 'warning' if module.coverage.class_percent >= 75 else 'error' }}">
+                            {{ module.coverage.class_percent | round(1) }}%
+                        </div>
+                        <div class="metric-label">Class Coverage</div>
+                        <div class="coverage-progress">
+                            <div class="coverage-progress-bar {{ 'excellent' if module.coverage.class_percent >= 95 else 'good' if module.coverage.class_percent >= 80 else 'poor' }}" 
+                                 style="width: {{ module.coverage.class_percent }}%"></div>
+                        </div>
+                        <div class="metric-change">
+                            {{ module.coverage.covered_classes }} / {{ module.coverage.total_classes }} classes
+                        </div>
+                    </div>
                 </div>
                 
-                <div class="dependency-graph" role="region" aria-label="Module dependency visualization">
-                    {% for dependency in module.dependencies %}
-                    <div class="dependency-node" 
-                         role="button" 
-                         tabindex="0"
-                         onclick="navigateToModule('{{ dependency.path }}')"
-                         onkeypress="handleKeyPress(event, '{{ dependency.path }}')"
-                         aria-label="Navigate to {{ dependency.name }} module">
-                        <div class="dependency-name">{{ dependency.name }}</div>
-                        <div class="dependency-coverage">{{ dependency.coverage_percentage }}% covered</div>
-                        <div class="dependency-type">{{ dependency.import_type }}</div>
+                <!-- Performance Correlation -->
+                {% if config.performance_integration.benchmark_correlation %}
+                <div class="performance-correlation">
+                    <h3>🚀 Performance SLA Correlation</h3>
+                    <p class="text-muted mb-3">Coverage impact on performance benchmark compliance</p>
+                    
+                    {% if module.category.lower() in ['io', 'api'] %}
+                    <div class="sla-indicator {{ 'sla-passing' if module.performance.data_loading_time <= 1.0 else 'sla-failing' }}">
+                        <span>⏱️</span>
+                        <span>Data Loading: {{ module.performance.data_loading_time | round(2) }}s per 100MB</span>
+                        <span>(SLA: ≤1.0s)</span>
                     </div>
-                    {% endfor %}
-                </div>
-            </section>
-            {% endif %}
-
-            <!-- Quality Metrics Section -->
-            <section class="quality-section" aria-labelledby="quality-title">
-                <div class="section-header">
-                    <h2 class="section-title" id="quality-title">📊 Module Quality Metrics</h2>
-                </div>
-                
-                <div class="quality-metrics" role="region" aria-label="Module quality assessment">
-                    <div class="quality-metric">
-                        <div class="quality-score">{{ module.complexity_score }}</div>
-                        <div class="quality-label">Complexity Score</div>
+                    {% endif %}
+                    
+                    {% if module.category.lower() in ['utils', 'api'] %}
+                    <div class="sla-indicator {{ 'sla-passing' if module.performance.transformation_time <= 0.5 else 'sla-failing' }}">
+                        <span>🔄</span>
+                        <span>Transformation: {{ module.performance.transformation_time | round(3) }}s per 1M rows</span>
+                        <span>(SLA: ≤0.5s)</span>
                     </div>
-                    <div class="quality-metric">
-                        <div class="quality-score">{{ module.maintainability_index }}</div>
-                        <div class="quality-label">Maintainability Index</div>
-                    </div>
-                    <div class="quality-metric">
-                        <div class="quality-score">{{ module.technical_debt_ratio }}%</div>
-                        <div class="quality-label">Technical Debt Ratio</div>
-                    </div>
-                    <div class="quality-metric">
-                        <div class="quality-score">{{ module.test_effectiveness }}%</div>
-                        <div class="quality-label">Test Effectiveness</div>
-                    </div>
-                </div>
-
-                <!-- Performance SLA Status -->
-                {% if module.category == 'critical' %}
-                <div class="sla-status" role="region" aria-labelledby="sla-title">
-                    <h3 id="sla-title" class="sla-title">🎯 Performance SLA Compliance</h3>
-                    <div class="sla-metrics">
-                        {% if module.path.startswith('io/') %}
-                        <div class="sla-metric">
-                            <span class="sla-label">Data Loading SLA:</span>
-                            <span class="sla-value {{ 'sla-pass' if module.data_loading_time <= 1000 else 'sla-fail' }}">
-                                {{ module.data_loading_time }}ms (Target: <1000ms)
-                            </span>
-                        </div>
-                        {% endif %}
-                        {% if module.path.startswith('discovery/') %}
-                        <div class="sla-metric">
-                            <span class="sla-label">File Discovery SLA:</span>
-                            <span class="sla-value {{ 'sla-pass' if module.discovery_time <= 5000 else 'sla-fail' }}">
-                                {{ module.discovery_time }}ms (Target: <5000ms)
-                            </span>
-                        </div>
-                        {% endif %}
-                    </div>
+                    {% endif %}
                 </div>
                 {% endif %}
-            </section>
-        </main>
-        
-        <!-- Footer -->
-        <footer role="contentinfo" class="module-footer">
-            <div class="footer-info">
-                <p>Generated by FlyrigLoader Coverage Enhancement System on {{ report.timestamp }}</p>
-                <p>Coverage data from {{ report.source }} | Python {{ report.python_version }} | Coverage.py {{ report.coverage_version }}</p>
             </div>
-        </footer>
-    </div>
-
-    <!-- JavaScript for interactive functionality -->
+        </div>
+        
+        <!-- Function-Level Coverage Analysis -->
+        <div class="module-section">
+            <div class="module-header">
+                <h2 class="module-title">
+                    <span class="module-icon utils">📋</span>
+                    Function-Level Coverage Analysis
+                </h2>
+            </div>
+            
+            <div class="overflow-x-auto">
+                <table class="function-coverage-table">
+                    <thead>
+                        <tr>
+                            <th>Function Name</th>
+                            <th>Line Coverage</th>
+                            <th>Branch Coverage</th>
+                            <th>Complexity</th>
+                            <th>Status</th>
+                            <th>Missing Lines</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for function in module.functions %}
+                        <tr class="{{ 'validation-critical' if function.coverage.line_percent < 100 and module.is_critical else '' }}">
+                            <td>
+                                <code class="font-mono">{{ function.name }}</code>
+                                {% if function.is_async %}
+                                <span class="signal-processing">async</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                <span class="coverage-badge {{ 'excellent' if function.coverage.line_percent >= 95 else 'good' if function.coverage.line_percent >= 80 else 'poor' if function.coverage.line_percent > 0 else 'none' }}">
+                                    {{ function.coverage.line_percent | round(1) }}%
+                                </span>
+                            </td>
+                            <td>
+                                {% if function.coverage.total_branches > 0 %}
+                                <span class="coverage-badge {{ 'excellent' if function.coverage.branch_percent >= 90 else 'good' if function.coverage.branch_percent >= 75 else 'poor' }}">
+                                    {{ function.coverage.branch_percent | round(1) }}%
+                                </span>
+                                {% else %}
+                                <span class="text-muted">N/A</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                <span class="complexity-indicator {{ 'complexity-low' if function.complexity <= 5 else 'complexity-medium' if function.complexity <= 10 else 'complexity-high' }}">
+                                    {{ function.complexity }}
+                                </span>
+                            </td>
+                            <td>
+                                {% if function.coverage.line_percent >= 95 %}
+                                    <span class="text-success">✅ Excellent</span>
+                                {% elif function.coverage.line_percent >= 80 %}
+                                    <span class="text-warning">⚠️ Good</span>
+                                {% elif function.coverage.line_percent > 0 %}
+                                    <span class="text-error">❌ Poor</span>
+                                {% else %}
+                                    <span class="text-muted">❓ Untested</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if function.coverage.missing_lines %}
+                                <code class="text-error">{{ function.coverage.missing_lines | join(', ') }}</code>
+                                {% else %}
+                                <span class="text-success">None</span>
+                                {% endif %}
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        
+        <!-- Class-Level Coverage Analysis -->
+        {% if module.classes %}
+        <div class="class-analysis-section">
+            <h2 class="mb-3">🏗️ Class-Level Coverage Analysis</h2>
+            
+            <div class="grid grid-2">
+                {% for class_obj in module.classes %}
+                <div class="bg-background rounded p-4 border">
+                    <h3 class="mb-2">
+                        <code>{{ class_obj.name }}</code>
+                        {% if class_obj.is_dataclass %}
+                        <span class="signal-processing">dataclass</span>
+                        {% endif %}
+                    </h3>
+                    
+                    <div class="mb-3">
+                        <div class="flex justify-between mb-1">
+                            <span>Line Coverage:</span>
+                            <span class="coverage-badge {{ 'excellent' if class_obj.coverage.line_percent >= 95 else 'good' if class_obj.coverage.line_percent >= 80 else 'poor' }}">
+                                {{ class_obj.coverage.line_percent | round(1) }}%
+                            </span>
+                        </div>
+                        <div class="coverage-progress">
+                            <div class="coverage-progress-bar {{ 'excellent' if class_obj.coverage.line_percent >= 95 else 'good' if class_obj.coverage.line_percent >= 80 else 'poor' }}" 
+                                 style="width: {{ class_obj.coverage.line_percent }}%"></div>
+                        </div>
+                    </div>
+                    
+                    <div class="text-sm text-muted">
+                        <div>Methods: {{ class_obj.methods | length }}</div>
+                        <div>Properties: {{ class_obj.properties | length }}</div>
+                        {% if class_obj.coverage.missing_lines %}
+                        <div class="text-error">Missing Lines: {{ class_obj.coverage.missing_lines | join(', ') }}</div>
+                        {% endif %}
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+        {% endif %}
+        
+        <!-- Module Dependency Visualization -->
+        <div class="dependency-visualization">
+            <h2 class="mb-3">🔗 Module Dependency Analysis</h2>
+            
+            <div class="import-graph">
+                <div>
+                    <h3>Imports (Dependencies)</h3>
+                    <ul class="import-list">
+                        {% for import_item in module.dependencies.imports %}
+                        <li class="import-item">
+                            <code>{{ import_item.module }}</code>
+                            <span class="import-coverage">
+                                {% if import_item.coverage_percent %}
+                                <span class="coverage-badge {{ 'excellent' if import_item.coverage_percent >= 90 else 'good' if import_item.coverage_percent >= 75 else 'poor' }}">
+                                    {{ import_item.coverage_percent | round(1) }}%
+                                </span>
+                                {% else %}
+                                <span class="text-muted">External</span>
+                                {% endif %}
+                            </span>
+                        </li>
+                        {% endfor %}
+                    </ul>
+                </div>
+                
+                <div>
+                    <h3>Imported By (Dependents)</h3>
+                    <ul class="import-list">
+                        {% for dependent in module.dependencies.imported_by %}
+                        <li class="import-item">
+                            <code>{{ dependent.module }}</code>
+                            <span class="import-coverage">
+                                <span class="coverage-badge {{ 'excellent' if dependent.coverage_percent >= 90 else 'good' if dependent.coverage_percent >= 75 else 'poor' }}">
+                                    {{ dependent.coverage_percent | round(1) }}%
+                                </span>
+                            </span>
+                        </li>
+                        {% endfor %}
+                    </ul>
+                </div>
+            </div>
+            
+            <div class="mt-4 p-3 bg-background rounded">
+                <h4>Integration Coverage Impact</h4>
+                <p class="text-sm text-muted">
+                    This module's coverage affects {{ module.dependencies.impact_modules | length }} downstream modules 
+                    and depends on {{ module.dependencies.imports | length }} upstream modules for comprehensive integration testing.
+                </p>
+            </div>
+        </div>
+        
+        <!-- Source Code Display -->
+        <div class="source-container" id="source-code">
+            <div class="source-header">
+                <h2 class="source-title">{{ module.path }}</h2>
+                <div class="source-actions">
+                    <button class="source-button" onclick="toggleLineNumbers()">Toggle Line Numbers</button>
+                    <button class="source-button" onclick="toggleCoverageHighlight()">Toggle Coverage</button>
+                    <button class="source-button" onclick="showOnlyUncovered()">Show Uncovered Only</button>
+                </div>
+            </div>
+            
+            <table class="source-table" id="source-table">
+                <tbody>
+                    {% for line in module.source_lines %}
+                    <tr class="{{ line.coverage_status }}" data-line-number="{{ line.number }}">
+                        <td class="line-number">{{ line.number }}</td>
+                        <td class="line-coverage {{ line.coverage_status }}" 
+                            title="{% if line.coverage_status == 'covered' %}Line covered by tests{% elif line.coverage_status == 'uncovered' %}Line not covered by tests{% elif line.coverage_status == 'partial' %}Line partially covered{% else %}Line excluded from coverage{% endif %}">
+                            {% if line.coverage_status == 'covered' %}✓
+                            {% elif line.coverage_status == 'uncovered' %}✗
+                            {% elif line.coverage_status == 'partial' %}⚠
+                            {% else %}-
+                            {% endif %}
+                        </td>
+                        <td class="line-source">
+                            <span class="highlight">{{ line.content | e }}</span>
+                            {% if line.branch_coverage %}
+                            <span class="branch-annotation">
+                                Branches: {{ line.branch_coverage.taken }}/{{ line.branch_coverage.total }}
+                            </span>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        
+    </main>
+    
+    <!-- Footer -->
+    <footer class="py-4 mt-5 border-top">
+        <div class="container">
+            <div class="flex justify-between align-center text-sm text-muted">
+                <div>
+                    Generated by {{ config.metadata.generated_by }} v{{ config.metadata.version }}
+                    on {{ report_timestamp | strftime('%Y-%m-%d at %H:%M:%S UTC') }}
+                </div>
+                <div>
+                    <a href="{{ config.metadata.documentation_url }}" target="_blank" rel="noopener">
+                        Documentation
+                    </a>
+                    <span class="mx-2">•</span>
+                    <a href="mailto:{{ config.metadata.contact }}">
+                        Contact
+                    </a>
+                </div>
+            </div>
+        </div>
+    </footer>
+    
+    <!-- Interactive JavaScript -->
     <script>
-    // Progressive enhancement: Add interactivity only if JavaScript is available
-    document.documentElement.classList.remove('no-js');
-    document.documentElement.classList.add('js');
-
-    // Toggle section visibility
-    function toggleSection(sectionId) {
-        const section = document.getElementById(sectionId);
-        const button = document.querySelector(`[aria-controls="${sectionId}"]`);
-        
-        if (section && button) {
-            const isVisible = section.style.display !== 'none';
-            section.style.display = isVisible ? 'none' : 'block';
-            button.setAttribute('aria-expanded', !isVisible);
-            button.textContent = isVisible ? '▶' : '▼';
-        }
-    }
-
-    // Toggle line visibility based on coverage state
-    function toggleLines(coverageState) {
-        const checkbox = document.getElementById(`show-${coverageState}`);
-        const lines = document.querySelectorAll(`.line-${coverageState}`);
-        
-        lines.forEach(line => {
-            line.style.display = checkbox.checked ? 'flex' : 'none';
-        });
-    }
-
-    // Navigate to module dependency
-    function navigateToModule(modulePath) {
-        // Convert module path to HTML filename
-        const htmlPath = modulePath.replace(/\//g, '_').replace('.py', '.html');
-        window.location.href = htmlPath;
-    }
-
-    // Handle keyboard navigation for dependency nodes
-    function handleKeyPress(event, modulePath) {
-        if (event.key === 'Enter' || event.key === ' ') {
-            event.preventDefault();
-            navigateToModule(modulePath);
-        }
-    }
-
-    // Initialize tooltips for enhanced accessibility
-    function initializeTooltips() {
-        const elements = document.querySelectorAll('[title]');
-        elements.forEach(element => {
-            element.setAttribute('aria-label', element.getAttribute('title'));
-        });
-    }
-
-    // Keyboard navigation support
-    document.addEventListener('keydown', function(event) {
-        // Escape key closes any expanded sections
-        if (event.key === 'Escape') {
-            const expandedButtons = document.querySelectorAll('[aria-expanded="true"]');
-            expandedButtons.forEach(button => {
-                const sectionId = button.getAttribute('aria-controls');
-                if (sectionId) {
-                    toggleSection(sectionId);
-                }
+        // Line number toggle functionality
+        function toggleLineNumbers() {
+            const lineNumbers = document.querySelectorAll('.line-number');
+            lineNumbers.forEach(ln => {
+                ln.style.display = ln.style.display === 'none' ? 'table-cell' : 'none';
             });
         }
-    });
-
-    // Initialize on page load
-    document.addEventListener('DOMContentLoaded', function() {
-        initializeTooltips();
         
-        // Set focus to main content for screen readers
-        document.getElementById('main-content').setAttribute('tabindex', '-1');
-    });
-
-    // Update coverage class based on percentage
-    function getCoverageClass(percentage) {
-        if (percentage >= 95) return 'excellent';
-        if (percentage >= 85) return 'good';
-        if (percentage >= 70) return 'acceptable';
-        if (percentage >= 50) return 'poor';
-        return 'critical';
-    }
-
-    // Enhanced error handling
-    window.addEventListener('error', function(event) {
-        console.error('Coverage report error:', event.error);
-        // Graceful degradation: ensure basic functionality works
-    });
-
-    // Performance monitoring
-    if ('performance' in window) {
+        // Coverage highlight toggle
+        function toggleCoverageHighlight() {
+            const sourceTable = document.getElementById('source-table');
+            sourceTable.classList.toggle('hide-coverage');
+        }
+        
+        // Show only uncovered lines
+        function showOnlyUncovered() {
+            const rows = document.querySelectorAll('#source-table tr');
+            rows.forEach(row => {
+                const isUncovered = row.classList.contains('uncovered') || row.classList.contains('partial');
+                row.style.display = isUncovered ? 'table-row' : 'none';
+            });
+        }
+        
+        // Accessibility: Keyboard navigation for source code
+        document.addEventListener('keydown', function(e) {
+            if (e.key === 'u' && e.ctrlKey) {
+                e.preventDefault();
+                showOnlyUncovered();
+            }
+            if (e.key === 'l' && e.ctrlKey) {
+                e.preventDefault();
+                toggleLineNumbers();
+            }
+            if (e.key === 'h' && e.ctrlKey) {
+                e.preventDefault();
+                toggleCoverageHighlight();
+            }
+        });
+        
+        // Progressive enhancement for coverage progress bars
+        document.addEventListener('DOMContentLoaded', function() {
+            const progressBars = document.querySelectorAll('.coverage-progress-bar');
+            progressBars.forEach(bar => {
+                bar.classList.add('animated');
+            });
+        });
+        
+        // Tooltip functionality for complex elements
+        document.querySelectorAll('[data-tooltip]').forEach(element => {
+            element.addEventListener('mouseenter', function(e) {
+                // Tooltip display logic here
+            });
+        });
+        
+        // Smooth scrolling for anchor links
+        document.querySelectorAll('a[href^="#"]').forEach(anchor => {
+            anchor.addEventListener('click', function (e) {
+                e.preventDefault();
+                const target = document.querySelector(this.getAttribute('href'));
+                if (target) {
+                    target.scrollIntoView({
+                        behavior: 'smooth',
+                        block: 'start'
+                    });
+                }
+            });
+        });
+    </script>
+    
+    <!-- Analytics and Performance Monitoring -->
+    <script>
+        // Performance monitoring for coverage report load times
         window.addEventListener('load', function() {
             const loadTime = performance.now();
-            console.log(`Coverage report loaded in ${loadTime.toFixed(2)}ms`);
+            console.log(`Module coverage report loaded in ${loadTime.toFixed(2)}ms`);
+            
+            // Optional: Send performance metrics to analytics
+            if (typeof analyticsReporting !== 'undefined') {
+                analyticsReporting.reportLoadTime('module_coverage', loadTime);
+            }
         });
-    }
     </script>
-
-    <!-- Analytics and monitoring (if enabled) -->
-    {% if config.analytics.enabled %}
-    <script>
-    // Lightweight analytics for coverage report usage
-    if (typeof gtag !== 'undefined') {
-        gtag('event', 'coverage_report_view', {
-            'module_name': '{{ module.name }}',
-            'coverage_percentage': {{ module.coverage_percentage }},
-            'module_category': '{{ module.category }}'
-        });
-    }
-    </script>
-    {% endif %}
 </body>
 </html>
