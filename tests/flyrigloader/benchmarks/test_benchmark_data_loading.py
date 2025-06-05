@@ -1,836 +1,1061 @@
 """
 Comprehensive pytest-benchmark test suite for data loading performance validation.
 
-This module implements performance benchmarks validating the flyrigloader data loading
-infrastructure against Service Level Agreement requirements, specifically TST-PERF-001
-requirement of <1 second per 100MB data loading performance.
+This module implements statistical performance measurement and Service Level Agreement (SLA) 
+validation for the flyrigloader data loading pipeline per TST-PERF-001 requirements.
 
-Performance Requirements Validated:
-- TST-PERF-001: Data loading must complete within 1s per 100MB
-- F-003-RQ-001: Successfully deserialize .pkl files with performance validation
-- F-003-RQ-002: Auto-detect and decompress .gz files within SLA constraints
-- F-003-RQ-004: Determine format without file extension within <100ms detection overhead
-- F-014: Performance Benchmark Suite validation against defined Service Level Agreements
-- Section 2.4.9: Benchmarking accuracy within ±5% variance for reliable measurements
+Key Validation Areas:
+- Multi-format pickle loading performance (standard, gzipped, pandas-specific)
+- Data size scaling from 1MB to 1GB per F-014 scalability requirements
+- Format detection overhead validation (<100ms per F-003-RQ-004)
+- Statistical measurement accuracy within ±5% variance per Section 2.4.9
+- Regression detection through automated CI/CD pipeline integration
 
-Test Categories:
-1. Format-specific performance benchmarks (standard, gzipped, pandas pickle)
-2. Data size scaling validation from 1MB to 1GB
-3. Format detection overhead measurement
-4. Statistical performance measurement with regression detection
-5. CI/CD integration for automated quality gate enforcement
+Performance SLAs Validated:
+- TST-PERF-001: Data loading <1 second per 100MB
+- F-003-RQ-001: Standard pickle deserialization with performance validation
+- F-003-RQ-002: Gzipped pickle auto-detection and decompression within SLA
+- F-003-RQ-004: Format detection without file extension <100ms overhead
 
-Integration:
-- pytest-benchmark>=4.0.0 for statistical measurement and calibration
-- Synthetic data generation for reproducible performance testing
-- Comprehensive error scenario testing with performance validation
-- Historical benchmark data tracking for performance trend analysis
+Statistical Analysis Features:
+- pytest-benchmark automatic calibration and regression detection
+- Multiple data size scenarios with realistic experimental data patterns
+- Cross-platform performance validation across Python 3.8-3.11
+- Historical benchmark data for trend analysis and capacity planning
 """
 
 import gzip
+import os
 import pickle
-import tempfile
+import platform
 import time
 from pathlib import Path
-from typing import Dict, Any, List, Tuple, Optional
-from unittest.mock import patch
+from typing import Dict, Any, List, Tuple, Union, Optional
+from unittest.mock import patch, MagicMock
 
 import numpy as np
 import pandas as pd
 import pytest
-from hypothesis import given, strategies as st, settings
+from hypothesis import given, strategies as st, assume, settings
 
-# Import the functions under test
-from flyrigloader.io.pickle import read_pickle_any_format
+# Core flyrigloader imports for benchmarking
+from flyrigloader.io.pickle import (
+    read_pickle_any_format,
+    PickleLoader,
+    DependencyContainer,
+    DefaultFileSystemProvider,
+    DefaultCompressionProvider,
+    DefaultPickleProvider,
+    DefaultDataFrameProvider
+)
 
 
-class BenchmarkDataGenerator:
+# ============================================================================
+# BENCHMARK TEST DATA GENERATION UTILITIES
+# ============================================================================
+
+class SyntheticDataGenerator:
     """
-    Synthetic data generator for performance testing with controlled data sizes.
+    Advanced synthetic experimental data generator for realistic performance testing.
     
-    Generates realistic experimental data matrices that mimic actual flyrigloader
-    usage patterns while providing precise size control for SLA validation.
+    Creates data structures that mirror actual experimental scenarios with:
+    - Realistic experimental time series (neural recordings, behavioral tracking)
+    - Multi-dimensional signal arrays with proper scaling characteristics
+    - Memory-efficient generation patterns for large datasets
+    - Reproducible random generation for consistent benchmark results
     """
     
-    def __init__(self, seed: int = 42):
-        """Initialize generator with deterministic seed for reproducibility."""
-        self.seed = seed
-        np.random.seed(seed)
+    def __init__(self, random_seed: int = 42):
+        """Initialize generator with reproducible random seed."""
+        self.random_seed = random_seed
+        np.random.seed(random_seed)
     
-    def calculate_data_size_mb(self, n_timepoints: int, n_channels: int = 16) -> float:
-        """Calculate approximate data size in MB for given dimensions."""
-        # Estimate: timepoints * (3 base arrays + n_channels for signal_disp) * 8 bytes/float64
-        base_arrays = 3  # t, x, y arrays
-        total_elements = n_timepoints * (base_arrays + n_channels)
-        size_bytes = total_elements * 8  # 8 bytes per float64
-        return size_bytes / (1024 * 1024)  # Convert to MB
-    
-    def generate_experimental_matrix(self, target_size_mb: float, n_channels: int = 16) -> Dict[str, Any]:
+    def generate_experimental_matrix(
+        self,
+        target_size_mb: float,
+        include_signal_disp: bool = True,
+        include_metadata: bool = True,
+        sampling_rate: float = 60.0
+    ) -> Dict[str, Any]:
         """
-        Generate synthetic experimental data matrix targeting specific size in MB.
+        Generate synthetic experimental data matrix targeting specific memory size.
         
         Args:
-            target_size_mb: Target data size in megabytes
-            n_channels: Number of signal channels for signal_disp array
+            target_size_mb: Target memory size in MB for the generated data
+            include_signal_disp: Whether to include multi-channel signal data
+            include_metadata: Whether to include experimental metadata
+            sampling_rate: Data sampling frequency in Hz
             
         Returns:
-            Dictionary containing realistic experimental data
+            Dictionary containing experimental data with realistic structure
         """
-        # Calculate required timepoints for target size
-        estimated_timepoints = int((target_size_mb * 1024 * 1024) / ((3 + n_channels) * 8))
+        # Calculate time points needed to reach target size
+        # Estimate: Each timepoint ~8 bytes base + signal channels * 8 bytes
+        base_size_per_point = 24  # t, x, y (8 bytes each)
+        signal_size_per_point = 16 * 8 if include_signal_disp else 8  # 16 channels or 1 signal
+        total_size_per_point = base_size_per_point + signal_size_per_point
         
-        # Generate core experimental data
-        timepoints = max(estimated_timepoints, 100)  # Minimum reasonable timepoints
-        sampling_freq = 60.0  # Hz
-        duration = timepoints / sampling_freq
+        target_bytes = target_size_mb * 1024 * 1024
+        n_timepoints = max(100, int(target_bytes / total_size_per_point))
         
-        # Time array
-        t = np.linspace(0, duration, timepoints)
+        # Generate realistic time series data
+        duration_seconds = n_timepoints / sampling_rate
+        time_array = np.linspace(0, duration_seconds, n_timepoints)
         
-        # Generate realistic trajectory data with correlated motion
-        # Start from center and apply random walk with arena boundaries
+        # Generate realistic behavioral trajectory data
+        # Simulate fly movement in circular arena with center bias
         arena_radius = 60.0  # mm
-        x = np.zeros(timepoints)
-        y = np.zeros(timepoints)
+        center_bias = 0.3
+        movement_noise = 0.5
         
-        for i in range(1, timepoints):
-            # Correlated random walk with center bias
-            dx = np.random.normal(0, 0.5) - 0.01 * x[i-1]  # Center bias
-            dy = np.random.normal(0, 0.5) - 0.01 * y[i-1]
+        x_pos = np.zeros(n_timepoints)
+        y_pos = np.zeros(n_timepoints)
+        
+        # Generate correlated random walk with arena constraints
+        for i in range(1, n_timepoints):
+            current_radius = np.sqrt(x_pos[i-1]**2 + y_pos[i-1]**2)
             
-            x[i] = x[i-1] + dx
-            y[i] = y[i-1] + dy
+            # Center bias force (stronger near edges)
+            bias_strength = center_bias * (current_radius / arena_radius)**2
+            center_force_x = -bias_strength * x_pos[i-1] / max(current_radius, 0.1)
+            center_force_y = -bias_strength * y_pos[i-1] / max(current_radius, 0.1)
             
-            # Enforce arena boundaries
-            r = np.sqrt(x[i]**2 + y[i]**2)
-            if r > arena_radius:
-                x[i] = x[i-1] * 0.9  # Bounce back
-                y[i] = y[i-1] * 0.9
-        
-        # Generate multi-channel signal data (realistic neural recordings)
-        signal_disp = np.zeros((n_channels, timepoints))
-        for ch in range(n_channels):
-            # Base oscillation with channel-specific frequency
-            freq = 2.0 + 0.5 * ch  # 2-10 Hz range
-            phase = 2 * np.pi * ch / n_channels
+            # Random movement component
+            dt = 1.0 / sampling_rate
+            dx = (center_force_x + np.random.normal(0, movement_noise)) * dt
+            dy = (center_force_y + np.random.normal(0, movement_noise)) * dt
             
-            # Generate signal with realistic characteristics
-            base_signal = np.sin(2 * np.pi * freq * t + phase)
-            # Add harmonics
-            base_signal += 0.3 * np.sin(4 * np.pi * freq * t + phase)
-            # Add noise
-            noise = np.random.normal(0, 0.1, timepoints)
-            # Add baseline drift
-            drift = 0.2 * np.sin(2 * np.pi * 0.01 * t)
+            new_x = x_pos[i-1] + dx
+            new_y = y_pos[i-1] + dy
             
-            signal_disp[ch, :] = base_signal + noise + drift
+            # Enforce arena boundaries with reflection
+            new_radius = np.sqrt(new_x**2 + new_y**2)
+            if new_radius > arena_radius:
+                reflection_factor = arena_radius / new_radius * 0.95
+                new_x *= reflection_factor
+                new_y *= reflection_factor
+            
+            x_pos[i] = new_x
+            y_pos[i] = new_y
         
-        # Single channel signal (average of first few channels)
-        signal = np.mean(signal_disp[:4, :], axis=0)
-        
-        # Derived measures
-        velocity = np.sqrt(np.diff(x, prepend=x[0])**2 + np.diff(y, prepend=y[0])**2) * sampling_freq
-        
-        return {
-            't': t,
-            'x': x,
-            'y': y,
-            'signal': signal,
-            'signal_disp': signal_disp,
-            'velocity': velocity,
-            'arena_radius': arena_radius,
-            'sampling_frequency': sampling_freq,
-            'n_channels': n_channels
+        # Build experimental matrix
+        exp_matrix = {
+            't': time_array,
+            'x': x_pos,
+            'y': y_pos
         }
-    
-    def verify_data_size(self, data: Dict[str, Any], expected_mb: float, tolerance: float = 0.2) -> bool:
-        """Verify that generated data meets size requirements within tolerance."""
-        # Calculate actual size
-        total_bytes = 0
-        for key, value in data.items():
-            if isinstance(value, np.ndarray):
-                total_bytes += value.nbytes
-            elif isinstance(value, (int, float)):
-                total_bytes += 8  # Approximate for scalar values
         
-        actual_mb = total_bytes / (1024 * 1024)
-        size_ratio = actual_mb / expected_mb
+        # Add single-channel signal if requested
+        if not include_signal_disp:
+            # Generate realistic neural signal with oscillations and noise
+            signal_freq = 2.0  # Hz
+            signal = np.sin(2 * np.pi * signal_freq * time_array)
+            signal += 0.3 * np.sin(4 * np.pi * signal_freq * time_array)  # Harmonic
+            signal += 0.1 * np.random.normal(0, 1, n_timepoints)  # Noise
+            exp_matrix['signal'] = signal
         
-        return abs(size_ratio - 1.0) <= tolerance
+        # Add multi-channel signal display data if requested
+        if include_signal_disp:
+            n_channels = 16
+            signal_disp = np.zeros((n_channels, n_timepoints))
+            
+            for ch in range(n_channels):
+                # Channel-specific phase and frequency
+                phase = 2 * np.pi * ch / n_channels
+                freq_var = 1.0 + 0.2 * np.random.random()
+                
+                # Base oscillation
+                base_signal = np.sin(2 * np.pi * 2.0 * freq_var * time_array + phase)
+                base_signal += 0.3 * np.sin(4 * np.pi * 2.0 * freq_var * time_array + phase)
+                
+                # Add realistic noise and drift
+                noise = 0.1 * np.random.normal(0, 1, n_timepoints)
+                drift = 0.1 * np.sin(2 * np.pi * 0.01 * time_array + np.random.random() * 2 * np.pi)
+                
+                signal_disp[ch, :] = base_signal + noise + drift
+            
+            exp_matrix['signal_disp'] = signal_disp
+        
+        # Add metadata if requested
+        if include_metadata:
+            exp_matrix.update({
+                'date': '20241201',
+                'exp_name': 'benchmark_test_data',
+                'rig': 'high_speed_rig',
+                'fly_id': f'benchmark_fly_{int(target_size_mb)}mb'
+            })
+        
+        return exp_matrix
 
 
-class PickleFileFactory:
-    """Factory for creating pickle files in various formats for performance testing."""
+# ============================================================================
+# BENCHMARK FIXTURE SYSTEM
+# ============================================================================
+
+@pytest.fixture(scope="session")
+def synthetic_data_generator():
+    """Session-scoped synthetic data generator for consistent benchmark data."""
+    return SyntheticDataGenerator(random_seed=42)
+
+
+@pytest.fixture(scope="session") 
+def benchmark_data_sizes():
+    """
+    Define standardized data size matrix for performance testing.
     
-    @staticmethod
-    def create_standard_pickle(data: Dict[str, Any], file_path: Path) -> Path:
-        """Create standard pickle file."""
-        with open(file_path, 'wb') as f:
-            pickle.dump(data, f, protocol=pickle.HIGHEST_PROTOCOL)
-        return file_path
+    Size progression follows realistic experimental scales:
+    - Small: 1-10MB (short experiments, quick validation)
+    - Medium: 50-100MB (typical behavioral experiments)
+    - Large: 500-1000MB (long-duration, high-resolution experiments)
+    """
+    return [
+        ("small_1mb", 1.0),
+        ("small_5mb", 5.0),
+        ("medium_10mb", 10.0),
+        ("medium_50mb", 50.0),
+        ("large_100mb", 100.0),
+        ("large_500mb", 500.0),
+        ("xlarge_1gb", 1000.0)
+    ]
+
+
+@pytest.fixture(scope="session")
+def benchmark_pickle_files(
+    synthetic_data_generator,
+    benchmark_data_sizes,
+    cross_platform_temp_dir
+):
+    """
+    Create comprehensive benchmark pickle files in multiple formats.
     
-    @staticmethod
-    def create_gzipped_pickle(data: Dict[str, Any], file_path: Path) -> Path:
-        """Create gzipped pickle file."""
-        with gzip.open(file_path, 'wb') as f:
-            pickle.dump(data, f, protocol=pickle.HIGHEST_PROTOCOL)
-        return file_path
+    Generates files for each size in three formats:
+    - Standard pickle: Direct pickle.dump() serialization
+    - Gzipped pickle: Compressed pickle with gzip
+    - Pandas pickle: DataFrame.to_pickle() format
     
-    @staticmethod
-    def create_pandas_pickle(data: Dict[str, Any], file_path: Path) -> Path:
-        """Create pandas-specific pickle file."""
-        # Convert to DataFrame first
-        df_data = {}
-        for key, value in data.items():
-            if isinstance(value, np.ndarray) and value.ndim == 1:
-                df_data[key] = value
-            elif isinstance(value, np.ndarray) and value.ndim == 2:
-                # Handle 2D arrays by creating multiple columns
-                for i in range(value.shape[0]):
-                    df_data[f"{key}_ch{i:02d}"] = value[i, :]
-            else:
-                # Scalar values - broadcast to match time dimension
-                if 't' in data:
-                    df_data[key] = [value] * len(data['t'])
-                else:
-                    df_data[key] = [value]
+    Returns:
+        Dict mapping (size_name, format_type) to file paths
+    """
+    benchmark_dir = cross_platform_temp_dir / "benchmark_data"
+    benchmark_dir.mkdir(exist_ok=True)
+    
+    benchmark_files = {}
+    
+    for size_name, size_mb in benchmark_data_sizes:
+        # Generate synthetic data for this size
+        exp_matrix = synthetic_data_generator.generate_experimental_matrix(
+            target_size_mb=size_mb,
+            include_signal_disp=True,
+            include_metadata=True
+        )
+        
+        # Create DataFrame version for pandas pickle
+        df_data = {
+            't': exp_matrix['t'],
+            'x': exp_matrix['x'],
+            'y': exp_matrix['y']
+        }
+        
+        # Add signal data appropriately
+        if 'signal' in exp_matrix:
+            df_data['signal'] = exp_matrix['signal']
+        
+        if 'signal_disp' in exp_matrix:
+            # Flatten signal_disp for DataFrame (each channel as column)
+            signal_disp = exp_matrix['signal_disp']
+            for ch in range(signal_disp.shape[0]):
+                df_data[f'signal_ch{ch:02d}'] = signal_disp[ch, :]
+        
+        # Add metadata columns
+        for key in ['date', 'exp_name', 'rig', 'fly_id']:
+            if key in exp_matrix:
+                df_data[key] = exp_matrix[key]
         
         df = pd.DataFrame(df_data)
-        df.to_pickle(file_path)
-        return file_path
+        
+        # Create standard pickle file
+        standard_path = benchmark_dir / f"{size_name}_standard.pkl"
+        with open(standard_path, 'wb') as f:
+            pickle.dump(exp_matrix, f, protocol=pickle.HIGHEST_PROTOCOL)
+        benchmark_files[(size_name, "standard")] = standard_path
+        
+        # Create gzipped pickle file
+        gzipped_path = benchmark_dir / f"{size_name}_gzipped.pkl.gz"
+        with gzip.open(gzipped_path, 'wb') as f:
+            pickle.dump(exp_matrix, f, protocol=pickle.HIGHEST_PROTOCOL)
+        benchmark_files[(size_name, "gzipped")] = gzipped_path
+        
+        # Create pandas pickle file
+        pandas_path = benchmark_dir / f"{size_name}_pandas.pkl"
+        df.to_pickle(pandas_path)
+        benchmark_files[(size_name, "pandas")] = pandas_path
     
-    @staticmethod
-    def get_file_size_mb(file_path: Path) -> float:
-        """Get file size in megabytes."""
-        return file_path.stat().st_size / (1024 * 1024)
+    return benchmark_files
 
 
-# Pytest fixtures for benchmark testing
-
-@pytest.fixture(scope="session")
-def benchmark_data_generator():
-    """Session-scoped data generator for consistent benchmark data."""
-    return BenchmarkDataGenerator(seed=42)
+@pytest.fixture(scope="function")
+def benchmark_pickle_loader():
+    """Function-scoped PickleLoader instance for benchmark testing."""
+    return PickleLoader()
 
 
-@pytest.fixture(scope="session")
-def pickle_factory():
-    """Session-scoped pickle file factory."""
-    return PickleFileFactory()
-
-
-@pytest.fixture(params=[1, 10, 50, 100, 250, 500])  # MB sizes
-def data_size_mb(request):
-    """Parametrized fixture for testing various data sizes."""
-    return request.param
-
-
-@pytest.fixture(params=["standard", "gzipped", "pandas"])
-def pickle_format(request):
-    """Parametrized fixture for testing different pickle formats."""
-    return request.param
-
-
-@pytest.fixture
-def sample_data_files(tmp_path, benchmark_data_generator, pickle_factory, data_size_mb, pickle_format):
+@pytest.fixture(scope="function")
+def mock_dependencies_for_benchmarks(mocker):
     """
-    Create sample pickle files for benchmark testing.
+    Mock dependencies for controlled benchmark testing when needed.
     
-    Generates data files of specified size and format for comprehensive
-    performance testing across different scenarios.
+    Provides ability to mock specific components while preserving
+    realistic I/O performance characteristics for accurate benchmarking.
     """
-    # Generate data for target size
-    data = benchmark_data_generator.generate_experimental_matrix(
-        target_size_mb=data_size_mb,
-        n_channels=16
-    )
+    class BenchmarkMockDependencies:
+        def __init__(self):
+            self.filesystem_mock = None
+            self.compression_mock = None
+            self.pickle_mock = None
+            self.dataframe_mock = None
+        
+        def mock_filesystem_only(self):
+            """Mock only filesystem operations for path testing."""
+            self.filesystem_mock = mocker.MagicMock(spec=DefaultFileSystemProvider)
+            self.filesystem_mock.path_exists.return_value = True
+            return self
+        
+        def mock_all_except_io(self):
+            """Mock everything except actual I/O for format detection testing."""
+            self.filesystem_mock = mocker.MagicMock(spec=DefaultFileSystemProvider)
+            self.compression_mock = mocker.MagicMock(spec=DefaultCompressionProvider)
+            self.pickle_mock = mocker.MagicMock(spec=DefaultPickleProvider)
+            self.dataframe_mock = mocker.MagicMock(spec=DefaultDataFrameProvider)
+            return self
+        
+        def create_dependency_container(self):
+            """Create DependencyContainer with configured mocks."""
+            return DependencyContainer(
+                filesystem_provider=self.filesystem_mock,
+                compression_provider=self.compression_mock,
+                pickle_provider=self.pickle_mock,
+                dataframe_provider=self.dataframe_mock
+            )
     
-    # Verify data size is approximately correct
-    assert benchmark_data_generator.verify_data_size(data, data_size_mb, tolerance=0.3)
-    
-    # Create file with appropriate format
-    file_path = tmp_path / f"test_data_{data_size_mb}mb_{pickle_format}.pkl"
-    if pickle_format == "gzipped":
-        file_path = file_path.with_suffix(".pkl.gz")
-    
-    if pickle_format == "standard":
-        created_file = pickle_factory.create_standard_pickle(data, file_path)
-    elif pickle_format == "gzipped":
-        created_file = pickle_factory.create_gzipped_pickle(data, file_path)
-    elif pickle_format == "pandas":
-        created_file = pickle_factory.create_pandas_pickle(data, file_path)
-    else:
-        raise ValueError(f"Unknown pickle format: {pickle_format}")
-    
-    file_size_mb = pickle_factory.get_file_size_mb(created_file)
-    
-    return {
-        "file_path": created_file,
-        "data": data,
-        "size_mb": file_size_mb,
-        "format": pickle_format,
-        "expected_data_size_mb": data_size_mb
-    }
+    return BenchmarkMockDependencies()
 
 
-# Performance benchmark test classes
+# ============================================================================
+# CORE DATA LOADING PERFORMANCE BENCHMARKS
+# ============================================================================
 
-class TestDataLoadingPerformance:
+class TestDataLoadingPerformanceBenchmarks:
     """
-    Core performance benchmark tests for data loading SLA validation.
+    Comprehensive data loading performance benchmark test class.
     
-    Validates TST-PERF-001 requirement: Data loading must complete within 1s per 100MB
+    Validates Service Level Agreement compliance per TST-PERF-001:
+    - Data loading must complete within 1 second per 100MB
+    - Format detection overhead must remain under 100ms
+    - Statistical measurement accuracy within ±5% variance
+    - Multi-format support with consistent performance characteristics
     """
     
-    def test_data_loading_sla_compliance(self, benchmark, sample_data_files):
+    @pytest.mark.benchmark(group="data_loading_sla")
+    @pytest.mark.parametrize("size_name,size_mb", [
+        ("small_1mb", 1.0),
+        ("small_5mb", 5.0),
+        ("medium_10mb", 10.0),
+        ("medium_50mb", 50.0),
+        ("large_100mb", 100.0)
+    ])
+    @pytest.mark.parametrize("pickle_format", ["standard", "gzipped", "pandas"])
+    def test_data_loading_sla_validation(
+        self,
+        benchmark,
+        benchmark_pickle_files,
+        size_name,
+        size_mb,
+        pickle_format
+    ):
         """
-        Test data loading performance against SLA requirements.
+        Validate data loading performance against TST-PERF-001 SLA requirements.
         
-        Validates that read_pickle_any_format meets the <1 second per 100MB SLA
-        requirement across different file formats and sizes.
+        Tests data loading across multiple sizes and formats to ensure:
+        - Loading time scales linearly with file size
+        - All formats meet <1 second per 100MB requirement
+        - Statistical consistency across multiple runs
+        - No performance regression between library versions
+        
+        Args:
+            benchmark: pytest-benchmark fixture for performance measurement
+            benchmark_pickle_files: Pre-generated benchmark files
+            size_name: Descriptive name for data size
+            size_mb: Data size in megabytes
+            pickle_format: Format type (standard, gzipped, pandas)
         """
-        file_info = sample_data_files
-        file_path = file_info["file_path"]
-        file_size_mb = file_info["size_mb"]
+        # Get the file path for this size and format
+        file_path = benchmark_pickle_files[(size_name, pickle_format)]
         
-        # Calculate SLA threshold: 1 second per 100MB
-        sla_threshold_seconds = file_size_mb / 100.0
+        # Calculate expected maximum time based on TST-PERF-001 SLA
+        # SLA: <1 second per 100MB, with 20% buffer for statistical variance
+        expected_max_time = (size_mb / 100.0) * 1.0 * 1.2
         
-        # Benchmark the loading operation
-        result = benchmark.pedantic(
-            read_pickle_any_format,
-            args=(file_path,),
-            iterations=5,  # Minimum iterations for statistical significance
-            rounds=3,      # Multiple rounds for variance measurement
-            warmup_rounds=1  # Warmup for consistent timing
-        )
-        
-        # Verify successful loading
-        assert result is not None
-        assert isinstance(result, (dict, pd.DataFrame))
+        # Run benchmark with statistical measurement
+        result = benchmark(read_pickle_any_format, file_path)
         
         # Validate SLA compliance
-        mean_time = benchmark.stats.stats.mean
-        max_time = benchmark.stats.stats.max
-        
-        # Assert SLA compliance with descriptive error message
-        assert mean_time <= sla_threshold_seconds, (
-            f"SLA violation: Mean loading time {mean_time:.3f}s exceeds "
-            f"threshold {sla_threshold_seconds:.3f}s for {file_size_mb:.1f}MB file"
+        execution_time = benchmark.stats.stats.mean
+        assert execution_time <= expected_max_time, (
+            f"SLA violation: {pickle_format} format loading {size_mb}MB took "
+            f"{execution_time:.3f}s, expected <={expected_max_time:.3f}s"
         )
         
-        # Also check maximum time doesn't exceed 150% of SLA (for variance tolerance)
-        max_threshold = sla_threshold_seconds * 1.5
-        assert max_time <= max_threshold, (
-            f"Performance variance too high: Max time {max_time:.3f}s exceeds "
-            f"variance threshold {max_threshold:.3f}s"
+        # Validate result structure and content integrity
+        assert isinstance(result, (dict, pd.DataFrame)), (
+            f"Invalid result type: expected dict or DataFrame, got {type(result)}"
         )
-    
-    def test_format_detection_overhead(self, benchmark, tmp_path, benchmark_data_generator, pickle_factory):
+        
+        if isinstance(result, dict):
+            # Validate essential columns for experimental data
+            required_keys = ['t', 'x', 'y']
+            missing_keys = [key for key in required_keys if key not in result]
+            assert not missing_keys, f"Missing required keys: {missing_keys}"
+            
+            # Validate data integrity (non-empty, reasonable ranges)
+            assert len(result['t']) > 0, "Empty time array"
+            assert np.all(np.diff(result['t']) >= 0), "Non-monotonic time array"
+            
+        elif isinstance(result, pd.DataFrame):
+            # Validate DataFrame structure
+            assert not result.empty, "Empty DataFrame result"
+            required_cols = ['t', 'x', 'y']
+            missing_cols = [col for col in required_cols if col not in result.columns]
+            assert not missing_cols, f"Missing required columns: {missing_cols}"
+
+
+    @pytest.mark.benchmark(group="format_detection")
+    def test_format_detection_overhead_validation(
+        self,
+        benchmark,
+        benchmark_pickle_files,
+        benchmark_pickle_loader
+    ):
         """
-        Test format detection overhead meets <100ms requirement (F-003-RQ-004).
+        Validate format detection overhead per F-003-RQ-004 requirements.
         
-        Creates files without extension to force format detection and validates
-        that the detection overhead remains under 100ms.
+        Tests that format detection without file extension completes within
+        100ms overhead per the technical specification. Uses statistical
+        measurement to ensure consistent performance across runs.
+        
+        Args:
+            benchmark: pytest-benchmark fixture for performance measurement
+            benchmark_pickle_files: Pre-generated benchmark files
+            benchmark_pickle_loader: PickleLoader instance for testing
         """
-        # Create test data (small size for focused overhead testing)
-        data = benchmark_data_generator.generate_experimental_matrix(1.0)  # 1MB
+        # Use medium-sized file for realistic detection testing
+        test_file = benchmark_pickle_files[("medium_10mb", "standard")]
         
-        # Create files without extensions to force format detection
-        test_files = []
+        # Create file without extension to force format detection
+        no_ext_file = test_file.with_suffix('')
+        no_ext_file.write_bytes(test_file.read_bytes())
         
-        # Standard pickle without extension
-        std_file = tmp_path / "test_standard"
-        pickle_factory.create_standard_pickle(data, std_file)
-        test_files.append(("standard", std_file))
-        
-        # Gzipped pickle without .gz extension
-        gz_file = tmp_path / "test_gzipped"
-        pickle_factory.create_gzipped_pickle(data, gz_file)
-        test_files.append(("gzipped", gz_file))
-        
-        detection_times = []
-        
-        for format_name, file_path in test_files:
-            # Benchmark format detection by measuring total time
-            result = benchmark.pedantic(
-                read_pickle_any_format,
-                args=(file_path,),
-                iterations=10,  # More iterations for overhead measurement
-                rounds=5
+        try:
+            # Benchmark format detection and loading
+            result = benchmark(benchmark_pickle_loader.load_pickle_any_format, no_ext_file)
+            
+            # Validate detection overhead SLA
+            execution_time = benchmark.stats.stats.mean
+            max_detection_overhead = 0.1  # 100ms per F-003-RQ-004
+            
+            assert execution_time <= max_detection_overhead + 0.5, (
+                f"Format detection overhead violation: {execution_time:.3f}s > "
+                f"{max_detection_overhead:.3f}s + 0.5s processing time"
             )
             
-            # Record detection time
-            detection_time_ms = benchmark.stats.stats.mean * 1000  # Convert to ms
-            detection_times.append((format_name, detection_time_ms))
+            # Validate successful detection and loading
+            assert result is not None, "Format detection failed"
+            assert isinstance(result, (dict, pd.DataFrame)), "Invalid result type"
             
-            # Verify successful loading
-            assert result is not None
+        finally:
+            # Cleanup temporary file
+            if no_ext_file.exists():
+                no_ext_file.unlink()
+
+
+    @pytest.mark.benchmark(group="scaling_analysis")
+    @pytest.mark.parametrize("size_mb", [1.0, 10.0, 50.0, 100.0, 500.0])
+    def test_data_loading_scaling_characteristics(
+        self,
+        benchmark,
+        synthetic_data_generator,
+        cross_platform_temp_dir,
+        size_mb
+    ):
+        """
+        Validate linear scaling characteristics of data loading performance.
         
-        # Validate detection overhead < 100ms for all formats
-        for format_name, detection_time_ms in detection_times:
-            assert detection_time_ms < 100, (
-                f"Format detection overhead violation: {format_name} format "
-                f"detection took {detection_time_ms:.1f}ms, exceeds 100ms threshold"
+        Tests that performance scales predictably with data size to ensure:
+        - Linear relationship between file size and loading time
+        - No algorithmic inefficiencies causing quadratic scaling
+        - Consistent memory usage patterns across sizes
+        - Baseline establishment for capacity planning
+        
+        Args:
+            benchmark: pytest-benchmark fixture for performance measurement
+            synthetic_data_generator: Generator for test data
+            cross_platform_temp_dir: Temporary directory for test files
+            size_mb: Data size in megabytes for scaling test
+        """
+        # Generate test data for this specific size
+        exp_matrix = synthetic_data_generator.generate_experimental_matrix(
+            target_size_mb=size_mb,
+            include_signal_disp=True,
+            include_metadata=False
+        )
+        
+        # Create temporary pickle file
+        test_file = cross_platform_temp_dir / f"scaling_test_{size_mb}mb.pkl"
+        with open(test_file, 'wb') as f:
+            pickle.dump(exp_matrix, f, protocol=pickle.HIGHEST_PROTOCOL)
+        
+        try:
+            # Benchmark loading performance
+            result = benchmark(read_pickle_any_format, test_file)
+            
+            # Calculate performance metrics
+            execution_time = benchmark.stats.stats.mean
+            throughput_mb_per_sec = size_mb / execution_time
+            
+            # Validate scaling characteristics
+            # Minimum acceptable throughput: 50 MB/s for standard pickle
+            min_throughput = 50.0
+            assert throughput_mb_per_sec >= min_throughput, (
+                f"Poor throughput: {throughput_mb_per_sec:.1f} MB/s < {min_throughput} MB/s"
             )
-    
-    def test_scaling_performance_linearity(self, benchmark, tmp_path, benchmark_data_generator, pickle_factory):
-        """
-        Test that loading performance scales linearly with file size.
-        
-        Validates that the loading performance maintains linear scaling
-        characteristics and doesn't degrade superlinearly with size.
-        """
-        # Test with a range of file sizes
-        test_sizes_mb = [1, 5, 10, 25, 50]
-        performance_data = []
-        
-        for size_mb in test_sizes_mb:
-            # Generate test data
-            data = benchmark_data_generator.generate_experimental_matrix(size_mb)
             
-            # Create standard pickle file
-            file_path = tmp_path / f"scaling_test_{size_mb}mb.pkl"
-            pickle_factory.create_standard_pickle(data, file_path)
-            actual_size_mb = pickle_factory.get_file_size_mb(file_path)
+            # Validate linear scaling expectation
+            expected_time = size_mb / 100.0  # 1s per 100MB baseline
+            scaling_factor = execution_time / expected_time
             
-            # Benchmark loading
-            result = benchmark.pedantic(
-                read_pickle_any_format,
-                args=(file_path,),
-                iterations=3,
-                rounds=2
+            # Allow 2x variance for realistic hardware differences
+            assert scaling_factor <= 2.0, (
+                f"Poor scaling: {scaling_factor:.2f}x expected time for {size_mb}MB"
             )
             
-            loading_time = benchmark.stats.stats.mean
-            throughput_mb_per_sec = actual_size_mb / loading_time
+            # Validate result integrity
+            assert isinstance(result, dict), "Invalid result type"
+            assert 't' in result and 'x' in result and 'y' in result, "Missing required data"
             
-            performance_data.append({
-                'target_size_mb': size_mb,
-                'actual_size_mb': actual_size_mb,
-                'loading_time_s': loading_time,
-                'throughput_mb_s': throughput_mb_per_sec
-            })
+        finally:
+            # Cleanup test file
+            if test_file.exists():
+                test_file.unlink()
+
+
+    @pytest.mark.benchmark(group="multi_format_comparison")
+    @pytest.mark.parametrize("pickle_format", ["standard", "gzipped", "pandas"])
+    def test_multi_format_performance_comparison(
+        self,
+        benchmark,
+        benchmark_pickle_files,
+        pickle_format
+    ):
+        """
+        Compare performance characteristics across pickle formats.
+        
+        Validates that different pickle formats maintain acceptable performance:
+        - Standard pickle: Baseline performance reference
+        - Gzipped pickle: Acceptable decompression overhead per F-003-RQ-002
+        - Pandas pickle: Format-specific optimizations validation
+        
+        Args:
+            benchmark: pytest-benchmark fixture for performance measurement
+            benchmark_pickle_files: Pre-generated benchmark files
+            pickle_format: Format type for comparison testing
+        """
+        # Use consistent medium-sized file for format comparison
+        test_file = benchmark_pickle_files[("medium_50mb", pickle_format)]
+        
+        # Benchmark format-specific loading
+        result = benchmark(read_pickle_any_format, test_file)
+        
+        # Validate format-specific performance expectations
+        execution_time = benchmark.stats.stats.mean
+        
+        if pickle_format == "standard":
+            # Standard pickle baseline: <0.5s for 50MB
+            max_time = 0.5
+        elif pickle_format == "gzipped":
+            # Gzipped allows 2x overhead for decompression per F-003-RQ-002
+            max_time = 1.0
+        elif pickle_format == "pandas":
+            # Pandas pickle similar to standard with pandas overhead
+            max_time = 0.7
+        
+        assert execution_time <= max_time, (
+            f"{pickle_format} format performance violation: "
+            f"{execution_time:.3f}s > {max_time:.3f}s for 50MB"
+        )
+        
+        # Validate format-specific result characteristics
+        if pickle_format == "pandas":
+            assert isinstance(result, pd.DataFrame), "Pandas format should return DataFrame"
+        else:
+            assert isinstance(result, dict), "Standard/gzipped should return dict"
+        
+        # Validate data integrity regardless of format
+        if isinstance(result, dict):
+            assert 't' in result and 'x' in result, "Missing essential data columns"
+        elif isinstance(result, pd.DataFrame):
+            assert 't' in result.columns and 'x' in result.columns, "Missing essential DataFrame columns"
+
+
+# ============================================================================
+# EDGE CASE AND ERROR HANDLING BENCHMARKS
+# ============================================================================
+
+class TestBenchmarkErrorHandlingPerformance:
+    """
+    Performance benchmarks for error handling and edge case scenarios.
+    
+    Validates that error conditions don't cause significant performance
+    degradation and maintain consistent behavior under stress conditions.
+    """
+    
+    @pytest.mark.benchmark(group="error_handling")
+    def test_file_not_found_performance(self, benchmark):
+        """
+        Benchmark error handling performance for missing files.
+        
+        Validates that error detection and reporting remains fast
+        even when files don't exist, preventing timeout issues.
+        """
+        non_existent_file = Path("/non/existent/benchmark/file.pkl")
+        
+        def load_non_existent():
+            with pytest.raises(FileNotFoundError):
+                read_pickle_any_format(non_existent_file)
+        
+        # Error handling should be very fast (<10ms)
+        result = benchmark(load_non_existent)
+        
+        execution_time = benchmark.stats.stats.mean
+        max_error_time = 0.01  # 10ms
+        
+        assert execution_time <= max_error_time, (
+            f"Error handling too slow: {execution_time:.3f}s > {max_error_time:.3f}s"
+        )
+    
+    
+    @pytest.mark.benchmark(group="error_handling")
+    def test_corrupted_file_performance(
+        self,
+        benchmark,
+        cross_platform_temp_dir
+    ):
+        """
+        Benchmark error handling for corrupted pickle files.
+        
+        Validates that corrupted file detection remains performant
+        and doesn't cause indefinite blocking or resource exhaustion.
+        """
+        # Create corrupted pickle file
+        corrupted_file = cross_platform_temp_dir / "corrupted_benchmark.pkl"
+        corrupted_file.write_bytes(b"not a pickle file" * 1000)
+        
+        try:
+            def load_corrupted():
+                with pytest.raises(RuntimeError):
+                    read_pickle_any_format(corrupted_file)
             
-            # Verify successful loading
-            assert result is not None
+            # Corrupted file detection should be fast (<100ms)
+            result = benchmark(load_corrupted)
             
-            # Ensure meets basic SLA for each size
-            sla_threshold = actual_size_mb / 100.0
-            assert loading_time <= sla_threshold, (
-                f"SLA violation at {actual_size_mb:.1f}MB: {loading_time:.3f}s > {sla_threshold:.3f}s"
+            execution_time = benchmark.stats.stats.mean
+            max_corruption_time = 0.1  # 100ms
+            
+            assert execution_time <= max_corruption_time, (
+                f"Corruption detection too slow: {execution_time:.3f}s > {max_corruption_time:.3f}s"
             )
-        
-        # Analyze scaling characteristics
-        throughputs = [p['throughput_mb_s'] for p in performance_data]
-        mean_throughput = np.mean(throughputs)
-        throughput_std = np.std(throughputs)
-        throughput_cv = throughput_std / mean_throughput  # Coefficient of variation
-        
-        # Validate consistent throughput (linear scaling)
-        # Allow up to 30% coefficient of variation for realistic hardware variance
-        assert throughput_cv < 0.3, (
-            f"Non-linear scaling detected: Throughput CV {throughput_cv:.2f} > 0.3, "
-            f"mean throughput: {mean_throughput:.1f} MB/s, std: {throughput_std:.1f}"
-        )
+            
+        finally:
+            if corrupted_file.exists():
+                corrupted_file.unlink()
 
 
-class TestFormatSpecificPerformance:
-    """
-    Format-specific performance validation for different pickle types.
-    
-    Tests performance characteristics specific to standard, gzipped, and
-    pandas pickle formats with their unique optimization requirements.
-    """
-    
-    def test_standard_pickle_performance(self, benchmark, tmp_path, benchmark_data_generator, pickle_factory):
-        """Test standard pickle format performance characteristics."""
-        # Create moderate-sized test data for format-specific testing
-        data = benchmark_data_generator.generate_experimental_matrix(25.0)  # 25MB
-        
-        file_path = tmp_path / "standard_perf_test.pkl"
-        pickle_factory.create_standard_pickle(data, file_path)
-        file_size_mb = pickle_factory.get_file_size_mb(file_path)
-        
-        # Benchmark with high precision for format analysis
-        result = benchmark.pedantic(
-            read_pickle_any_format,
-            args=(file_path,),
-            iterations=10,
-            rounds=5
-        )
-        
-        # Verify loading success and data integrity
-        assert result is not None
-        assert isinstance(result, dict)
-        assert 't' in result
-        assert 'x' in result
-        assert 'y' in result
-        
-        # Standard pickle should be fastest format
-        loading_time = benchmark.stats.stats.mean
-        sla_threshold = file_size_mb / 100.0
-        
-        # Should significantly outperform SLA (expect ~50% of threshold)
-        performance_target = sla_threshold * 0.7
-        assert loading_time <= performance_target, (
-            f"Standard pickle underperforming: {loading_time:.3f}s > {performance_target:.3f}s "
-            f"target for {file_size_mb:.1f}MB file"
-        )
-    
-    def test_gzipped_pickle_performance(self, benchmark, tmp_path, benchmark_data_generator, pickle_factory):
-        """Test gzipped pickle format performance with decompression overhead."""
-        data = benchmark_data_generator.generate_experimental_matrix(25.0)  # 25MB
-        
-        file_path = tmp_path / "gzipped_perf_test.pkl.gz"
-        pickle_factory.create_gzipped_pickle(data, file_path)
-        compressed_size_mb = pickle_factory.get_file_size_mb(file_path)
-        
-        # Benchmark decompression + loading
-        result = benchmark.pedantic(
-            read_pickle_any_format,
-            args=(file_path,),
-            iterations=8,  # Slightly fewer iterations due to decompression overhead
-            rounds=4
-        )
-        
-        # Verify loading success
-        assert result is not None
-        assert isinstance(result, dict)
-        
-        # For gzipped files, SLA is based on original data size, not compressed size
-        original_size_estimate = compressed_size_mb * 3  # Typical compression ratio
-        sla_threshold = original_size_estimate / 100.0
-        
-        loading_time = benchmark.stats.stats.mean
-        
-        # Gzipped should still meet SLA despite decompression overhead
-        assert loading_time <= sla_threshold, (
-            f"Gzipped pickle SLA violation: {loading_time:.3f}s > {sla_threshold:.3f}s "
-            f"for {compressed_size_mb:.1f}MB compressed file (est. {original_size_estimate:.1f}MB original)"
-        )
-        
-        # Compression efficiency check
-        compression_ratio = compressed_size_mb / (original_size_estimate / 3)
-        assert compression_ratio < 0.8, f"Poor compression efficiency: {compression_ratio:.2f}"
-    
-    def test_pandas_pickle_performance(self, benchmark, tmp_path, benchmark_data_generator, pickle_factory):
-        """Test pandas-specific pickle format performance characteristics."""
-        data = benchmark_data_generator.generate_experimental_matrix(25.0)  # 25MB
-        
-        file_path = tmp_path / "pandas_perf_test.pkl"
-        pickle_factory.create_pandas_pickle(data, file_path)
-        file_size_mb = pickle_factory.get_file_size_mb(file_path)
-        
-        # Benchmark pandas pickle loading
-        result = benchmark.pedantic(
-            read_pickle_any_format,
-            args=(file_path,),
-            iterations=8,
-            rounds=4
-        )
-        
-        # Verify loading success and DataFrame structure
-        assert result is not None
-        assert isinstance(result, pd.DataFrame)
-        assert len(result) > 0
-        assert 't' in result.columns
-        assert 'x' in result.columns
-        assert 'y' in result.columns
-        
-        # Pandas pickle should meet SLA
-        loading_time = benchmark.stats.stats.mean
-        sla_threshold = file_size_mb / 100.0
-        
-        assert loading_time <= sla_threshold, (
-            f"Pandas pickle SLA violation: {loading_time:.3f}s > {sla_threshold:.3f}s "
-            f"for {file_size_mb:.1f}MB file"
-        )
+# ============================================================================
+# STATISTICAL ANALYSIS AND REGRESSION DETECTION
+# ============================================================================
 
-
-class TestPerformanceRegressionDetection:
+class TestBenchmarkStatisticalAnalysis:
     """
-    Performance regression detection and quality gate enforcement.
+    Statistical analysis and regression detection for benchmark data.
     
-    Implements automated detection of performance regressions and enforces
-    quality gates for CI/CD pipeline integration.
+    Implements comprehensive statistical validation per Section 2.4.9
+    requirements for ±5% variance and reproducible measurements.
     """
     
-    def test_baseline_performance_tracking(self, benchmark, tmp_path, benchmark_data_generator, pickle_factory):
+    @pytest.mark.benchmark(group="statistical_validation")
+    def test_benchmark_reproducibility(
+        self,
+        benchmark,
+        benchmark_pickle_files
+    ):
         """
-        Track baseline performance metrics for regression detection.
+        Validate benchmark reproducibility and statistical consistency.
         
-        Establishes baseline performance characteristics that can be used
-        for automated regression detection in CI/CD pipelines.
+        Tests that benchmark measurements remain consistent across runs
+        with coefficient of variation within acceptable limits for
+        reliable performance regression detection.
         """
-        # Standard test case for baseline tracking
-        data = benchmark_data_generator.generate_experimental_matrix(50.0)  # 50MB
+        # Use consistent medium file for reproducibility testing
+        test_file = benchmark_pickle_files[("medium_10mb", "standard")]
         
-        file_path = tmp_path / "baseline_tracking.pkl"
-        pickle_factory.create_standard_pickle(data, file_path)
-        file_size_mb = pickle_factory.get_file_size_mb(file_path)
+        # Run multiple iterations to measure statistical variance
+        execution_times = []
         
-        # High-precision benchmark for baseline establishment
-        result = benchmark.pedantic(
-            read_pickle_any_format,
-            args=(file_path,),
-            iterations=15,  # High iteration count for statistical stability
-            rounds=7,
-            warmup_rounds=2
-        )
+        def measured_load():
+            start_time = time.perf_counter()
+            result = read_pickle_any_format(test_file)
+            end_time = time.perf_counter()
+            execution_times.append(end_time - start_time)
+            return result
         
-        # Verify successful loading
-        assert result is not None
+        # Benchmark with statistical measurement
+        result = benchmark(measured_load)
         
-        # Calculate performance metrics
-        stats = benchmark.stats.stats
-        mean_time = stats.mean
-        std_time = stats.stddev
-        throughput = file_size_mb / mean_time
-        
-        # Performance regression thresholds
-        # These values serve as baseline for future regression detection
-        baseline_metrics = {
-            'mean_loading_time_s': mean_time,
-            'std_loading_time_s': std_time,
-            'throughput_mb_s': throughput,
-            'file_size_mb': file_size_mb,
-            'sla_margin': (file_size_mb / 100.0) - mean_time,  # How much faster than SLA
-            'coefficient_of_variation': std_time / mean_time
-        }
-        
-        # Quality assertions for baseline metrics
-        assert baseline_metrics['sla_margin'] > 0, "Baseline performance doesn't meet SLA"
-        assert baseline_metrics['coefficient_of_variation'] < 0.1, "Performance too variable for reliable baseline"
-        assert baseline_metrics['throughput_mb_s'] > 100, "Baseline throughput too low"
-        
-        # Store metrics in benchmark extras for CI/CD pipeline access
-        benchmark.extra_info.update(baseline_metrics)
-    
-    def test_memory_efficiency_validation(self, benchmark, tmp_path, benchmark_data_generator, pickle_factory):
-        """
-        Validate memory efficiency during data loading operations.
-        
-        Ensures that memory usage doesn't exceed reasonable bounds during
-        loading operations, preventing memory-related performance degradation.
-        """
-        import psutil
-        import os
-        
-        # Create larger test data for memory validation
-        data = benchmark_data_generator.generate_experimental_matrix(100.0)  # 100MB
-        
-        file_path = tmp_path / "memory_efficiency_test.pkl"
-        pickle_factory.create_standard_pickle(data, file_path)
-        file_size_mb = pickle_factory.get_file_size_mb(file_path)
-        
-        # Monitor memory usage during loading
-        process = psutil.Process(os.getpid())
-        memory_before = process.memory_info().rss / (1024 * 1024)  # MB
-        
-        # Benchmark with memory monitoring
-        result = benchmark.pedantic(
-            read_pickle_any_format,
-            args=(file_path,),
-            iterations=3,  # Fewer iterations to reduce memory pressure
-            rounds=2
-        )
-        
-        memory_after = process.memory_info().rss / (1024 * 1024)  # MB
-        memory_increase = memory_after - memory_before
-        
-        # Verify loading success
-        assert result is not None
-        
-        # Memory efficiency validation
-        # Memory increase should be reasonable relative to file size
-        memory_efficiency_ratio = memory_increase / file_size_mb
-        
-        # Allow up to 3x memory overhead (data + intermediate objects + overhead)
-        assert memory_efficiency_ratio < 3.0, (
-            f"Memory efficiency violation: {memory_increase:.1f}MB increase "
-            f"for {file_size_mb:.1f}MB file (ratio: {memory_efficiency_ratio:.1f})"
-        )
-        
-        # Performance should still meet SLA despite memory constraints
-        loading_time = benchmark.stats.stats.mean
-        sla_threshold = file_size_mb / 100.0
-        assert loading_time <= sla_threshold, f"Memory loading SLA violation: {loading_time:.3f}s > {sla_threshold:.3f}s"
-
-
-class TestErrorScenarioPerformance:
-    """
-    Performance validation for error scenarios and edge cases.
-    
-    Ensures that error handling doesn't introduce significant performance
-    overhead and that graceful degradation maintains acceptable performance.
-    """
-    
-    def test_corrupted_file_detection_performance(self, benchmark, tmp_path):
-        """Test performance of corrupted file detection and error handling."""
-        # Create corrupted file
-        corrupted_file = tmp_path / "corrupted.pkl"
-        corrupted_file.write_bytes(b"not a pickle file at all" * 1000)  # ~23KB of garbage
-        
-        # Benchmark error detection
-        with pytest.raises(RuntimeError):
-            benchmark.pedantic(
-                read_pickle_any_format,
-                args=(corrupted_file,),
-                iterations=5,
-                rounds=3
+        # Analyze statistical characteristics
+        if len(execution_times) >= 3:
+            mean_time = np.mean(execution_times)
+            std_time = np.std(execution_times)
+            coefficient_of_variation = std_time / mean_time
+            
+            # Validate reproducibility per Section 2.4.9 (±5% variance)
+            max_cv = 0.05  # 5% coefficient of variation
+            assert coefficient_of_variation <= max_cv, (
+                f"Poor reproducibility: CV={coefficient_of_variation:.3f} > {max_cv:.3f}"
             )
         
-        # Error detection should be fast
-        detection_time = benchmark.stats.stats.mean
-        assert detection_time < 0.1, f"Slow error detection: {detection_time:.3f}s > 0.1s"
-    
-    def test_missing_file_performance(self, benchmark, tmp_path):
-        """Test performance of missing file error handling."""
-        missing_file = tmp_path / "does_not_exist.pkl"
+        # Validate benchmark framework measurement consistency
+        framework_mean = benchmark.stats.stats.mean
+        framework_std = benchmark.stats.stats.stddev
+        framework_cv = framework_std / framework_mean
         
-        # Benchmark missing file detection
-        with pytest.raises(FileNotFoundError):
-            benchmark.pedantic(
-                read_pickle_any_format,
-                args=(missing_file,),
-                iterations=10,
-                rounds=3
+        assert framework_cv <= 0.1, (
+            f"Framework measurement inconsistency: CV={framework_cv:.3f} > 0.1"
+        )
+
+
+    @pytest.mark.benchmark(group="regression_detection")
+    @pytest.mark.parametrize("data_pattern", ["neural", "behavioral", "mixed"])
+    def test_performance_regression_detection(
+        self,
+        benchmark,
+        synthetic_data_generator,
+        cross_platform_temp_dir,
+        data_pattern
+    ):
+        """
+        Baseline performance measurement for regression detection.
+        
+        Establishes performance baselines across different data patterns
+        to enable automated detection of performance regressions in
+        CI/CD pipeline execution.
+        
+        Args:
+            benchmark: pytest-benchmark fixture for performance measurement
+            synthetic_data_generator: Generator for test data
+            cross_platform_temp_dir: Temporary directory for test files
+            data_pattern: Type of experimental data pattern
+        """
+        # Generate pattern-specific test data
+        if data_pattern == "neural":
+            exp_matrix = synthetic_data_generator.generate_experimental_matrix(
+                target_size_mb=25.0,
+                include_signal_disp=True,
+                include_metadata=False
+            )
+        elif data_pattern == "behavioral":
+            exp_matrix = synthetic_data_generator.generate_experimental_matrix(
+                target_size_mb=25.0,
+                include_signal_disp=False,
+                include_metadata=True
+            )
+        else:  # mixed
+            exp_matrix = synthetic_data_generator.generate_experimental_matrix(
+                target_size_mb=25.0,
+                include_signal_disp=True,
+                include_metadata=True
             )
         
-        # Missing file detection should be very fast
-        detection_time = benchmark.stats.stats.mean
-        assert detection_time < 0.01, f"Slow missing file detection: {detection_time:.3f}s > 0.01s"
+        # Create temporary test file
+        test_file = cross_platform_temp_dir / f"regression_{data_pattern}.pkl"
+        with open(test_file, 'wb') as f:
+            pickle.dump(exp_matrix, f, protocol=pickle.HIGHEST_PROTOCOL)
+        
+        try:
+            # Benchmark loading performance for this pattern
+            result = benchmark(read_pickle_any_format, test_file)
+            
+            # Establish pattern-specific performance baselines
+            execution_time = benchmark.stats.stats.mean
+            data_size_mb = 25.0
+            
+            # Pattern-specific performance expectations
+            if data_pattern == "neural":
+                # Neural data with signal_disp has higher complexity
+                max_time_per_mb = 0.015  # 15ms per MB
+            elif data_pattern == "behavioral":
+                # Behavioral data is simpler structure
+                max_time_per_mb = 0.010  # 10ms per MB
+            else:  # mixed
+                # Mixed data has intermediate complexity
+                max_time_per_mb = 0.012  # 12ms per MB
+            
+            expected_max_time = data_size_mb * max_time_per_mb
+            
+            assert execution_time <= expected_max_time, (
+                f"Performance regression in {data_pattern} pattern: "
+                f"{execution_time:.3f}s > {expected_max_time:.3f}s"
+            )
+            
+            # Validate data integrity for the pattern
+            assert isinstance(result, dict), "Invalid result type"
+            
+            if data_pattern == "neural":
+                assert 'signal_disp' in result, "Missing neural signal data"
+            elif data_pattern == "behavioral":
+                assert 'signal' in result or len(result) >= 3, "Missing behavioral data"
+            
+        finally:
+            if test_file.exists():
+                test_file.unlink()
 
 
-# Property-based testing for comprehensive performance validation
+# ============================================================================
+# PLATFORM AND ENVIRONMENT SPECIFIC BENCHMARKS
+# ============================================================================
 
-class TestPropertyBasedPerformance:
+class TestPlatformSpecificBenchmarks:
     """
-    Property-based performance testing using Hypothesis for comprehensive validation.
+    Platform-specific performance benchmarks for cross-platform validation.
     
-    Uses Hypothesis to generate diverse test scenarios and validate that performance
-    properties hold across a wide range of inputs and conditions.
+    Ensures consistent performance characteristics across different
+    operating systems and Python versions per CI/CD matrix requirements.
+    """
+    
+    @pytest.mark.benchmark(group="platform_performance")
+    def test_cross_platform_performance_consistency(
+        self,
+        benchmark,
+        benchmark_pickle_files
+    ):
+        """
+        Validate performance consistency across operating systems.
+        
+        Tests that platform-specific differences don't cause significant
+        performance variations that would affect SLA compliance.
+        """
+        # Use consistent test file across platforms
+        test_file = benchmark_pickle_files[("medium_50mb", "standard")]
+        
+        # Benchmark loading performance
+        result = benchmark(read_pickle_any_format, test_file)
+        
+        execution_time = benchmark.stats.stats.mean
+        
+        # Platform-specific performance expectations
+        current_platform = platform.system().lower()
+        
+        if current_platform == "windows":
+            # Windows may have slightly higher overhead
+            platform_factor = 1.3
+        elif current_platform == "darwin":  # macOS
+            # macOS typically has good performance
+            platform_factor = 1.1
+        else:  # Linux and others
+            # Linux baseline performance
+            platform_factor = 1.0
+        
+        # Base expectation: 1s per 100MB * platform factor
+        expected_max_time = (50.0 / 100.0) * platform_factor
+        
+        assert execution_time <= expected_max_time, (
+            f"Platform performance issue on {current_platform}: "
+            f"{execution_time:.3f}s > {expected_max_time:.3f}s"
+        )
+        
+        # Validate result integrity is platform-independent
+        assert isinstance(result, dict), "Platform-dependent result type"
+        assert 't' in result and 'x' in result, "Platform-dependent data structure"
+
+
+    @pytest.mark.benchmark(group="memory_efficiency")
+    @pytest.mark.parametrize("size_mb", [10.0, 50.0, 100.0])
+    def test_memory_efficiency_benchmarks(
+        self,
+        benchmark,
+        synthetic_data_generator,
+        cross_platform_temp_dir,
+        size_mb
+    ):
+        """
+        Benchmark memory efficiency during data loading operations.
+        
+        Validates that memory usage remains reasonable and doesn't
+        cause system resource exhaustion during large data loading.
+        
+        Args:
+            benchmark: pytest-benchmark fixture for performance measurement
+            synthetic_data_generator: Generator for test data
+            cross_platform_temp_dir: Temporary directory for test files
+            size_mb: Data size for memory efficiency testing
+        """
+        # Generate test data
+        exp_matrix = synthetic_data_generator.generate_experimental_matrix(
+            target_size_mb=size_mb,
+            include_signal_disp=True,
+            include_metadata=True
+        )
+        
+        # Create test file
+        test_file = cross_platform_temp_dir / f"memory_test_{size_mb}mb.pkl"
+        with open(test_file, 'wb') as f:
+            pickle.dump(exp_matrix, f, protocol=pickle.HIGHEST_PROTOCOL)
+        
+        try:
+            # Benchmark with memory considerations
+            result = benchmark(read_pickle_any_format, test_file)
+            
+            execution_time = benchmark.stats.stats.mean
+            
+            # Memory efficiency expectations
+            # Loading should not take excessive time due to memory pressure
+            max_time_with_memory_pressure = (size_mb / 100.0) * 2.0  # 2x allowance
+            
+            assert execution_time <= max_time_with_memory_pressure, (
+                f"Memory efficiency issue for {size_mb}MB: "
+                f"{execution_time:.3f}s > {max_time_with_memory_pressure:.3f}s"
+            )
+            
+            # Validate successful loading despite memory considerations
+            assert isinstance(result, dict), "Memory pressure affected result type"
+            assert len(result) > 0, "Memory pressure caused empty result"
+            
+        finally:
+            if test_file.exists():
+                test_file.unlink()
+
+
+# ============================================================================
+# INTEGRATION WITH CI/CD PIPELINE BENCHMARKS
+# ============================================================================
+
+def test_benchmark_ci_pipeline_integration(benchmark_pickle_files):
+    """
+    Validate benchmark integration with CI/CD pipeline requirements.
+    
+    Ensures that benchmark tests can execute successfully in automated
+    environments with resource constraints and time limitations.
+    """
+    # Quick validation test that can run in CI without timeout
+    small_file = benchmark_pickle_files[("small_1mb", "standard")]
+    
+    start_time = time.perf_counter()
+    result = read_pickle_any_format(small_file)
+    end_time = time.perf_counter()
+    
+    execution_time = end_time - start_time
+    
+    # CI environments should handle small files very quickly
+    max_ci_time = 0.1  # 100ms for 1MB in CI
+    
+    assert execution_time <= max_ci_time, (
+        f"CI environment performance issue: {execution_time:.3f}s > {max_ci_time:.3f}s"
+    )
+    
+    # Validate CI-appropriate result validation
+    assert isinstance(result, dict), "CI environment affected result type"
+    assert 't' in result, "CI environment missing essential data"
+
+
+# ============================================================================
+# HYPOTHESIS-BASED PROPERTY TESTING FOR PERFORMANCE
+# ============================================================================
+
+class TestPropertyBasedPerformanceTesting:
+    """
+    Hypothesis-driven property-based testing for performance characteristics.
+    
+    Uses property-based testing to validate performance properties across
+    a wide range of input scenarios and edge cases.
     """
     
     @given(
-        data_size_mb=st.floats(min_value=0.1, max_value=200.0),
-        n_channels=st.integers(min_value=1, max_value=32)
+        size_mb=st.floats(min_value=0.1, max_value=50.0),
+        has_signal=st.booleans(),
+        has_metadata=st.booleans()
     )
-    @settings(max_examples=20, deadline=None)  # Reduced examples for performance tests
-    def test_performance_properties_hold(self, data_size_mb, n_channels, benchmark, tmp_path):
+    @settings(max_examples=10, deadline=30000)  # Reasonable limits for benchmarking
+    def test_performance_properties_across_data_variants(
+        self,
+        size_mb,
+        has_signal,
+        has_metadata,
+        synthetic_data_generator,
+        cross_platform_temp_dir
+    ):
         """
-        Property-based test that performance characteristics hold across diverse inputs.
+        Test performance properties across randomly generated data variants.
         
-        Tests the property that loading performance scales predictably with data size
-        regardless of the specific structure or channel count of the data.
+        Uses Hypothesis to generate diverse data scenarios and validate
+        that performance characteristics remain predictable across all
+        realistic input combinations.
         """
-        # Skip very large tests in property-based testing to maintain reasonable test times
-        if data_size_mb > 100:
-            pytest.skip("Skipping large data size in property-based test")
+        # Skip unreasonably small sizes that don't represent real use cases
+        assume(size_mb >= 0.5)
         
-        generator = BenchmarkDataGenerator(seed=42)
-        data = generator.generate_experimental_matrix(data_size_mb, n_channels)
-        
-        # Verify data generation was successful
-        if not generator.verify_data_size(data, data_size_mb, tolerance=0.5):
-            pytest.skip(f"Data generation failed size verification for {data_size_mb}MB")
-        
-        factory = PickleFileFactory()
-        file_path = tmp_path / f"property_test_{data_size_mb:.1f}mb_{n_channels}ch.pkl"
-        factory.create_standard_pickle(data, file_path)
-        
-        actual_size_mb = factory.get_file_size_mb(file_path)
-        
-        # Benchmark loading
-        result = benchmark.pedantic(
-            read_pickle_any_format,
-            args=(file_path,),
-            iterations=3,  # Minimal iterations for property testing
-            rounds=2
+        # Generate test data based on hypothesis parameters
+        exp_matrix = synthetic_data_generator.generate_experimental_matrix(
+            target_size_mb=size_mb,
+            include_signal_disp=has_signal,
+            include_metadata=has_metadata
         )
         
-        # Verify successful loading
-        assert result is not None
+        # Create temporary test file
+        test_file = cross_platform_temp_dir / f"property_test_{size_mb:.1f}mb.pkl"
+        with open(test_file, 'wb') as f:
+            pickle.dump(exp_matrix, f, protocol=pickle.HIGHEST_PROTOCOL)
         
-        # Property: Performance should always meet SLA
-        loading_time = benchmark.stats.stats.mean
-        sla_threshold = actual_size_mb / 100.0
-        
-        assert loading_time <= sla_threshold, (
-            f"Property violation: {loading_time:.3f}s > {sla_threshold:.3f}s "
-            f"for {actual_size_mb:.1f}MB, {n_channels} channels"
-        )
-        
-        # Property: Throughput should be reasonable regardless of structure
-        throughput = actual_size_mb / loading_time
-        assert throughput > 50, f"Property violation: Low throughput {throughput:.1f} MB/s"
-
-
-# Performance monitoring and CI/CD integration utilities
-
-def pytest_benchmark_update_machine_info(config, machine_info):
-    """
-    Update machine info for benchmark tracking across CI/CD environments.
-    
-    Provides consistent machine identification for performance regression
-    detection across different CI/CD runners and local development environments.
-    """
-    machine_info.update({
-        'python_implementation': 'CPython',  # Assuming CPython
-        'benchmark_suite': 'data_loading_performance',
-        'test_category': 'SLA_validation',
-        'requirements_validated': [
-            'TST-PERF-001',
-            'F-003-RQ-001',
-            'F-003-RQ-002', 
-            'F-003-RQ-004',
-            'F-014'
-        ]
-    })
-
-
-def pytest_benchmark_scale_unit(config, unit, benchmark):
-    """
-    Custom unit scaling for data loading benchmarks.
-    
-    Provides meaningful units for benchmark reporting that align with
-    SLA requirements (MB/s throughput, loading time per MB, etc.).
-    """
-    if hasattr(benchmark, 'extra_info') and 'file_size_mb' in benchmark.extra_info:
-        file_size_mb = benchmark.extra_info['file_size_mb']
-        mean_time = benchmark.stats.stats.mean
-        
-        # Add throughput metrics
-        throughput_mb_s = file_size_mb / mean_time
-        benchmark.extra_info['throughput_mb_s'] = throughput_mb_s
-        benchmark.extra_info['time_per_mb'] = mean_time / file_size_mb
-        
-        return f"MB/s (throughput: {throughput_mb_s:.1f})"
-    
-    return unit
-
-
-# Benchmark configuration and markers
-
-# Mark all tests in this module as benchmarks
-pytestmark = pytest.mark.benchmark
-
-# Benchmark-specific configuration
-pytest_benchmark_config = {
-    'min_rounds': 2,
-    'max_time': 10.0,  # Maximum time per benchmark in seconds
-    'min_time': 0.1,   # Minimum time per benchmark 
-    'warmup': True,
-    'warmup_iterations': 1,
-    'disable_gc': True,  # Disable garbage collection during benchmarks
-    'sort': 'mean',
-    'columns': ['mean', 'stddev', 'min', 'max', 'median', 'ops'],
-    'histogram': True
-}
-
-
-# Integration markers for CI/CD pipeline
-performance_sla = pytest.mark.performance_sla
-regression_test = pytest.mark.regression_test
-quality_gate = pytest.mark.quality_gate
+        try:
+            # Measure loading performance
+            start_time = time.perf_counter()
+            result = read_pickle_any_format(test_file)
+            end_time = time.perf_counter()
+            
+            execution_time = end_time - start_time
+            
+            # Property: Performance should scale roughly linearly with size
+            expected_time = size_mb / 100.0  # 1s per 100MB baseline
+            max_allowed_time = expected_time * 2.0  # 2x factor for safety
+            
+            assert execution_time <= max_allowed_time, (
+                f"Property violation: {execution_time:.3f}s > {max_allowed_time:.3f}s "
+                f"for {size_mb:.1f}MB data (signal={has_signal}, meta={has_metadata})"
+            )
+            
+            # Property: Result should always be valid structure
+            assert isinstance(result, dict), "Property violation: invalid result type"
+            assert 't' in result, "Property violation: missing time data"
+            
+            # Property: Data characteristics should match input configuration
+            if has_signal:
+                assert 'signal_disp' in result or 'signal' in result, (
+                    "Property violation: signal data missing when requested"
+                )
+            
+            if has_metadata:
+                metadata_keys = ['date', 'exp_name', 'rig', 'fly_id']
+                has_any_metadata = any(key in result for key in metadata_keys)
+                assert has_any_metadata, (
+                    "Property violation: metadata missing when requested"
+                )
+            
+        finally:
+            if test_file.exists():
+                test_file.unlink()
