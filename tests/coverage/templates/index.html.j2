@@ -1,1006 +1,1241 @@
 <!DOCTYPE html>
-<html lang="en" class="no-js">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="description" content="FlyrigLoader Test Coverage Report Dashboard - Comprehensive neuroscience data loading library coverage analysis">
-    <meta name="author" content="FlyrigLoader Coverage Enhancement System">
-    <meta name="keywords" content="flyrigloader, test coverage, neuroscience, data loading, pytest, python">
-    <meta name="robots" content="noindex, nofollow">
+    <meta name="description" content="{{ config.html_report.title }} - Comprehensive test coverage analysis for neuroscience experimental data loading library">
+    <meta name="keywords" content="flyrigloader, coverage, testing, neuroscience, experimental data, python, test automation">
+    <meta name="generator" content="{{ config.metadata.generated_by }} v{{ config.metadata.version }}">
+    <meta name="build-info" content="Generated on {{ report_timestamp | strftime('%Y-%m-%d %H:%M:%S UTC') }}">
     
-    <title>{{ config.report_formats.html.title | default('FlyrigLoader Test Coverage Report') }}</title>
+    <title>{{ config.html_report.title }} - Coverage Dashboard</title>
     
-    <!-- Preload critical fonts for enhanced performance -->
-    <link rel="preload" href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&family=Fira+Code:wght@400;500&display=swap" as="style">
-    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&family=Fira+Code:wght@400;500&display=swap" rel="stylesheet">
-    
-    <!-- Include shared coverage reporting styles -->
-    <link rel="stylesheet" href="style.css">
-    
-    <!-- Favicon and app icons -->
-    <link rel="icon" type="image/svg+xml" href="/static/flyrigloader_icon.svg">
-    <link rel="apple-touch-icon" href="/static/flyrigloader_icon_180.png">
-    
-    <!-- Open Graph meta tags for sharing -->
-    <meta property="og:title" content="{{ config.report_formats.html.title | default('FlyrigLoader Coverage Report') }}">
-    <meta property="og:description" content="{{ config.report_formats.html.description | default('Comprehensive test coverage analysis for neuroscience experimental data loading library') }}">
+    <!-- Open Graph / Social Media Integration -->
+    <meta property="og:title" content="{{ config.html_report.title }}">
+    <meta property="og:description" content="{{ config.metadata.project_description }}">
     <meta property="og:type" content="website">
+    <meta property="og:site_name" content="{{ config.metadata.project_name }}">
     
-    <!-- Structured data for machine readability -->
+    <!-- Structured Data for Quality Metrics -->
     <script type="application/ld+json">
     {
         "@context": "https://schema.org",
         "@type": "SoftwareApplication",
-        "name": "FlyrigLoader Coverage Dashboard",
-        "description": "{{ config.report_formats.html.description | default('Comprehensive test coverage analysis for neuroscience experimental data loading library') }}",
-        "applicationCategory": "DeveloperApplication",
+        "name": "{{ config.metadata.project_name }}",
+        "description": "{{ config.metadata.project_description }}",
+        "applicationCategory": "{{ config.metadata.domain }}",
+        "version": "{{ config.metadata.version }}",
+        "url": "{{ config.metadata.documentation_url }}",
         "operatingSystem": "Cross-platform",
+        "softwareRequirements": "Python 3.8+",
         "programmingLanguage": "Python",
-        "creator": {
-            "@type": "Organization",
-            "name": "{{ config.metadata.organization | default('Research Team') }}"
-        },
-        "url": "{{ config.metadata.repository_url | default('#') }}",
-        "version": "{{ report.library_version | default('1.0.0') }}",
-        "datePublished": "{{ report.timestamp | default('') }}",
-        "softwareRequirements": {{ config.metadata.python_versions | tojson | default('["3.8+"]') }}
+        "coverage": {
+            "@type": "QualityControl",
+            "overall_coverage": {{ overall_coverage.line_percent }},
+            "branch_coverage": {{ overall_coverage.branch_percent }},
+            "critical_modules_coverage": {{ critical_coverage.line_percent }},
+            "threshold_compliance": {{ "true" if overall_coverage.line_percent >= config.coverage_thresholds.overall_minimum else "false" }},
+            "quality_status": "{{ 'PASSING' if overall_coverage.line_percent >= config.coverage_thresholds.overall_minimum else 'FAILING' }}"
+        }
     }
     </script>
     
-    <!-- CSS Variables Configuration from report config -->
+    <!-- Favicon and App Icons -->
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='{{ config.html_report.branding.primary_color }}'><path d='M12 2L2 7v10c0 5.55 3.84 9.74 9 9.74s9-4.19 9-9.74V7L12 2z'/></svg>">
+    
+    <!-- CSS Template Integration -->
     <style>
-    :root {
-        /* FlyrigLoader Neuroscience Research Brand Colors */
-        --fl-primary: {{ config.report_formats.html.styling.primary_color | default('#2E7D32') }};
-        --fl-secondary: {{ config.report_formats.html.styling.secondary_color | default('#1976D2') }};
-        --fl-accent: {{ config.report_formats.html.styling.accent_color | default('#FF5722') }};
-        --fl-success: {{ config.report_formats.html.styling.success_color | default('#4CAF50') }};
-        --fl-warning: {{ config.report_formats.html.styling.warning_color | default('#FF9800') }};
-        --fl-error: {{ config.report_formats.html.styling.error_color | default('#F44336') }};
-        --fl-background: {{ config.report_formats.html.styling.background_color | default('#FAFAFA') }};
-        --fl-surface: #FFFFFF;
-        --fl-text: {{ config.report_formats.html.styling.text_color | default('#333333') }};
-        --fl-text-secondary: #666666;
-        --fl-border: #E0E0E0;
+        {% include 'style.css.j2' %}
         
-        /* Coverage Quality Level Colors */
-        --coverage-excellent: #2E7D32;   /* 95-100% */
-        --coverage-good: #4CAF50;        /* 85-94% */
-        --coverage-acceptable: #FF9800;  /* 70-84% */
-        --coverage-poor: #FF5722;        /* 50-69% */
-        --coverage-critical: #F44336;    /* <50% */
-        
-        /* Neuroscience Domain Specific Colors */
-        --neuroscience-signal: #1976D2;      /* Signal processing modules */
-        --neuroscience-data: #2E7D32;        /* Data loading modules */
-        --neuroscience-analysis: #FF5722;    /* Analysis modules */
-        --neuroscience-config: #9C27B0;      /* Configuration modules */
-        --neuroscience-util: #607D8B;        /* Utility modules */
-        
-        /* Animation and interaction settings */
-        --transition-fast: 150ms ease-in-out;
-        --transition-standard: 250ms ease-in-out;
-        --shadow-elevation-1: 0 1px 3px rgba(0, 0, 0, 0.12);
-        --shadow-elevation-2: 0 4px 6px rgba(0, 0, 0, 0.15);
-        --shadow-elevation-3: 0 10px 20px rgba(0, 0, 0, 0.15);
-        
-        /* Quality gate status indicators */
-        --gate-passing: #4CAF50;
-        --gate-failing: #F44336;
-        --gate-warning: #FF9800;
-        --gate-pending: #9E9E9E;
-    }
-    
-    /* Enhanced dashboard-specific styling */
-    .dashboard-grid {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-        gap: 24px;
-        margin: 24px 0;
-    }
-    
-    .dashboard-card {
-        background: var(--fl-surface);
-        border-radius: 12px;
-        box-shadow: var(--shadow-elevation-2);
-        padding: 24px;
-        transition: all var(--transition-standard);
-        border: 1px solid var(--fl-border);
-        position: relative;
-        overflow: hidden;
-    }
-    
-    .dashboard-card::before {
-        content: '';
-        position: absolute;
-        top: 0;
-        left: 0;
-        right: 0;
-        height: 4px;
-        background: var(--fl-primary);
-        transition: background var(--transition-fast);
-    }
-    
-    .dashboard-card:hover {
-        transform: translateY(-4px);
-        box-shadow: var(--shadow-elevation-3);
-    }
-    
-    .dashboard-card.critical::before { background: var(--coverage-critical); }
-    .dashboard-card.poor::before { background: var(--coverage-poor); }
-    .dashboard-card.acceptable::before { background: var(--coverage-acceptable); }
-    .dashboard-card.good::before { background: var(--coverage-good); }
-    .dashboard-card.excellent::before { background: var(--coverage-excellent); }
-    
-    /* Coverage visualization enhancements */
-    .coverage-ring {
-        width: 120px;
-        height: 120px;
-        border-radius: 50%;
-        background: conic-gradient(
-            var(--coverage-excellent) 0deg,
-            var(--coverage-excellent) calc(var(--coverage-percentage, 0) * 3.6deg),
-            var(--fl-border) calc(var(--coverage-percentage, 0) * 3.6deg),
-            var(--fl-border) 360deg
-        );
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        position: relative;
-        margin: 0 auto 16px;
-    }
-    
-    .coverage-ring::before {
-        content: '';
-        position: absolute;
-        width: 80px;
-        height: 80px;
-        background: var(--fl-surface);
-        border-radius: 50%;
-    }
-    
-    .coverage-percentage {
-        position: relative;
-        z-index: 1;
-        font-size: 24px;
-        font-weight: 700;
-        color: var(--fl-text);
-    }
-    
-    /* Module category organization */
-    .module-category {
-        margin-bottom: 32px;
-        background: var(--fl-surface);
-        border-radius: 12px;
-        box-shadow: var(--shadow-elevation-1);
-        overflow: hidden;
-    }
-    
-    .category-header {
-        background: linear-gradient(135deg, var(--fl-primary), var(--fl-secondary));
-        color: white;
-        padding: 20px 24px;
-        display: flex;
-        align-items: center;
-        gap: 16px;
-    }
-    
-    .category-icon {
-        width: 48px;
-        height: 48px;
-        background: rgba(255, 255, 255, 0.2);
-        border-radius: 8px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-size: 24px;
-    }
-    
-    .category-info h2 {
-        margin: 0 0 4px 0;
-        font-size: 24px;
-        font-weight: 600;
-    }
-    
-    .category-description {
-        font-size: 14px;
-        opacity: 0.9;
-        margin: 0;
-    }
-    
-    .category-stats {
-        display: flex;
-        gap: 24px;
-        font-size: 14px;
-        margin-top: 8px;
-    }
-    
-    /* Quality gates dashboard */
-    .quality-gates-grid {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-        gap: 16px;
-        margin: 24px 0;
-    }
-    
-    .quality-gate-card {
-        background: var(--fl-surface);
-        border-radius: 8px;
-        padding: 20px;
-        border-left: 4px solid var(--gate-pending);
-        box-shadow: var(--shadow-elevation-1);
-        transition: all var(--transition-fast);
-    }
-    
-    .quality-gate-card.passing {
-        border-left-color: var(--gate-passing);
-    }
-    
-    .quality-gate-card.failing {
-        border-left-color: var(--gate-failing);
-    }
-    
-    .quality-gate-card.warning {
-        border-left-color: var(--gate-warning);
-    }
-    
-    .quality-gate-card:hover {
-        transform: translateX(4px);
-        box-shadow: var(--shadow-elevation-2);
-    }
-    
-    /* Trend visualization */
-    .trend-chart {
-        height: 200px;
-        background: var(--fl-background);
-        border-radius: 8px;
-        border: 1px solid var(--fl-border);
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        color: var(--fl-text-secondary);
-        font-style: italic;
-        margin: 16px 0;
-    }
-    
-    /* Performance SLA indicators */
-    .sla-indicator {
-        display: inline-flex;
-        align-items: center;
-        gap: 8px;
-        padding: 4px 12px;
-        border-radius: 16px;
-        font-size: 12px;
-        font-weight: 600;
-        text-transform: uppercase;
-        letter-spacing: 0.5px;
-    }
-    
-    .sla-indicator.met {
-        background: rgba(76, 175, 80, 0.1);
-        color: var(--fl-success);
-        border: 1px solid var(--fl-success);
-    }
-    
-    .sla-indicator.exceeded {
-        background: rgba(244, 67, 54, 0.1);
-        color: var(--fl-error);
-        border: 1px solid var(--fl-error);
-    }
-    
-    /* Responsive design adjustments */
-    @media (max-width: 768px) {
-        .dashboard-grid {
-            grid-template-columns: 1fr;
-            gap: 16px;
-            margin: 16px 0;
+        /* Dashboard-Specific Enhancements */
+        .coverage-dashboard {
+            background: linear-gradient(135deg, var(--background-color) 0%, #f1f3f5 100%);
+            min-height: 100vh;
         }
         
-        .coverage-ring {
-            width: 100px;
-            height: 100px;
+        .dashboard-hero {
+            background: linear-gradient(135deg, var(--header-background) 0%, var(--primary-color) 100%);
+            color: white;
+            padding: var(--spacing-xxl) 0;
+            position: relative;
+            overflow: hidden;
         }
         
-        .coverage-ring::before {
-            width: 70px;
-            height: 70px;
+        .dashboard-hero::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" opacity="0.1"><circle cx="20" cy="20" r="2" fill="white"/><circle cx="40" cy="30" r="1.5" fill="white"/><circle cx="60" cy="40" r="1" fill="white"/><circle cx="80" cy="20" r="1.5" fill="white"/><circle cx="30" cy="60" r="2" fill="white"/><circle cx="70" cy="70" r="1" fill="white"/><circle cx="90" cy="50" r="1.5" fill="white"/></svg>') repeat;
+            animation: neural-network 20s linear infinite;
         }
         
-        .coverage-percentage {
-            font-size: 20px;
+        @keyframes neural-network {
+            0% { transform: translateX(0) translateY(0); }
+            100% { transform: translateX(-100px) translateY(-100px); }
         }
         
-        .category-header {
-            padding: 16px 20px;
+        .hero-content {
+            position: relative;
+            z-index: 2;
+            text-align: center;
         }
         
-        .category-icon {
-            width: 40px;
-            height: 40px;
-            font-size: 20px;
+        .hero-title {
+            font-size: 3rem;
+            font-weight: 700;
+            margin-bottom: var(--spacing-md);
+            text-shadow: 0 2px 4px rgba(0,0,0,0.3);
         }
         
-        .quality-gates-grid {
-            grid-template-columns: 1fr;
+        .hero-subtitle {
+            font-size: 1.25rem;
+            opacity: 0.9;
+            margin-bottom: var(--spacing-lg);
+            max-width: 800px;
+            margin-left: auto;
+            margin-right: auto;
         }
-    }
-    
-    /* Print optimizations */
-    @media print {
-        .dashboard-card {
-            break-inside: avoid;
-            box-shadow: none;
-            border: 1px solid #ccc;
+        
+        .hero-stats {
+            display: flex;
+            justify-content: center;
+            gap: var(--spacing-xl);
+            flex-wrap: wrap;
+        }
+        
+        .hero-stat {
+            text-align: center;
+            padding: var(--spacing-md);
+            background: rgba(255,255,255,0.1);
+            border-radius: var(--border-radius-lg);
+            backdrop-filter: blur(10px);
+            min-width: 150px;
+        }
+        
+        .hero-stat-value {
+            font-size: 2.5rem;
+            font-weight: 700;
+            display: block;
+            margin-bottom: var(--spacing-xs);
+        }
+        
+        .hero-stat-label {
+            font-size: var(--font-size-sm);
+            opacity: 0.8;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        
+        .quality-gates-banner {
+            background: {{ 'linear-gradient(135deg, var(--success-color) 0%, #4caf50 100%)' if overall_coverage.line_percent >= config.coverage_thresholds.overall_minimum else 'linear-gradient(135deg, var(--danger-color) 0%, #f44336 100%)' }};
+            color: white;
+            padding: var(--spacing-md) 0;
+            text-align: center;
+            font-weight: 600;
+            box-shadow: var(--shadow-md);
+        }
+        
+        .quality-status-icon {
+            font-size: 1.5rem;
+            margin-right: var(--spacing-sm);
+        }
+        
+        .coverage-overview-grid {
+            display: grid;
+            grid-template-columns: 2fr 1fr;
+            gap: var(--spacing-xl);
+            margin: var(--spacing-xl) 0;
+        }
+        
+        .trend-visualization {
+            background: white;
+            border-radius: var(--border-radius-lg);
+            padding: var(--spacing-xl);
+            box-shadow: var(--shadow-md);
+            position: relative;
         }
         
         .trend-chart {
-            border: 1px solid #ccc;
-            background: white;
+            height: 300px;
+            background: linear-gradient(to top, 
+                rgba(46, 139, 87, 0.1) 0%, 
+                rgba(46, 139, 87, 0.05) {{ overall_coverage.line_percent }}%, 
+                transparent {{ overall_coverage.line_percent + 5 }}%);
+            border-radius: var(--border-radius-md);
+            position: relative;
+            border: 2px solid #e9ecef;
+            overflow: hidden;
         }
         
-        .coverage-ring {
-            background: white;
-            border: 2px solid #333;
+        .trend-line {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            height: {{ overall_coverage.line_percent }}%;
+            background: linear-gradient(to right, var(--primary-color), var(--secondary-color));
+            transition: height var(--transition-slow);
         }
-    }
+        
+        .trend-markers {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            padding: var(--spacing-sm);
+            pointer-events: none;
+        }
+        
+        .trend-marker {
+            border-top: 1px dashed rgba(0,0,0,0.2);
+            position: relative;
+            font-size: var(--font-size-sm);
+            color: #6c757d;
+        }
+        
+        .trend-marker::before {
+            content: attr(data-value);
+            position: absolute;
+            right: var(--spacing-sm);
+            top: -10px;
+            background: white;
+            padding: 2px 6px;
+            border-radius: var(--border-radius-sm);
+        }
+        
+        .module-grid-enhanced {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+            gap: var(--spacing-lg);
+            margin: var(--spacing-xl) 0;
+        }
+        
+        .module-card-enhanced {
+            background: white;
+            border-radius: var(--border-radius-lg);
+            overflow: hidden;
+            box-shadow: var(--shadow-sm);
+            transition: all var(--transition-normal);
+            border: 1px solid #e9ecef;
+            position: relative;
+        }
+        
+        .module-card-enhanced:hover {
+            transform: translateY(-4px);
+            box-shadow: var(--shadow-lg);
+        }
+        
+        .module-category-header {
+            padding: var(--spacing-lg);
+            border-bottom: 1px solid #e9ecef;
+            position: relative;
+        }
+        
+        .module-category-header::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 4px;
+        }
+        
+        /* Category-specific styling */
+        .category-api .module-category-header::before {
+            background: linear-gradient(90deg, var(--primary-color) 0%, var(--secondary-color) 100%);
+        }
+        
+        .category-config .module-category-header::before {
+            background: linear-gradient(90deg, var(--secondary-color) 0%, var(--accent-color) 100%);
+        }
+        
+        .category-discovery .module-category-header::before {
+            background: linear-gradient(90deg, var(--accent-color) 0%, var(--warning-color) 100%);
+        }
+        
+        .category-io .module-category-header::before {
+            background: linear-gradient(90deg, var(--success-color) 0%, var(--primary-color) 100%);
+        }
+        
+        .category-utils .module-category-header::before {
+            background: linear-gradient(90deg, #6c757d 0%, var(--secondary-color) 100%);
+        }
+        
+        .category-title {
+            font-size: var(--font-size-xl);
+            font-weight: 600;
+            color: var(--header-background);
+            margin-bottom: var(--spacing-xs);
+            display: flex;
+            align-items: center;
+            gap: var(--spacing-sm);
+        }
+        
+        .category-icon {
+            font-size: 1.5rem;
+        }
+        
+        .category-description {
+            color: #6c757d;
+            font-size: var(--font-size-sm);
+            line-height: 1.4;
+        }
+        
+        .module-files-list {
+            max-height: 400px;
+            overflow-y: auto;
+        }
+        
+        .module-file-item {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: var(--spacing-md) var(--spacing-lg);
+            border-bottom: 1px solid #f8f9fa;
+            transition: background-color var(--transition-fast);
+        }
+        
+        .module-file-item:hover {
+            background-color: #f8f9fa;
+        }
+        
+        .module-file-item:last-child {
+            border-bottom: none;
+        }
+        
+        .file-info {
+            flex: 1;
+        }
+        
+        .file-name {
+            font-family: var(--font-family-mono);
+            font-size: var(--font-size-sm);
+            color: var(--primary-color);
+            text-decoration: none;
+            font-weight: 500;
+        }
+        
+        .file-name:hover {
+            text-decoration: underline;
+        }
+        
+        .file-stats {
+            font-size: var(--font-size-sm);
+            color: #6c757d;
+            margin-top: 2px;
+        }
+        
+        .file-coverage-badge {
+            padding: var(--spacing-xs) var(--spacing-sm);
+            border-radius: var(--border-radius-sm);
+            font-size: var(--font-size-sm);
+            font-weight: 600;
+            min-width: 60px;
+            text-align: center;
+        }
+        
+        .coverage-excellent {
+            background: var(--covered-color);
+            color: var(--success-color);
+        }
+        
+        .coverage-good {
+            background: #fff3cd;
+            color: var(--warning-color);
+        }
+        
+        .coverage-poor {
+            background: var(--uncovered-color);
+            color: var(--danger-color);
+        }
+        
+        .experimental-data-section {
+            background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+            border: 2px solid var(--primary-color);
+            border-radius: var(--border-radius-lg);
+            padding: var(--spacing-xl);
+            margin: var(--spacing-xl) 0;
+            position: relative;
+        }
+        
+        .experimental-data-section::before {
+            content: '🧠';
+            position: absolute;
+            top: var(--spacing-md);
+            right: var(--spacing-md);
+            font-size: 2rem;
+            opacity: 0.3;
+        }
+        
+        .section-header {
+            display: flex;
+            align-items: center;
+            gap: var(--spacing-md);
+            margin-bottom: var(--spacing-lg);
+        }
+        
+        .section-title {
+            font-size: var(--font-size-xl);
+            font-weight: 700;
+            color: var(--primary-color);
+            margin: 0;
+        }
+        
+        .neuroscience-workflow {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: var(--spacing-md);
+            margin: var(--spacing-lg) 0;
+        }
+        
+        .workflow-step {
+            background: white;
+            border-radius: var(--border-radius-md);
+            padding: var(--spacing-md);
+            text-align: center;
+            box-shadow: var(--shadow-sm);
+            border: 1px solid #e9ecef;
+        }
+        
+        .workflow-icon {
+            font-size: 2rem;
+            margin-bottom: var(--spacing-sm);
+            display: block;
+        }
+        
+        .workflow-title {
+            font-weight: 600;
+            margin-bottom: var(--spacing-xs);
+            color: var(--header-background);
+        }
+        
+        .workflow-description {
+            font-size: var(--font-size-sm);
+            color: #6c757d;
+            line-height: 1.3;
+        }
+        
+        .performance-sla-section {
+            background: white;
+            border-radius: var(--border-radius-lg);
+            padding: var(--spacing-xl);
+            box-shadow: var(--shadow-md);
+            margin: var(--spacing-xl) 0;
+        }
+        
+        .sla-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: var(--spacing-lg);
+            margin: var(--spacing-lg) 0;
+        }
+        
+        .sla-metric {
+            border: 1px solid #e9ecef;
+            border-radius: var(--border-radius-md);
+            padding: var(--spacing-lg);
+            text-align: center;
+        }
+        
+        .sla-value {
+            font-size: 2rem;
+            font-weight: 700;
+            margin-bottom: var(--spacing-xs);
+        }
+        
+        .sla-passing {
+            color: var(--success-color);
+            border-color: var(--success-color);
+        }
+        
+        .sla-failing {
+            color: var(--danger-color);
+            border-color: var(--danger-color);
+        }
+        
+        .sla-label {
+            font-size: var(--font-size-sm);
+            color: #6c757d;
+            margin-bottom: var(--spacing-xs);
+        }
+        
+        .sla-description {
+            font-size: var(--font-size-sm);
+            color: #6c757d;
+        }
+        
+        .interactive-controls {
+            background: white;
+            border-radius: var(--border-radius-lg);
+            padding: var(--spacing-lg);
+            box-shadow: var(--shadow-sm);
+            margin: var(--spacing-lg) 0;
+            border: 1px solid #e9ecef;
+        }
+        
+        .control-group {
+            display: flex;
+            gap: var(--spacing-md);
+            align-items: center;
+            flex-wrap: wrap;
+        }
+        
+        .control-label {
+            font-weight: 600;
+            color: var(--header-background);
+            margin-right: var(--spacing-sm);
+        }
+        
+        .filter-btn {
+            padding: var(--spacing-xs) var(--spacing-md);
+            border: 1px solid var(--secondary-color);
+            background: white;
+            color: var(--secondary-color);
+            border-radius: var(--border-radius-sm);
+            cursor: pointer;
+            font-size: var(--font-size-sm);
+            font-weight: 500;
+            transition: all var(--transition-fast);
+        }
+        
+        .filter-btn:hover {
+            background-color: rgba(70, 130, 180, 0.1);
+        }
+        
+        .filter-btn.active {
+            background-color: var(--secondary-color);
+            color: white;
+        }
+        
+        .search-input {
+            padding: var(--spacing-sm) var(--spacing-md);
+            border: 1px solid #e9ecef;
+            border-radius: var(--border-radius-md);
+            font-size: var(--font-size-sm);
+            width: 250px;
+        }
+        
+        .search-input:focus {
+            outline: 2px solid var(--accent-color);
+            outline-offset: 2px;
+            border-color: var(--primary-color);
+        }
+        
+        @media (max-width: 1024px) {
+            .coverage-overview-grid {
+                grid-template-columns: 1fr;
+            }
+            
+            .hero-title {
+                font-size: 2.5rem;
+            }
+            
+            .hero-stats {
+                gap: var(--spacing-md);
+            }
+            
+            .module-grid-enhanced {
+                grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            }
+        }
+        
+        @media (max-width: 768px) {
+            .hero-title {
+                font-size: 2rem;
+            }
+            
+            .hero-stats {
+                flex-direction: column;
+                gap: var(--spacing-sm);
+            }
+            
+            .hero-stat {
+                min-width: 120px;
+            }
+            
+            .control-group {
+                flex-direction: column;
+                align-items: stretch;
+            }
+            
+            .search-input {
+                width: 100%;
+            }
+            
+            .module-grid-enhanced {
+                grid-template-columns: 1fr;
+            }
+            
+            .sla-grid {
+                grid-template-columns: 1fr;
+            }
+        }
     </style>
 </head>
 
-<body>
-    <!-- Skip link for accessibility -->
+<body class="coverage-dashboard">
+    <!-- Skip Links for Accessibility -->
     <a href="#main-content" class="skip-link">Skip to main content</a>
+    <a href="#coverage-summary" class="skip-link">Skip to coverage summary</a>
+    <a href="#module-breakdown" class="skip-link">Skip to module breakdown</a>
     
-    <!-- Page Header with Neuroscience Research Branding -->
-    <header class="header" role="banner">
+    <!-- Quality Gates Status Banner -->
+    <div class="quality-gates-banner" role="alert" aria-live="polite">
         <div class="container">
-            <div class="header-content">
-                <div class="header-brand">
-                    {% if config.report_formats.html.header.include_logo %}
-                    <div class="header-logo" aria-hidden="true">
-                        🧠
-                    </div>
-                    {% endif %}
-                    <div class="header-title-group">
-                        <h1 class="header-title">{{ config.report_formats.html.header.project_name | default('FlyrigLoader') }}</h1>
-                        <p class="header-subtitle">{{ config.report_formats.html.header.subtitle | default('Neuroscience Data Loading Library') }}</p>
-                    </div>
-                </div>
+            <span class="quality-status-icon">
+                {{ '✅' if overall_coverage.line_percent >= config.coverage_thresholds.overall_minimum else '❌' }}
+            </span>
+            <strong>Quality Gates: 
+                {{ 'PASSING' if overall_coverage.line_percent >= config.coverage_thresholds.overall_minimum else 'FAILING' }}
+            </strong>
+            - {{ overall_coverage.line_percent | round(1) }}% coverage 
+            ({{ 'meets' if overall_coverage.line_percent >= config.coverage_thresholds.overall_minimum else 'below' }} {{ config.coverage_thresholds.overall_minimum }}% threshold)
+        </div>
+    </div>
+    
+    <!-- Dashboard Hero Section -->
+    <header class="dashboard-hero" role="banner">
+        <div class="container">
+            <div class="hero-content">
+                <h1 class="hero-title">
+                    <span class="sr-only">{{ config.metadata.project_name }} </span>
+                    FlyRigLoader Coverage Dashboard
+                </h1>
+                <p class="hero-subtitle">
+                    {{ config.metadata.project_description }} - Comprehensive test coverage analysis for neuroscience experimental data loading and validation workflows
+                </p>
                 
-                {% if config.report_formats.html.header.build_info %}
-                <div class="header-meta" role="region" aria-label="Build information">
-                    {% if config.report_formats.html.header.timestamp %}
-                    <div class="header-meta-item">
-                        <span aria-label="Report generated">📅</span>
-                        <span>{{ report.timestamp | default('now') }}</span>
+                <div class="hero-stats">
+                    <div class="hero-stat">
+                        <span class="hero-stat-value">{{ overall_coverage.line_percent | round(1) }}%</span>
+                        <span class="hero-stat-label">Overall Coverage</span>
                     </div>
-                    {% endif %}
-                    
-                    {% if config.report_formats.html.header.python_version %}
-                    <div class="header-meta-item">
-                        <span aria-label="Python version">🐍</span>
-                        <span>Python {{ report.python_version | default('3.8+') }}</span>
+                    <div class="hero-stat">
+                        <span class="hero-stat-value">{{ overall_coverage.branch_percent | round(1) }}%</span>
+                        <span class="hero-stat-label">Branch Coverage</span>
                     </div>
-                    {% endif %}
-                    
-                    {% if config.report_formats.html.header.coverage_version %}
-                    <div class="header-meta-item">
-                        <span aria-label="Coverage tool version">📊</span>
-                        <span>Coverage.py {{ report.coverage_version | default('7.0+') }}</span>
+                    <div class="hero-stat">
+                        <span class="hero-stat-value">{{ modules | length }}</span>
+                        <span class="hero-stat-label">Modules Tested</span>
                     </div>
-                    {% endif %}
-                    
-                    {% if config.report_formats.html.header.branch_info and report.branch_name %}
-                    <div class="header-meta-item">
-                        <span aria-label="Git branch">🌿</span>
-                        <span>{{ report.branch_name }}</span>
+                    <div class="hero-stat">
+                        <span class="hero-stat-value">{{ total_tests }}</span>
+                        <span class="hero-stat-label">Total Tests</span>
                     </div>
-                    {% endif %}
-                    
-                    {% if config.report_formats.html.header.commit_hash and report.commit_hash %}
-                    <div class="header-meta-item">
-                        <span aria-label="Git commit">🔗</span>
-                        <span>{{ report.commit_hash[:8] }}</span>
-                    </div>
-                    {% endif %}
                 </div>
-                {% endif %}
             </div>
         </div>
     </header>
-
-    <!-- Breadcrumb Navigation -->
-    {% if config.report_formats.html.navigation.include_breadcrumbs %}
-    <nav class="breadcrumbs" role="navigation" aria-label="Breadcrumb">
-        <div class="container">
-            <ol>
-                <li><a href="{{ config.metadata.repository_url | default('#') }}">Repository</a></li>
-                <li><a href="{{ config.metadata.documentation_url | default('#') }}">Documentation</a></li>
-                <li aria-current="page">Coverage Report</li>
-            </ol>
-        </div>
-    </nav>
-    {% endif %}
-
+    
     <!-- Main Content -->
     <main id="main-content" class="container" role="main">
         
-        <!-- Coverage Summary Dashboard -->
-        <section class="coverage-summary" aria-labelledby="summary-title">
-            <h2 id="summary-title" class="section-title">
-                📊 Coverage Dashboard Overview
-            </h2>
-            
-            <div class="dashboard-grid">
-                <!-- Overall Coverage Card -->
-                <div class="dashboard-card {{ coverage.overall_class | default('good') }}" role="region" aria-labelledby="overall-coverage">
-                    <div class="coverage-ring" style="--coverage-percentage: {{ coverage.overall_percentage | default(90) }};">
-                        <div class="coverage-percentage" aria-label="{{ coverage.overall_percentage | default(90) }}% overall coverage">
-                            {{ coverage.overall_percentage | default(90) }}%
-                        </div>
-                    </div>
-                    <h3 id="overall-coverage" class="metric-label text-center">Overall Coverage</h3>
-                    <div class="metric-fraction text-center">
-                        {{ coverage.covered_lines | default(2150) }} of {{ coverage.total_lines | default(2387) }} lines covered
-                    </div>
-                    {% if coverage.overall_percentage >= config.quality_gates.thresholds.overall_coverage.minimum %}
-                    <div class="sla-indicator met">
-                        ✅ Quality Gate Passed
-                    </div>
-                    {% else %}
-                    <div class="sla-indicator exceeded">
-                        ❌ Below Threshold ({{ config.quality_gates.thresholds.overall_coverage.minimum }}%)
-                    </div>
-                    {% endif %}
-                </div>
-
-                <!-- Branch Coverage Card -->
-                <div class="dashboard-card {{ coverage.branch_class | default('good') }}" role="region" aria-labelledby="branch-coverage">
-                    <div class="coverage-ring" style="--coverage-percentage: {{ coverage.branch_percentage | default(87) }};">
-                        <div class="coverage-percentage" aria-label="{{ coverage.branch_percentage | default(87) }}% branch coverage">
-                            {{ coverage.branch_percentage | default(87) }}%
-                        </div>
-                    </div>
-                    <h3 id="branch-coverage" class="metric-label text-center">Branch Coverage</h3>
-                    <div class="metric-fraction text-center">
-                        {{ coverage.covered_branches | default(435) }} of {{ coverage.total_branches | default(501) }} branches covered
-                    </div>
-                    {% if coverage.branch_percentage >= config.quality_gates.thresholds.branch_coverage.minimum %}
-                    <div class="sla-indicator met">
-                        ✅ Quality Gate Passed
-                    </div>
-                    {% else %}
-                    <div class="sla-indicator exceeded">
-                        ❌ Below Threshold ({{ config.quality_gates.thresholds.branch_coverage.minimum }}%)
-                    </div>
-                    {% endif %}
-                </div>
-
-                <!-- Function Coverage Card -->
-                <div class="dashboard-card {{ coverage.function_class | default('excellent') }}" role="region" aria-labelledby="function-coverage">
-                    <div class="coverage-ring" style="--coverage-percentage: {{ coverage.function_percentage | default(96) }};">
-                        <div class="coverage-percentage" aria-label="{{ coverage.function_percentage | default(96) }}% function coverage">
-                            {{ coverage.function_percentage | default(96) }}%
-                        </div>
-                    </div>
-                    <h3 id="function-coverage" class="metric-label text-center">Function Coverage</h3>
-                    <div class="metric-fraction text-center">
-                        {{ coverage.covered_functions | default(128) }} of {{ coverage.total_functions | default(134) }} functions covered
-                    </div>
-                    {% if coverage.function_percentage >= config.quality_gates.thresholds.function_coverage.minimum %}
-                    <div class="sla-indicator met">
-                        ✅ Quality Gate Passed
-                    </div>
-                    {% else %}
-                    <div class="sla-indicator exceeded">
-                        ❌ Below Threshold ({{ config.quality_gates.thresholds.function_coverage.minimum }}%)
-                    </div>
-                    {% endif %}
-                </div>
-
-                <!-- Critical Modules Status Card -->
-                <div class="dashboard-card {{ coverage.critical_class | default('excellent') }}" role="region" aria-labelledby="critical-coverage">
-                    <div class="coverage-ring" style="--coverage-percentage: {{ coverage.critical_percentage | default(98) }};">
-                        <div class="coverage-percentage" aria-label="{{ coverage.critical_percentage | default(98) }}% critical module coverage">
-                            {{ coverage.critical_percentage | default(98) }}%
-                        </div>
-                    </div>
-                    <h3 id="critical-coverage" class="metric-label text-center">Critical Modules</h3>
-                    <div class="metric-fraction text-center">
-                        API, Configuration, Discovery, I/O Pipeline
-                    </div>
-                    {% if coverage.critical_percentage >= config.quality_gates.thresholds.critical_modules.minimum %}
-                    <div class="sla-indicator met">
-                        ✅ Research Quality Standards Met
-                    </div>
-                    {% else %}
-                    <div class="sla-indicator exceeded">
-                        ❌ Critical: Requires 100% Coverage
-                    </div>
-                    {% endif %}
-                </div>
+        <!-- Interactive Controls -->
+        <div class="interactive-controls">
+            <div class="control-group">
+                <span class="control-label">Filter by category:</span>
+                <button class="filter-btn active" data-filter="all">All Modules</button>
+                <button class="filter-btn" data-filter="api">Core API</button>
+                <button class="filter-btn" data-filter="config">Configuration</button>
+                <button class="filter-btn" data-filter="discovery">Discovery</button>
+                <button class="filter-btn" data-filter="io">Input/Output</button>
+                <button class="filter-btn" data-filter="utils">Utilities</button>
             </div>
-
-            <!-- Coverage Trend Visualization -->
-            {% if config.trend_analysis.historical_tracking.enabled %}
-            <div class="trend-section">
-                <h3>📈 Coverage Trends</h3>
-                <div class="trend-chart" role="img" aria-label="Coverage trend chart placeholder">
-                    Coverage trend visualization will be rendered here
-                    <br><small>Historical data: {{ config.trend_analysis.historical_tracking.retention_days }} days retention</small>
-                </div>
+            <div class="control-group">
+                <span class="control-label">Search modules:</span>
+                <input type="search" class="search-input" placeholder="Search by module name or path..." 
+                       aria-label="Search modules">
             </div>
-            {% endif %}
-        </section>
-
-        <!-- Quality Gates Status -->
-        <section aria-labelledby="quality-gates-title">
-            <h2 id="quality-gates-title" class="section-title">
-                🚦 Quality Gates Status
-            </h2>
-            
-            <div class="quality-gates-grid">
-                <div class="quality-gate-card {{ 'passing' if coverage.overall_percentage >= config.quality_gates.thresholds.overall_coverage.minimum else 'failing' }}">
-                    <div class="quality-gate-header">
-                        <h3 class="quality-gate-title">Overall Coverage</h3>
-                        <span class="quality-gate-status {{ 'passing' if coverage.overall_percentage >= config.quality_gates.thresholds.overall_coverage.minimum else 'failing' }}">
-                            {{ 'PASSING' if coverage.overall_percentage >= config.quality_gates.thresholds.overall_coverage.minimum else 'FAILING' }}
-                        </span>
-                    </div>
-                    <p>Target: ≥{{ config.quality_gates.thresholds.overall_coverage.minimum }}% | Current: {{ coverage.overall_percentage | default(90) }}%</p>
-                </div>
-
-                <div class="quality-gate-card {{ 'passing' if coverage.critical_percentage >= config.quality_gates.thresholds.critical_modules.minimum else 'failing' }}">
-                    <div class="quality-gate-header">
-                        <h3 class="quality-gate-title">Critical Modules</h3>
-                        <span class="quality-gate-status {{ 'passing' if coverage.critical_percentage >= config.quality_gates.thresholds.critical_modules.minimum else 'failing' }}">
-                            {{ 'PASSING' if coverage.critical_percentage >= config.quality_gates.thresholds.critical_modules.minimum else 'FAILING' }}
-                        </span>
-                    </div>
-                    <p>Target: {{ config.quality_gates.thresholds.critical_modules.minimum }}% | Current: {{ coverage.critical_percentage | default(98) }}%</p>
-                </div>
-
-                <div class="quality-gate-card {{ 'passing' if coverage.branch_percentage >= config.quality_gates.thresholds.branch_coverage.minimum else 'warning' }}">
-                    <div class="quality-gate-header">
-                        <h3 class="quality-gate-title">Branch Coverage</h3>
-                        <span class="quality-gate-status {{ 'passing' if coverage.branch_percentage >= config.quality_gates.thresholds.branch_coverage.minimum else 'warning' }}">
-                            {{ 'PASSING' if coverage.branch_percentage >= config.quality_gates.thresholds.branch_coverage.minimum else 'WARNING' }}
-                        </span>
-                    </div>
-                    <p>Target: ≥{{ config.quality_gates.thresholds.branch_coverage.minimum }}% | Current: {{ coverage.branch_percentage | default(87) }}%</p>
-                </div>
-
-                {% if performance %}
-                <div class="quality-gate-card {{ performance.overall_status | default('passing') }}">
-                    <div class="quality-gate-header">
-                        <h3 class="quality-gate-title">Performance SLA</h3>
-                        <span class="quality-gate-status {{ performance.overall_status | default('passing') }}">
-                            {{ performance.overall_status | upper | default('PASSING') }}
-                        </span>
-                    </div>
-                    <p>Data Loading: {{ performance.data_loading_time | default('750ms') }} (Target: &lt;1s/100MB)</p>
-                </div>
-                {% endif %}
-            </div>
-        </section>
-
-        <!-- Module Organization by Neuroscience Workflow -->
-        <section aria-labelledby="modules-title">
-            <h2 id="modules-title" class="section-title">
-                🧬 Module Coverage by Research Domain
-            </h2>
-
-            <!-- Critical Data Pipeline Modules -->
-            <div class="module-category">
-                <div class="category-header">
-                    <div class="category-icon" aria-hidden="true">🔬</div>
-                    <div class="category-info">
-                        <h2>Critical Data Pipeline</h2>
-                        <p class="category-description">Core modules for experimental data loading, validation, and transformation</p>
-                        <div class="category-stats">
-                            <span>4 modules</span>
-                            <span>Required: 100% coverage</span>
-                            <span>Status: {{ 'Complete' if coverage.critical_percentage >= 100 else 'In Progress' }}</span>
-                        </div>
-                    </div>
-                </div>
-                
-                <div class="file-tree">
-                    {% for module in modules.critical | default([
-                        {'name': 'api.py', 'path': 'src/flyrigloader/api.py', 'coverage': 98, 'class': 'excellent', 'description': 'High-level facade for experimental data loading'},
-                        {'name': 'config/', 'path': 'src/flyrigloader/config/', 'coverage': 100, 'class': 'excellent', 'description': 'YAML configuration and discovery'},
-                        {'name': 'discovery/', 'path': 'src/flyrigloader/discovery/', 'coverage': 95, 'class': 'excellent', 'description': 'File discovery and pattern matching'},
-                        {'name': 'io/', 'path': 'src/flyrigloader/io/', 'coverage': 100, 'class': 'excellent', 'description': 'Data loading and transformation pipeline'}
-                    ]) %}
-                    <div class="file-tree-item">
-                        <a href="{{ module.name | replace('/', '_') | replace('.py', '') }}.html" class="file-tree-link">
-                            <div class="file-info">
-                                <span class="file-name">{{ module.name }}</span>
-                                <span class="file-description">{{ module.description }}</span>
-                            </div>
-                            <div class="file-stats">
-                                <span class="coverage-badge {{ module.class }}">{{ module.coverage }}%</span>
-                                <span class="file-meta">{{ module.lines | default('156') }} lines</span>
-                            </div>
-                        </a>
-                    </div>
-                    {% endfor %}
-                </div>
-            </div>
-
-            <!-- Supporting Infrastructure Modules -->
-            <div class="module-category">
-                <div class="category-header" style="background: linear-gradient(135deg, var(--neuroscience-util), var(--fl-secondary));">
-                    <div class="category-icon" aria-hidden="true">🛠️</div>
-                    <div class="category-info">
-                        <h2>Supporting Infrastructure</h2>
-                        <p class="category-description">Utility functions, path management, and cross-platform compatibility</p>
-                        <div class="category-stats">
-                            <span>2 modules</span>
-                            <span>Target: 95% coverage</span>
-                            <span>Status: {{ 'Complete' if coverage.utilities_percentage >= 95 else 'In Progress' }}</span>
-                        </div>
-                    </div>
-                </div>
-                
-                <div class="file-tree">
-                    {% for module in modules.utilities | default([
-                        {'name': 'utils/', 'path': 'src/flyrigloader/utils/', 'coverage': 92, 'class': 'good', 'description': 'Path utilities and DataFrame helpers'},
-                        {'name': '__init__.py', 'path': 'src/flyrigloader/__init__.py', 'coverage': 85, 'class': 'good', 'description': 'Logging initialization and package setup'}
-                    ]) %}
-                    <div class="file-tree-item">
-                        <a href="{{ module.name | replace('/', '_') | replace('.py', '') }}.html" class="file-tree-link">
-                            <div class="file-info">
-                                <span class="file-name">{{ module.name }}</span>
-                                <span class="file-description">{{ module.description }}</span>
-                            </div>
-                            <div class="file-stats">
-                                <span class="coverage-badge {{ module.class }}">{{ module.coverage }}%</span>
-                                <span class="file-meta">{{ module.lines | default('78') }} lines</span>
-                            </div>
-                        </a>
-                    </div>
-                    {% endfor %}
-                </div>
-            </div>
-
-            <!-- Test Infrastructure Modules -->
-            {% if config.coverage_contexts.test_contexts %}
-            <div class="module-category">
-                <div class="category-header" style="background: linear-gradient(135deg, var(--neuroscience-config), var(--fl-accent));">
-                    <div class="category-icon" aria-hidden="true">🧪</div>
-                    <div class="category-info">
-                        <h2>Test Infrastructure</h2>
-                        <p class="category-description">Comprehensive test suites, fixtures, and quality assurance</p>
-                        <div class="category-stats">
-                            <span>{{ test_stats.total_tests | default(247) }} tests</span>
-                            <span>{{ test_stats.test_files | default(18) }} test files</span>
-                            <span>Execution: {{ test_stats.execution_time | default('1.8s') }}</span>
-                        </div>
-                    </div>
-                </div>
-                
-                <div class="file-tree">
-                    {% for test_type in ['Unit Tests', 'Integration Tests', 'Performance Benchmarks', 'Regression Tests'] %}
-                    <div class="file-tree-item">
-                        <div class="file-tree-link">
-                            <div class="file-info">
-                                <span class="file-name">{{ test_type }}</span>
-                                <span class="file-description">{{ test_descriptions[test_type] | default('Comprehensive test coverage') }}</span>
-                            </div>
-                            <div class="file-stats">
-                                <span class="coverage-badge excellent">{{ test_coverages[test_type] | default('100') }}%</span>
-                                <span class="file-meta">{{ test_counts[test_type] | default('45') }} tests</span>
-                            </div>
-                        </div>
-                    </div>
-                    {% endfor %}
-                </div>
-            </div>
-            {% endif %}
-        </section>
-
-        <!-- Performance and SLA Dashboard -->
-        {% if config.report_formats.html.performance_section.include_benchmark_results %}
-        <section aria-labelledby="performance-title">
-            <h2 id="performance-title" class="section-title">
-                ⚡ Performance SLA Compliance
-            </h2>
-            
-            <div class="performance-section">
-                <div class="dashboard-grid">
-                    <div class="dashboard-card {{ 'excellent' if performance.data_loading_sla_met else 'poor' }}">
-                        <h3>Data Loading Performance</h3>
-                        <div class="metric-value">{{ performance.data_loading_time | default('750ms') }}</div>
-                        <div class="metric-label">per 100MB</div>
-                        <div class="sla-indicator {{ 'met' if performance.data_loading_sla_met else 'exceeded' }}">
-                            SLA: {{ config.report_formats.html.performance_section.data_loading_sla | default('1s per 100MB') }}
-                        </div>
-                    </div>
-
-                    <div class="dashboard-card {{ 'excellent' if performance.transformation_sla_met else 'poor' }}">
-                        <h3>DataFrame Transformation</h3>
-                        <div class="metric-value">{{ performance.transformation_time | default('320ms') }}</div>
-                        <div class="metric-label">per 1M rows</div>
-                        <div class="sla-indicator {{ 'met' if performance.transformation_sla_met else 'exceeded' }}">
-                            SLA: {{ config.report_formats.html.performance_section.transformation_sla | default('500ms per 1M rows') }}
-                        </div>
-                    </div>
-
-                    <div class="dashboard-card {{ 'excellent' if performance.discovery_sla_met else 'poor' }}">
-                        <h3>File Discovery</h3>
-                        <div class="metric-value">{{ performance.discovery_time | default('3.2s') }}</div>
-                        <div class="metric-label">for 10K files</div>
-                        <div class="sla-indicator {{ 'met' if performance.discovery_sla_met else 'exceeded' }}">
-                            SLA: {{ config.report_formats.html.performance_section.discovery_sla | default('5s for 10,000 files') }}
-                        </div>
-                    </div>
-                </div>
-
-                {% if config.report_formats.html.performance_section.trend_charts %}
-                <div class="trend-section">
-                    <h3>Performance Trend Analysis</h3>
-                    <div class="trend-chart" role="img" aria-label="Performance trend chart placeholder">
-                        Performance trend visualization over time
-                        <br><small>Regression alerts: {{ 'Enabled' if config.report_formats.html.performance_section.regression_alerts else 'Disabled' }}</small>
-                    </div>
-                </div>
-                {% endif %}
-            </div>
-        </section>
-        {% endif %}
-
-        <!-- Quick Navigation Links -->
-        {% if config.report_formats.html.navigation.quick_links %}
-        <section aria-labelledby="quick-nav-title">
-            <h2 id="quick-nav-title" class="section-title">
-                🚀 Quick Navigation
-            </h2>
-            
-            <div class="dashboard-grid">
-                {% for link in config.report_formats.html.navigation.quick_links %}
-                <a href="{{ link.path }}" class="dashboard-card {{ 'critical' if link.critical else 'good' }}" style="text-decoration: none; color: inherit;">
-                    <h3>{{ link.name }}</h3>
-                    <p>{{ link.description | default('Detailed coverage analysis') }}</p>
-                    <div class="sla-indicator met">
-                        {{ 'Critical Module' if link.critical else 'Standard Module' }}
-                    </div>
-                </a>
-                {% endfor %}
-            </div>
-        </section>
-        {% endif %}
-
-        <!-- Footer Information -->
-        <footer class="coverage-footer" role="contentinfo">
-            <div class="footer-content">
-                <div class="footer-section">
-                    <h3>Coverage Report Information</h3>
-                    <p>Generated by {{ config.metadata.created_by | default('FlyrigLoader Coverage Enhancement System') }}</p>
-                    <p>Schema Version: {{ config.metadata.schema_version | default('2.1.12') }}</p>
-                    <p>Report Format: {{ config.report_formats.html.format_version | default('HTML 5.0') }}</p>
-                </div>
-                
-                <div class="footer-section">
-                    <h3>Quality Standards</h3>
-                    <p>Overall Coverage: ≥{{ config.quality_gates.thresholds.overall_coverage.minimum }}%</p>
-                    <p>Critical Modules: {{ config.quality_gates.thresholds.critical_modules.minimum }}%</p>
-                    <p>Branch Coverage: ≥{{ config.quality_gates.thresholds.branch_coverage.minimum }}%</p>
-                </div>
-                
-                <div class="footer-section">
-                    <h3>Resources</h3>
-                    {% if config.metadata.repository_url %}
-                    <p><a href="{{ config.metadata.repository_url }}">📂 Repository</a></p>
-                    {% endif %}
-                    {% if config.metadata.documentation_url %}
-                    <p><a href="{{ config.metadata.documentation_url }}">📚 Documentation</a></p>
-                    {% endif %}
-                    <p><a href="#top">⬆️ Back to Top</a></p>
-                </div>
-            </div>
-            
-            <div class="footer-bottom">
-                <p>&copy; {{ report.year | default('2024') }} {{ config.metadata.organization | default('Research Team') }}. 
-                Licensed under {{ config.metadata.license | default('MIT') }}.</p>
-                <p><small>Neuroscience research domain styling optimized for flyrigloader experimental data analysis workflows.</small></p>
-            </div>
-        </footer>
-    </main>
-
-    <!-- JavaScript for Enhanced Interactivity -->
-    <script>
-    // Progressive enhancement: Enable JavaScript features
-    document.documentElement.classList.remove('no-js');
-    document.documentElement.classList.add('js');
-
-    // Coverage ring animation
-    function animateCoverageRings() {
-        const rings = document.querySelectorAll('.coverage-ring');
+        </div>
         
-        rings.forEach(ring => {
-            const percentage = ring.style.getPropertyValue('--coverage-percentage') || 0;
-            let currentPercentage = 0;
-            const increment = percentage / 50; // 50 animation frames
+        <!-- Coverage Overview -->
+        <div class="coverage-overview-grid" id="coverage-summary">
             
-            const animate = () => {
-                if (currentPercentage < percentage) {
-                    currentPercentage += increment;
-                    ring.style.setProperty('--coverage-percentage', Math.min(currentPercentage, percentage));
-                    requestAnimationFrame(animate);
-                }
-            };
+            <!-- Summary Statistics -->
+            <div class="coverage-summary">
+                <h2>📊 Coverage Summary Statistics</h2>
+                
+                <div class="summary-grid">
+                    <div class="summary-card {{ 'success' if overall_coverage.line_percent >= config.coverage_thresholds.overall_minimum else 'critical' }}">
+                        <h3>Overall Line Coverage</h3>
+                        <div class="metric {{ 'high' if overall_coverage.line_percent >= config.coverage_thresholds.overall_minimum else 'low' }}">
+                            {{ overall_coverage.line_percent | round(1) }}%
+                        </div>
+                        <div class="coverage-bar">
+                            <div class="coverage-bar-fill {{ 'high' if overall_coverage.line_percent >= config.coverage_thresholds.overall_minimum else 'low' }}" 
+                                 style="width: {{ overall_coverage.line_percent }}%"></div>
+                        </div>
+                        <div class="description">
+                            {{ overall_coverage.covered_lines }} of {{ overall_coverage.total_lines }} lines covered
+                            <br>Threshold: {{ config.coverage_thresholds.overall_minimum }}%
+                        </div>
+                    </div>
+                    
+                    <div class="summary-card {{ 'success' if overall_coverage.branch_percent >= 85 else 'warning' if overall_coverage.branch_percent >= 70 else 'critical' }}">
+                        <h3>Branch Coverage</h3>
+                        <div class="metric {{ 'high' if overall_coverage.branch_percent >= 85 else 'medium' if overall_coverage.branch_percent >= 70 else 'low' }}">
+                            {{ overall_coverage.branch_percent | round(1) }}%
+                        </div>
+                        <div class="coverage-bar">
+                            <div class="coverage-bar-fill {{ 'high' if overall_coverage.branch_percent >= 85 else 'medium' if overall_coverage.branch_percent >= 70 else 'low' }}" 
+                                 style="width: {{ overall_coverage.branch_percent }}%"></div>
+                        </div>
+                        <div class="description">
+                            {{ overall_coverage.covered_branches }} of {{ overall_coverage.total_branches }} branches covered
+                            <br>Target: 85%+
+                        </div>
+                    </div>
+                    
+                    <div class="summary-card {{ 'success' if critical_coverage.line_percent >= config.coverage_thresholds.critical_modules_minimum else 'critical' }}">
+                        <h3>Critical Modules</h3>
+                        <div class="metric {{ 'high' if critical_coverage.line_percent >= config.coverage_thresholds.critical_modules_minimum else 'low' }}">
+                            {{ critical_coverage.line_percent | round(1) }}%
+                        </div>
+                        <div class="coverage-bar">
+                            <div class="coverage-bar-fill {{ 'high' if critical_coverage.line_percent >= config.coverage_thresholds.critical_modules_minimum else 'low' }}" 
+                                 style="width: {{ critical_coverage.line_percent }}%"></div>
+                        </div>
+                        <div class="description">
+                            Critical data loading and validation modules
+                            <br>Required: {{ config.coverage_thresholds.critical_modules_minimum }}%
+                        </div>
+                    </div>
+                    
+                    <div class="summary-card success">
+                        <h3>Test Execution</h3>
+                        <div class="metric high">{{ test_execution.duration | round(1) }}s</div>
+                        <div class="coverage-bar">
+                            <div class="coverage-bar-fill high" style="width: {{ ((300 - test_execution.duration) / 300 * 100) | round(0) }}%"></div>
+                        </div>
+                        <div class="description">
+                            {{ test_execution.total_tests }} tests executed
+                            <br>{{ test_execution.passed }} passed, {{ test_execution.failed }} failed
+                        </div>
+                    </div>
+                </div>
+            </div>
             
-            // Start animation when element comes into view
-            const observer = new IntersectionObserver((entries) => {
-                entries.forEach(entry => {
-                    if (entry.isIntersecting) {
-                        animate();
-                        observer.unobserve(entry.target);
+            <!-- Trend Visualization -->
+            <div class="trend-visualization">
+                <h3>📈 Coverage Trend Analysis</h3>
+                <p class="text-muted mb-3">Historical coverage progression with quality gate monitoring</p>
+                
+                <div class="trend-chart">
+                    <div class="trend-line"></div>
+                    <div class="trend-markers">
+                        <div class="trend-marker" data-value="100%"></div>
+                        <div class="trend-marker" data-value="90%"></div>
+                        <div class="trend-marker" data-value="80%"></div>
+                        <div class="trend-marker" data-value="70%"></div>
+                        <div class="trend-marker" data-value="60%"></div>
+                        <div class="trend-marker" data-value="50%"></div>
+                        <div class="trend-marker" data-value="40%"></div>
+                        <div class="trend-marker" data-value="30%"></div>
+                        <div class="trend-marker" data-value="20%"></div>
+                        <div class="trend-marker" data-value="10%"></div>
+                        <div class="trend-marker" data-value="0%"></div>
+                    </div>
+                </div>
+                
+                <div class="mt-3 text-center">
+                    <span class="trend-indicator {{ 'up' if coverage_trend.direction == 'up' else 'down' if coverage_trend.direction == 'down' else 'stable' }}">
+                        <span class="trend-arrow">{{ '↗' if coverage_trend.direction == 'up' else '↘' if coverage_trend.direction == 'down' else '→' }}</span>
+                        {{ coverage_trend.change }}% 
+                        {{ 'increase' if coverage_trend.direction == 'up' else 'decrease' if coverage_trend.direction == 'down' else 'stable' }} 
+                        from previous run
+                    </span>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Neuroscience Experimental Data Context -->
+        <div class="experimental-data-section">
+            <div class="section-header">
+                <h2 class="section-title">🧠 Neuroscience Research Workflow Coverage</h2>
+            </div>
+            
+            <p>This coverage analysis validates the complete neuroscience experimental data processing pipeline, ensuring reliability across critical research workflows from data acquisition to analysis.</p>
+            
+            <div class="neuroscience-workflow">
+                <div class="workflow-step">
+                    <span class="workflow-icon">📁</span>
+                    <div class="workflow-title">Data Discovery</div>
+                    <div class="workflow-description">Automated experimental file discovery and metadata extraction</div>
+                </div>
+                <div class="workflow-step">
+                    <span class="workflow-icon">⚙️</span>
+                    <div class="workflow-title">Configuration</div>
+                    <div class="workflow-description">YAML-based experiment configuration and validation</div>
+                </div>
+                <div class="workflow-step">
+                    <span class="workflow-icon">📊</span>
+                    <div class="workflow-title">Data Loading</div>
+                    <div class="workflow-description">Multi-format pickle data loading with schema validation</div>
+                </div>
+                <div class="workflow-step">
+                    <span class="workflow-icon">🔄</span>
+                    <div class="workflow-title">Transformation</div>
+                    <div class="workflow-description">DataFrame transformation and experimental data integration</div>
+                </div>
+                <div class="workflow-step">
+                    <span class="workflow-icon">✅</span>
+                    <div class="workflow-title">Validation</div>
+                    <div class="workflow-description">Data quality validation and integrity checking</div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Performance SLA Status -->
+        {% if config.performance_integration.benchmark_correlation %}
+        <div class="performance-sla-section">
+            <h2>🚀 Performance SLA Compliance</h2>
+            <p class="text-muted mb-3">Coverage correlation with performance benchmark validation against defined service level agreements</p>
+            
+            <div class="sla-grid">
+                <div class="sla-metric {{ 'sla-passing' if performance_metrics.data_loading_sla_compliance else 'sla-failing' }}">
+                    <div class="sla-value {{ 'sla-passing' if performance_metrics.data_loading_sla_compliance else 'sla-failing' }}">
+                        {{ performance_metrics.avg_data_loading_time | round(2) }}s
+                    </div>
+                    <div class="sla-label">Data Loading Performance</div>
+                    <div class="sla-description">
+                        Per 100MB experimental data
+                        <br>SLA: {{ config.performance_integration.data_loading_sla }}
+                    </div>
+                </div>
+                
+                <div class="sla-metric {{ 'sla-passing' if performance_metrics.transformation_sla_compliance else 'sla-failing' }}">
+                    <div class="sla-value {{ 'sla-passing' if performance_metrics.transformation_sla_compliance else 'sla-failing' }}">
+                        {{ performance_metrics.avg_transformation_time | round(3) }}s
+                    </div>
+                    <div class="sla-label">Transformation Performance</div>
+                    <div class="sla-description">
+                        Per 1M experimental data rows
+                        <br>SLA: {{ config.performance_integration.transformation_sla }}
+                    </div>
+                </div>
+                
+                <div class="sla-metric sla-passing">
+                    <div class="sla-value sla-passing">{{ performance_metrics.test_coverage_correlation | round(1) }}%</div>
+                    <div class="sla-label">Coverage-Performance Correlation</div>
+                    <div class="sla-description">
+                        High test coverage modules show consistent performance
+                        <br>Correlation coefficient: {{ performance_metrics.correlation_coefficient | round(3) }}
+                    </div>
+                </div>
+            </div>
+        </div>
+        {% endif %}
+        
+        <!-- Module Breakdown by Category -->
+        <div id="module-breakdown">
+            <h2>📋 Module Coverage Breakdown</h2>
+            <p class="text-muted mb-4">Detailed coverage analysis organized by neuroscience experimental data processing categories</p>
+            
+            <!-- API Modules -->
+            <div class="module-card-enhanced category-api" data-category="api">
+                <div class="module-category-header">
+                    <div class="category-title">
+                        <span class="category-icon">🔌</span>
+                        Core API - High-Level Data Loading Interface
+                    </div>
+                    <div class="category-description">
+                        {{ config.html_report.module_organization.api.description }}
+                        (Priority: {{ config.html_report.module_organization.api.priority.title() }}, 
+                         Required Coverage: {{ config.html_report.module_organization.api.coverage_requirement }}%)
+                    </div>
+                </div>
+                <div class="module-files-list">
+                    {% for module in modules %}
+                    {% if module.category == 'api' %}
+                    <div class="module-file-item">
+                        <div class="file-info">
+                            <a href="{{ module.html_path }}" class="file-name">{{ module.name }}</a>
+                            <div class="file-stats">
+                                {{ module.total_lines }} lines • {{ module.functions | length }} functions • {{ module.classes | length }} classes
+                            </div>
+                        </div>
+                        <div class="file-coverage-badge {{ 'coverage-excellent' if module.line_percent >= 95 else 'coverage-good' if module.line_percent >= 80 else 'coverage-poor' }}">
+                            {{ module.line_percent | round(1) }}%
+                        </div>
+                    </div>
+                    {% endif %}
+                    {% endfor %}
+                </div>
+            </div>
+            
+            <!-- Configuration Modules -->
+            <div class="module-card-enhanced category-config" data-category="config">
+                <div class="module-category-header">
+                    <div class="category-title">
+                        <span class="category-icon">⚙️</span>
+                        Configuration Management - YAML and Discovery
+                    </div>
+                    <div class="category-description">
+                        {{ config.html_report.module_organization.config.description }}
+                        (Priority: {{ config.html_report.module_organization.config.priority.title() }}, 
+                         Required Coverage: {{ config.html_report.module_organization.config.coverage_requirement }}%)
+                    </div>
+                </div>
+                <div class="module-files-list">
+                    {% for module in modules %}
+                    {% if module.category == 'config' %}
+                    <div class="module-file-item">
+                        <div class="file-info">
+                            <a href="{{ module.html_path }}" class="file-name">{{ module.name }}</a>
+                            <div class="file-stats">
+                                {{ module.total_lines }} lines • {{ module.functions | length }} functions • {{ module.classes | length }} classes
+                            </div>
+                        </div>
+                        <div class="file-coverage-badge {{ 'coverage-excellent' if module.line_percent >= 95 else 'coverage-good' if module.line_percent >= 80 else 'coverage-poor' }}">
+                            {{ module.line_percent | round(1) }}%
+                        </div>
+                    </div>
+                    {% endif %}
+                    {% endfor %}
+                </div>
+            </div>
+            
+            <!-- Discovery Modules -->
+            <div class="module-card-enhanced category-discovery" data-category="discovery">
+                <div class="module-category-header">
+                    <div class="category-title">
+                        <span class="category-icon">🔍</span>
+                        File Discovery Engine - Pattern-Based Discovery
+                    </div>
+                    <div class="category-description">
+                        {{ config.html_report.module_organization.discovery.description }}
+                        (Priority: {{ config.html_report.module_organization.discovery.priority.title() }}, 
+                         Required Coverage: {{ config.html_report.module_organization.discovery.coverage_requirement }}%)
+                    </div>
+                </div>
+                <div class="module-files-list">
+                    {% for module in modules %}
+                    {% if module.category == 'discovery' %}
+                    <div class="module-file-item">
+                        <div class="file-info">
+                            <a href="{{ module.html_path }}" class="file-name">{{ module.name }}</a>
+                            <div class="file-stats">
+                                {{ module.total_lines }} lines • {{ module.functions | length }} functions • {{ module.classes | length }} classes
+                            </div>
+                        </div>
+                        <div class="file-coverage-badge {{ 'coverage-excellent' if module.line_percent >= 95 else 'coverage-good' if module.line_percent >= 80 else 'coverage-poor' }}">
+                            {{ module.line_percent | round(1) }}%
+                        </div>
+                    </div>
+                    {% endif %}
+                    {% endfor %}
+                </div>
+            </div>
+            
+            <!-- I/O Modules -->
+            <div class="module-card-enhanced category-io" data-category="io">
+                <div class="module-category-header">
+                    <div class="category-title">
+                        <span class="category-icon">📊</span>
+                        Data Input/Output - Loading and Transformation
+                    </div>
+                    <div class="category-description">
+                        {{ config.html_report.module_organization.io.description }}
+                        (Priority: {{ config.html_report.module_organization.io.priority.title() }}, 
+                         Required Coverage: {{ config.html_report.module_organization.io.coverage_requirement }}%)
+                    </div>
+                </div>
+                <div class="module-files-list">
+                    {% for module in modules %}
+                    {% if module.category == 'io' %}
+                    <div class="module-file-item">
+                        <div class="file-info">
+                            <a href="{{ module.html_path }}" class="file-name">{{ module.name }}</a>
+                            <div class="file-stats">
+                                {{ module.total_lines }} lines • {{ module.functions | length }} functions • {{ module.classes | length }} classes
+                            </div>
+                        </div>
+                        <div class="file-coverage-badge {{ 'coverage-excellent' if module.line_percent >= 95 else 'coverage-good' if module.line_percent >= 80 else 'coverage-poor' }}">
+                            {{ module.line_percent | round(1) }}%
+                        </div>
+                    </div>
+                    {% endif %}
+                    {% endfor %}
+                </div>
+            </div>
+            
+            <!-- Utility Modules -->
+            <div class="module-card-enhanced category-utils" data-category="utils">
+                <div class="module-category-header">
+                    <div class="category-title">
+                        <span class="category-icon">🛠️</span>
+                        Utility Functions - Cross-Platform Helpers
+                    </div>
+                    <div class="category-description">
+                        {{ config.html_report.module_organization.utils.description }}
+                        (Priority: {{ config.html_report.module_organization.utils.priority.title() }}, 
+                         Required Coverage: {{ config.html_report.module_organization.utils.coverage_requirement }}%)
+                    </div>
+                </div>
+                <div class="module-files-list">
+                    {% for module in modules %}
+                    {% if module.category == 'utils' %}
+                    <div class="module-file-item">
+                        <div class="file-info">
+                            <a href="{{ module.html_path }}" class="file-name">{{ module.name }}</a>
+                            <div class="file-stats">
+                                {{ module.total_lines }} lines • {{ module.functions | length }} functions • {{ module.classes | length }} classes
+                            </div>
+                        </div>
+                        <div class="file-coverage-badge {{ 'coverage-excellent' if module.line_percent >= 95 else 'coverage-good' if module.line_percent >= 80 else 'coverage-poor' }}">
+                            {{ module.line_percent | round(1) }}%
+                        </div>
+                    </div>
+                    {% endif %}
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+        
+    </main>
+    
+    <!-- Footer -->
+    <footer class="footer" role="contentinfo">
+        <div class="footer-content">
+            <h3>{{ config.metadata.project_name }} Coverage Enhancement System</h3>
+            <p>
+                Generated by {{ config.metadata.generated_by }} v{{ config.metadata.version }}
+                on {{ report_timestamp | strftime('%Y-%m-%d at %H:%M:%S UTC') }}
+            </p>
+            <p>
+                Comprehensive test coverage analysis for {{ config.metadata.domain.replace('_', ' ') }} experimental data loading workflows.
+                Quality gates: {{ 'PASSING' if overall_coverage.line_percent >= config.coverage_thresholds.overall_minimum else 'FAILING' }} 
+                ({{ overall_coverage.line_percent | round(1) }}% / {{ config.coverage_thresholds.overall_minimum }}% required)
+            </p>
+            
+            <div class="footer-links">
+                <a href="{{ config.metadata.documentation_url }}" target="_blank" rel="noopener noreferrer">
+                    📚 Documentation
+                </a>
+                <a href="mailto:{{ config.metadata.contact }}">
+                    📧 Contact Research Team
+                </a>
+                <a href="coverage.xml" download>
+                    📄 Download XML Report
+                </a>
+                <a href="coverage.json" download>
+                    📊 Download JSON Data
+                </a>
+                {% if config.performance_integration.benchmark_correlation %}
+                <a href="benchmarks.html">
+                    🚀 Performance Benchmarks
+                </a>
+                {% endif %}
+            </div>
+        </div>
+    </footer>
+    
+    <!-- Interactive JavaScript -->
+    <script>
+        // Coverage Dashboard Interactive Functionality
+        document.addEventListener('DOMContentLoaded', function() {
+            
+            // Module filtering functionality
+            const filterButtons = document.querySelectorAll('.filter-btn');
+            const moduleCards = document.querySelectorAll('[data-category]');
+            const searchInput = document.querySelector('.search-input');
+            
+            filterButtons.forEach(button => {
+                button.addEventListener('click', function() {
+                    const filter = this.dataset.filter;
+                    
+                    // Update button states
+                    filterButtons.forEach(btn => btn.classList.remove('active'));
+                    this.classList.add('active');
+                    
+                    // Filter modules
+                    moduleCards.forEach(card => {
+                        if (filter === 'all' || card.dataset.category === filter) {
+                            card.style.display = 'block';
+                            card.classList.add('filtered-visible');
+                        } else {
+                            card.style.display = 'none';
+                            card.classList.remove('filtered-visible');
+                        }
+                    });
+                    
+                    // Update search within filtered results
+                    performSearch();
+                });
+            });
+            
+            // Search functionality
+            searchInput.addEventListener('input', performSearch);
+            
+            function performSearch() {
+                const searchTerm = searchInput.value.toLowerCase();
+                const visibleCards = document.querySelectorAll('.module-card-enhanced.filtered-visible, .module-card-enhanced[style="display: block;"], .module-card-enhanced:not([style*="display: none"])');
+                
+                visibleCards.forEach(card => {
+                    const fileItems = card.querySelectorAll('.module-file-item');
+                    let hasVisibleItems = false;
+                    
+                    fileItems.forEach(item => {
+                        const fileName = item.querySelector('.file-name').textContent.toLowerCase();
+                        if (fileName.includes(searchTerm)) {
+                            item.style.display = 'flex';
+                            hasVisibleItems = true;
+                        } else {
+                            item.style.display = 'none';
+                        }
+                    });
+                    
+                    // Show/hide the entire card based on whether it has visible items
+                    if (searchTerm === '' || hasVisibleItems) {
+                        card.style.display = 'block';
+                    } else {
+                        card.style.display = 'none';
+                    }
+                });
+            }
+            
+            // Initialize with all modules visible
+            moduleCards.forEach(card => {
+                card.classList.add('filtered-visible');
+            });
+            
+            // Smooth scrolling for anchor links
+            document.querySelectorAll('a[href^="#"]').forEach(anchor => {
+                anchor.addEventListener('click', function (e) {
+                    e.preventDefault();
+                    const target = document.querySelector(this.getAttribute('href'));
+                    if (target) {
+                        target.scrollIntoView({
+                            behavior: 'smooth',
+                            block: 'start'
+                        });
                     }
                 });
             });
             
-            observer.observe(ring);
-        });
-    }
-
-    // Enhanced keyboard navigation
-    function setupKeyboardNavigation() {
-        document.addEventListener('keydown', (event) => {
-            // Quick navigation shortcuts
-            if (event.altKey) {
-                switch(event.key) {
-                    case '1':
-                        event.preventDefault();
-                        document.getElementById('summary-title')?.scrollIntoView({ behavior: 'smooth' });
-                        break;
-                    case '2':
-                        event.preventDefault();
-                        document.getElementById('quality-gates-title')?.scrollIntoView({ behavior: 'smooth' });
-                        break;
-                    case '3':
-                        event.preventDefault();
-                        document.getElementById('modules-title')?.scrollIntoView({ behavior: 'smooth' });
-                        break;
-                    case '4':
-                        event.preventDefault();
-                        document.getElementById('performance-title')?.scrollIntoView({ behavior: 'smooth' });
-                        break;
-                }
+            // Coverage bar animations
+            const coverageBars = document.querySelectorAll('.coverage-bar-fill');
+            const observerOptions = {
+                threshold: 0.1,
+                rootMargin: '0px 0px -50px 0px'
+            };
+            
+            const observer = new IntersectionObserver((entries) => {
+                entries.forEach(entry => {
+                    if (entry.isIntersecting) {
+                        entry.target.style.transform = 'scaleX(1)';
+                        entry.target.style.transformOrigin = 'left';
+                        entry.target.style.transition = 'transform 1s ease-out';
+                    }
+                });
+            }, observerOptions);
+            
+            coverageBars.forEach(bar => {
+                bar.style.transform = 'scaleX(0)';
+                observer.observe(bar);
+            });
+            
+            // Trend line animation
+            const trendLine = document.querySelector('.trend-line');
+            if (trendLine) {
+                setTimeout(() => {
+                    trendLine.style.animation = 'trend-grow 2s ease-out forwards';
+                }, 500);
             }
-        });
-    }
-
-    // Accessibility enhancements
-    function enhanceAccessibility() {
-        // Add ARIA live regions for dynamic content
-        const coverageCards = document.querySelectorAll('.dashboard-card');
-        coverageCards.forEach(card => {
-            card.setAttribute('tabindex', '0');
-            card.addEventListener('focus', () => {
-                card.setAttribute('aria-expanded', 'true');
-            });
-            card.addEventListener('blur', () => {
-                card.setAttribute('aria-expanded', 'false');
-            });
-        });
-
-        // Enhanced tooltip support
-        const elements = document.querySelectorAll('[title]');
-        elements.forEach(element => {
-            const title = element.getAttribute('title');
-            element.setAttribute('aria-label', title);
             
-            // Add keyboard support for tooltips
-            element.addEventListener('focus', () => {
-                element.setAttribute('data-tooltip-visible', 'true');
-            });
-            element.addEventListener('blur', () => {
-                element.removeAttribute('data-tooltip-visible');
-            });
-        });
-    }
-
-    // Performance monitoring
-    function monitorPerformance() {
-        if ('performance' in window) {
-            window.addEventListener('load', () => {
-                const loadTime = performance.now();
-                console.log(`Coverage dashboard loaded in ${loadTime.toFixed(2)}ms`);
+            // Module card hover effects
+            const moduleCardsEnhanced = document.querySelectorAll('.module-card-enhanced');
+            moduleCardsEnhanced.forEach(card => {
+                card.addEventListener('mouseenter', function() {
+                    this.style.transform = 'translateY(-6px) scale(1.02)';
+                });
                 
-                // Report to analytics if enabled
-                {% if config.integration_settings.monitoring.prometheus_metrics %}
-                if (typeof gtag !== 'undefined') {
-                    gtag('event', 'dashboard_load_time', {
-                        'custom_parameter': loadTime,
-                        'coverage_percentage': {{ coverage.overall_percentage | default(90) }}
-                    });
-                }
-                {% endif %}
-            });
-        }
-    }
-
-    // Search functionality for modules
-    {% if config.report_formats.html.navigation.search_functionality %}
-    function setupModuleSearch() {
-        const searchInput = document.createElement('input');
-        searchInput.type = 'search';
-        searchInput.placeholder = 'Search modules...';
-        searchInput.className = 'module-search';
-        searchInput.setAttribute('aria-label', 'Search modules');
-        
-        const modulesSection = document.getElementById('modules-title');
-        if (modulesSection) {
-            modulesSection.after(searchInput);
-            
-            searchInput.addEventListener('input', (event) => {
-                const searchTerm = event.target.value.toLowerCase();
-                const moduleItems = document.querySelectorAll('.file-tree-item');
-                
-                moduleItems.forEach(item => {
-                    const moduleName = item.querySelector('.file-name')?.textContent.toLowerCase();
-                    const moduleDesc = item.querySelector('.file-description')?.textContent.toLowerCase();
-                    
-                    const matches = moduleName?.includes(searchTerm) || moduleDesc?.includes(searchTerm);
-                    item.style.display = matches ? 'block' : 'none';
+                card.addEventListener('mouseleave', function() {
+                    this.style.transform = 'translateY(0) scale(1)';
                 });
             });
-        }
-    }
-    {% endif %}
-
-    // Error handling with graceful degradation
-    function setupErrorHandling() {
-        window.addEventListener('error', (event) => {
-            console.warn('Coverage dashboard error:', event.error);
-            // Ensure basic functionality continues to work
-        });
-        
-        // Handle missing data gracefully
-        const requiredElements = ['#summary-title', '#modules-title'];
-        requiredElements.forEach(selector => {
-            if (!document.querySelector(selector)) {
-                console.warn(`Missing required element: ${selector}`);
+            
+            // Keyboard navigation support
+            document.addEventListener('keydown', function(e) {
+                // Ctrl+F for search focus
+                if (e.ctrlKey && e.key === 'f') {
+                    e.preventDefault();
+                    searchInput.focus();
+                }
+                
+                // Ctrl+A for show all modules
+                if (e.ctrlKey && e.key === 'a') {
+                    e.preventDefault();
+                    document.querySelector('[data-filter="all"]').click();
+                }
+                
+                // Number keys for category filters
+                const categoryMap = {
+                    '1': 'api',
+                    '2': 'config', 
+                    '3': 'discovery',
+                    '4': 'io',
+                    '5': 'utils'
+                };
+                
+                if (e.ctrlKey && categoryMap[e.key]) {
+                    e.preventDefault();
+                    document.querySelector(`[data-filter="${categoryMap[e.key]}"]`).click();
+                }
+            });
+            
+            // Performance monitoring
+            const loadTime = performance.now();
+            console.log(`Coverage dashboard loaded in ${loadTime.toFixed(2)}ms`);
+            
+            // Optional: Report load time for analytics
+            if (typeof analyticsReporting !== 'undefined') {
+                analyticsReporting.reportLoadTime('coverage_dashboard', loadTime);
             }
         });
-    }
-
-    // Initialize all features when DOM is ready
-    document.addEventListener('DOMContentLoaded', () => {
-        animateCoverageRings();
-        setupKeyboardNavigation();
-        enhanceAccessibility();
-        monitorPerformance();
-        {% if config.report_formats.html.navigation.search_functionality %}
-        setupModuleSearch();
-        {% endif %}
-        setupErrorHandling();
         
-        // Set focus to main content for screen readers
-        const mainContent = document.getElementById('main-content');
-        if (mainContent) {
-            mainContent.setAttribute('tabindex', '-1');
-        }
-        
-        console.log('FlyrigLoader Coverage Dashboard initialized successfully');
-    });
+        // Add CSS animation for trend line growth
+        const style = document.createElement('style');
+        style.textContent = `
+            @keyframes trend-grow {
+                from { height: 0%; }
+                to { height: {{ overall_coverage.line_percent }}%; }
+            }
+        `;
+        document.head.appendChild(style);
     </script>
-
-    <!-- Analytics Integration -->
-    {% if config.integration_settings.external_tools.monitoring %}
+    
+    <!-- Analytics and Performance Monitoring -->
     <script>
-    // Lightweight analytics for coverage dashboard usage
-    if (typeof gtag !== 'undefined') {
-        gtag('event', 'coverage_dashboard_view', {
-            'overall_coverage': {{ coverage.overall_percentage | default(90) }},
-            'critical_coverage': {{ coverage.critical_percentage | default(98) }},
-            'branch_coverage': {{ coverage.branch_percentage | default(87) }},
-            'quality_gates_passing': {{ 'true' if coverage.overall_percentage >= config.quality_gates.thresholds.overall_coverage.minimum else 'false' }},
-            'report_timestamp': '{{ report.timestamp | default("") }}'
+        // Coverage dashboard analytics
+        window.addEventListener('load', function() {
+            const navigationEntries = performance.getEntriesByType('navigation')[0];
+            const loadTime = navigationEntries.loadEventEnd - navigationEntries.loadEventStart;
+            
+            console.log('Coverage Dashboard Performance Metrics:');
+            console.log(`Total load time: ${loadTime.toFixed(2)}ms`);
+            console.log(`DOM content loaded: ${navigationEntries.domContentLoadedEventEnd - navigationEntries.domContentLoadedEventStart}ms`);
+            console.log(`Coverage data: {{ overall_coverage.line_percent }}% line coverage, {{ overall_coverage.branch_percent }}% branch coverage`);
+            console.log(`Quality gates: {{ 'PASSING' if overall_coverage.line_percent >= config.coverage_thresholds.overall_minimum else 'FAILING' }}`);
+            
+            // Optional: Send metrics to external analytics service
+            if (typeof coverageAnalytics !== 'undefined') {
+                coverageAnalytics.track('dashboard_loaded', {
+                    load_time: loadTime,
+                    coverage_percent: {{ overall_coverage.line_percent }},
+                    quality_gates_status: '{{ 'PASSING' if overall_coverage.line_percent >= config.coverage_thresholds.overall_minimum else 'FAILING' }}',
+                    modules_count: {{ modules | length }},
+                    timestamp: new Date().toISOString()
+                });
+            }
         });
-    }
     </script>
-    {% endif %}
 </body>
 </html>
