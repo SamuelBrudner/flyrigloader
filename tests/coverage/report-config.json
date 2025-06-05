@@ -1,0 +1,553 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "FlyrigLoader Coverage Report Configuration",
+  "description": "Comprehensive coverage report formatting configuration defining custom HTML, XML, and JSON report templates with detailed styling, metadata inclusion, and CI/CD integration support for the flyrigloader neuroscience data loading library",
+  "version": "1.0.0",
+  
+  "metadata": {
+    "project": "flyrigloader",
+    "domain": "neuroscience-research", 
+    "organization": "Research Team",
+    "repository_url": "https://github.com/research-team/flyrigloader",
+    "documentation_url": "https://flyrigloader.readthedocs.io",
+    "license": "MIT",
+    "python_versions": ["3.8", "3.9", "3.10", "3.11"],
+    "created_by": "coverage-enhancement-system",
+    "schema_version": "2.1.12"
+  },
+
+  "report_formats": {
+    "html": {
+      "enabled": true,
+      "output_directory": "htmlcov",
+      "template_type": "custom_neuroscience",
+      "title": "FlyrigLoader Test Coverage Report",
+      "description": "Comprehensive test coverage analysis for neuroscience experimental data loading library",
+      
+      "styling": {
+        "theme": "neuroscience_research",
+        "primary_color": "#2E7D32",
+        "secondary_color": "#1976D2", 
+        "accent_color": "#FF5722",
+        "background_color": "#FAFAFA",
+        "text_color": "#333333",
+        "success_color": "#4CAF50",
+        "warning_color": "#FF9800",
+        "error_color": "#F44336",
+        "font_family": "\"Roboto\", \"Helvetica Neue\", Arial, sans-serif",
+        "code_font_family": "\"Fira Code\", \"Monaco\", \"Menlo\", monospace"
+      },
+
+      "header": {
+        "include_logo": true,
+        "logo_url": "/static/flyrigloader_logo.svg",
+        "project_name": "FlyrigLoader",
+        "subtitle": "Neuroscience Data Loading Library",
+        "build_info": true,
+        "timestamp": true,
+        "branch_info": true,
+        "commit_hash": true,
+        "python_version": true,
+        "coverage_version": true
+      },
+
+      "navigation": {
+        "include_breadcrumbs": true,
+        "module_tree": true,
+        "search_functionality": true,
+        "filter_by_coverage": true,
+        "sort_options": ["name", "coverage", "statements", "missing"],
+        "quick_links": [
+          {"name": "API Module", "path": "api.html", "critical": true},
+          {"name": "Configuration", "path": "config/index.html", "critical": true},
+          {"name": "Discovery Engine", "path": "discovery/index.html", "critical": true},
+          {"name": "I/O Pipeline", "path": "io/index.html", "critical": true},
+          {"name": "Utilities", "path": "utils/index.html", "critical": false}
+        ]
+      },
+
+      "summary_dashboard": {
+        "overall_metrics": {
+          "total_coverage_percentage": true,
+          "lines_covered": true,
+          "lines_total": true,
+          "branches_covered": true,
+          "branches_total": true,
+          "functions_covered": true,
+          "functions_total": true
+        },
+        "module_breakdown": {
+          "critical_modules_status": true,
+          "coverage_by_category": true,
+          "lowest_coverage_modules": true,
+          "highest_coverage_modules": true,
+          "trend_indicators": true
+        },
+        "quality_gates": {
+          "overall_threshold": 90,
+          "critical_threshold": 100,
+          "status_indicators": true,
+          "pass_fail_status": true
+        }
+      },
+
+      "source_code": {
+        "include_source": true,
+        "syntax_highlighting": true,
+        "supported_languages": ["python", "yaml", "json", "toml", "ini"],
+        "line_numbers": true,
+        "coverage_annotations": true,
+        "branch_annotations": true,
+        "execution_counts": true,
+        "missing_line_highlighting": true,
+        "partial_coverage_highlighting": true,
+        "context_lines": 3
+      },
+
+      "interactive_features": {
+        "collapsible_sections": true,
+        "tooltip_coverage_info": true,
+        "click_to_expand": true,
+        "keyboard_navigation": true,
+        "responsive_design": true,
+        "accessibility_compliance": "WCAG-2.1-AA"
+      },
+
+      "annotations": {
+        "include_comments": true,
+        "show_docstrings": true,
+        "highlight_todo_items": false,
+        "show_complexity_metrics": true,
+        "neuroscience_domain_tags": true,
+        "experimental_data_indicators": true
+      },
+
+      "performance_section": {
+        "include_benchmark_results": true,
+        "data_loading_sla": "1s per 100MB",
+        "transformation_sla": "500ms per 1M rows",
+        "discovery_sla": "5s for 10,000 files",
+        "trend_charts": true,
+        "regression_alerts": true
+      }
+    },
+
+    "xml": {
+      "enabled": true,
+      "output_file": "coverage.xml",
+      "format_version": "4.0",
+      "encoding": "UTF-8",
+      
+      "ci_integration": {
+        "include_build_metadata": true,
+        "build_number": "${BUILD_NUMBER}",
+        "build_url": "${BUILD_URL}",
+        "branch_name": "${BRANCH_NAME}",
+        "commit_hash": "${COMMIT_SHA}",
+        "commit_message": "${COMMIT_MESSAGE}",
+        "pull_request_id": "${PR_NUMBER}",
+        "build_timestamp": "${BUILD_TIMESTAMP}",
+        "build_duration": "${BUILD_DURATION}",
+        "test_execution_time": "${TEST_DURATION}",
+        "environment": "${CI_ENVIRONMENT}",
+        "runner_os": "${RUNNER_OS}",
+        "python_version": "${PYTHON_VERSION}"
+      },
+
+      "structure": {
+        "include_sources": true,
+        "include_classes": true,
+        "include_methods": true,
+        "include_lines": true,
+        "include_branches": true,
+        "line_hit_counts": true,
+        "branch_hit_counts": true,
+        "complexity_metrics": true
+      },
+
+      "quality_metrics": {
+        "coverage_thresholds": {
+          "overall": 90,
+          "critical_modules": 100,
+          "utilities": 95
+        },
+        "quality_gates_status": true,
+        "violation_details": true,
+        "trend_comparison": true
+      },
+
+      "module_categorization": {
+        "critical_modules": [
+          "src/flyrigloader/api.py",
+          "src/flyrigloader/config/",
+          "src/flyrigloader/discovery/",
+          "src/flyrigloader/io/"
+        ],
+        "utility_modules": [
+          "src/flyrigloader/utils/"
+        ],
+        "infrastructure_modules": [
+          "src/flyrigloader/__init__.py"
+        ]
+      },
+
+      "external_tool_integration": {
+        "codecov_compatible": true,
+        "sonarqube_compatible": true,
+        "github_actions_compatible": true,
+        "jenkins_compatible": true,
+        "azure_devops_compatible": true
+      }
+    },
+
+    "json": {
+      "enabled": true,
+      "output_file": "coverage.json",
+      "format_version": "2.0",
+      "pretty_print": true,
+      "indent": 2,
+
+      "programmatic_analysis": {
+        "include_file_details": true,
+        "include_function_details": true,
+        "include_branch_details": true,
+        "include_complexity_metrics": true,
+        "include_execution_contexts": true,
+        "include_timestamp_info": true
+      },
+
+      "trend_tracking": {
+        "historical_comparison": true,
+        "baseline_comparison": true,
+        "regression_detection": true,
+        "improvement_tracking": true,
+        "time_series_data": true,
+        "performance_correlation": true
+      },
+
+      "module_analytics": {
+        "coverage_by_module": true,
+        "coverage_by_category": true,
+        "hotspot_analysis": true,
+        "risk_assessment": true,
+        "maintainability_metrics": true,
+        "test_efficiency_metrics": true
+      },
+
+      "api_integration": {
+        "webhook_notifications": true,
+        "dashboard_integration": true,
+        "monitoring_integration": true,
+        "alerting_integration": true,
+        "export_formats": ["csv", "xlsx", "pdf"],
+        "scheduled_reports": true
+      },
+
+      "experimental_data_context": {
+        "neuroscience_module_tagging": true,
+        "data_pipeline_coverage": true,
+        "experimental_workflow_coverage": true,
+        "validation_pipeline_coverage": true,
+        "research_domain_annotations": true
+      }
+    },
+
+    "terminal": {
+      "enabled": true,
+      "show_missing": true,
+      "skip_covered": false,
+      "precision": 2,
+      "format": "detailed",
+      
+      "color_scheme": {
+        "covered_lines": "green",
+        "missing_lines": "red", 
+        "partial_lines": "yellow",
+        "excluded_lines": "gray",
+        "headers": "cyan",
+        "totals": "bold"
+      },
+
+      "summary_format": {
+        "include_totals": true,
+        "include_percentages": true,
+        "include_counts": true,
+        "include_quality_status": true,
+        "module_breakdown": true,
+        "critical_module_status": true
+      }
+    }
+  },
+
+  "coverage_contexts": {
+    "test_contexts": {
+      "unit_tests": {
+        "pattern": "tests/**/test_*.py",
+        "description": "Isolated unit tests for individual components",
+        "weight": 1.0
+      },
+      "integration_tests": {
+        "pattern": "tests/**/integration/test_*.py", 
+        "description": "Cross-module integration testing",
+        "weight": 1.5
+      },
+      "benchmark_tests": {
+        "pattern": "tests/**/benchmarks/test_*.py",
+        "description": "Performance validation and SLA testing",
+        "weight": 0.8
+      },
+      "regression_tests": {
+        "pattern": "tests/**/regression/test_*.py",
+        "description": "Regression prevention testing",
+        "weight": 1.2
+      }
+    },
+
+    "module_contexts": {
+      "api_layer": {
+        "modules": ["src/flyrigloader/api.py"],
+        "description": "High-level API facade",
+        "criticality": "critical",
+        "required_coverage": 100
+      },
+      "configuration_system": {
+        "modules": ["src/flyrigloader/config/"],
+        "description": "YAML configuration and discovery",
+        "criticality": "critical", 
+        "required_coverage": 100
+      },
+      "discovery_engine": {
+        "modules": ["src/flyrigloader/discovery/"],
+        "description": "File discovery and pattern matching",
+        "criticality": "critical",
+        "required_coverage": 100
+      },
+      "io_pipeline": {
+        "modules": ["src/flyrigloader/io/"],
+        "description": "Data loading and transformation",
+        "criticality": "critical",
+        "required_coverage": 100
+      },
+      "utilities": {
+        "modules": ["src/flyrigloader/utils/"],
+        "description": "Supporting utility functions",
+        "criticality": "standard",
+        "required_coverage": 95
+      }
+    }
+  },
+
+  "quality_gates": {
+    "thresholds": {
+      "overall_coverage": {
+        "minimum": 90,
+        "target": 95,
+        "blocking": true
+      },
+      "critical_modules": {
+        "minimum": 100,
+        "target": 100,
+        "blocking": true
+      },
+      "branch_coverage": {
+        "minimum": 85,
+        "target": 90,
+        "blocking": true
+      },
+      "function_coverage": {
+        "minimum": 95,
+        "target": 98,
+        "blocking": false
+      }
+    },
+
+    "enforcement": {
+      "fail_on_threshold_violation": true,
+      "block_merge_on_failure": true,
+      "send_notifications": true,
+      "generate_alerts": true,
+      "update_status_checks": true
+    },
+
+    "exceptions": {
+      "excluded_files": [
+        "*/tests/*",
+        "*/__pycache__/*",
+        "*/site-packages/*",
+        "setup.py",
+        "conftest.py"
+      ],
+      "excluded_lines": [
+        "pragma: no cover",
+        "def __repr__",
+        "if self.debug:",
+        "if settings.DEBUG",
+        "raise AssertionError",
+        "raise NotImplementedError",
+        "if 0:",
+        "if __name__ == .__main__.:"
+      ],
+      "low_priority_modules": [
+        "examples/",
+        "docs/",
+        "scripts/"
+      ]
+    }
+  },
+
+  "trend_analysis": {
+    "historical_tracking": {
+      "enabled": true,
+      "retention_days": 365,
+      "baseline_comparison": true,
+      "trend_detection": true,
+      "regression_alerts": true
+    },
+
+    "performance_correlation": {
+      "link_coverage_to_performance": true,
+      "benchmark_integration": true,
+      "sla_correlation": true,
+      "quality_impact_analysis": true
+    },
+
+    "reporting_schedule": {
+      "daily_summary": true,
+      "weekly_detailed": true,
+      "monthly_comprehensive": true,
+      "release_specific": true
+    },
+
+    "visualization": {
+      "trend_charts": true,
+      "heatmaps": true,
+      "regression_graphs": true,
+      "module_comparison": true,
+      "time_series_analysis": true
+    }
+  },
+
+  "neuroscience_customization": {
+    "domain_specific_annotations": {
+      "experimental_data_indicators": true,
+      "signal_processing_annotations": true,
+      "data_validation_highlights": true,
+      "research_workflow_context": true
+    },
+
+    "module_organization": {
+      "group_by_function": true,
+      "data_pipeline_view": true,
+      "experimental_workflow_view": true,
+      "validation_pipeline_view": true
+    },
+
+    "terminology": {
+      "use_neuroscience_terms": true,
+      "experimental_context": true,
+      "data_provenance_tracking": true,
+      "validation_terminology": true
+    },
+
+    "research_integration": {
+      "link_to_documentation": true,
+      "methodology_references": true,
+      "data_flow_diagrams": true,
+      "experimental_design_context": true
+    }
+  },
+
+  "integration_settings": {
+    "ci_cd_platforms": {
+      "github_actions": {
+        "status_checks": true,
+        "pr_comments": true,
+        "artifact_upload": true,
+        "badge_generation": true
+      },
+      "jenkins": {
+        "build_integration": true,
+        "artifact_archival": true,
+        "notification_webhook": true
+      },
+      "azure_devops": {
+        "pipeline_integration": true,
+        "work_item_linking": true,
+        "release_gating": true
+      }
+    },
+
+    "external_tools": {
+      "codecov": {
+        "upload_enabled": true,
+        "project_token": "${CODECOV_TOKEN}",
+        "fail_ci_if_error": true
+      },
+      "sonarqube": {
+        "integration_enabled": true,
+        "quality_gate_integration": true,
+        "project_key": "flyrigloader"
+      },
+      "slack": {
+        "notifications_enabled": true,
+        "webhook_url": "${SLACK_WEBHOOK_URL}",
+        "channel": "#flyrigloader-coverage"
+      }
+    },
+
+    "monitoring": {
+      "prometheus_metrics": true,
+      "grafana_dashboards": true,
+      "datadog_integration": true,
+      "custom_webhooks": true
+    }
+  },
+
+  "file_handling": {
+    "encoding": "utf-8",
+    "line_endings": "auto",
+    "ignore_patterns": [
+      "*.pyc",
+      "__pycache__",
+      ".git",
+      ".pytest_cache",
+      "node_modules",
+      "venv",
+      ".venv",
+      "env",
+      ".env"
+    ],
+    "include_patterns": [
+      "src/**/*.py",
+      "tests/**/*.py"
+    ]
+  },
+
+  "advanced_features": {
+    "differential_coverage": {
+      "enabled": true,
+      "baseline_branch": "main",
+      "compare_branches": true,
+      "pr_specific_coverage": true
+    },
+
+    "parallel_processing": {
+      "enabled": true,
+      "max_workers": 4,
+      "chunk_size": 100
+    },
+
+    "caching": {
+      "enabled": true,
+      "cache_duration_hours": 24,
+      "cache_key_strategy": "content_hash"
+    },
+
+    "debugging": {
+      "verbose_logging": false,
+      "debug_mode": false,
+      "profiling_enabled": false,
+      "memory_tracking": false
+    }
+  }
+}
