@@ -282,12 +282,112 @@ def get_extraction_patterns(
 
 
 def get_all_dataset_names(config: Dict[str, Any]) -> List[str]:
-    """Return a list of all dataset names defined in the configuration.
+    """
+    Return a list of all dataset names defined in the configuration.
+
+    Enhanced with validation and logging for test observability.
 
     Args:
         config: The loaded configuration dictionary.
 
     Returns:
         List of dataset names. Returns an empty list if no datasets are defined.
+        
+    Raises:
+        ValueError: If configuration structure is invalid
     """
-    return list(config.get("datasets", {}).keys())
+    logger.debug("Retrieving all dataset names from configuration")
+    
+    if not isinstance(config, dict):
+        error_msg = "Configuration must be a dictionary"
+        logger.error(error_msg)
+        raise ValueError(error_msg)
+    
+    datasets_section = config.get("datasets", {})
+    if not isinstance(datasets_section, dict):
+        error_msg = "'datasets' section must be a dictionary"
+        logger.error(error_msg)
+        raise ValueError(error_msg)
+    
+    dataset_names = list(datasets_section.keys())
+    logger.info(f"Found {len(dataset_names)} datasets: {dataset_names}")
+    return dataset_names
+
+
+# === Test-Specific Entry Points for Enhanced Testing ===
+
+def create_test_yaml_loader(mock_safe_load: Callable) -> YAMLLoaderProtocol:
+    """
+    Create a test-specific YAML loader with custom behavior.
+    
+    This function provides a test entry point for comprehensive mocking scenarios,
+    enabling controlled YAML loading behavior during test execution per TST-REF-003.
+    
+    Args:
+        mock_safe_load: Callable that mimics yaml.safe_load behavior
+        
+    Returns:
+        YAMLLoaderProtocol implementation for testing
+    """
+    class TestYAMLLoader:
+        def safe_load(self, file_handle) -> Any:
+            return mock_safe_load(file_handle)
+    
+    return TestYAMLLoader()
+
+
+def create_test_file_system(
+    mock_exists: Callable[[Path], bool],
+    mock_open: Callable[[Path, str], Any]
+) -> FileSystemProtocol:
+    """
+    Create a test-specific file system with mocked operations.
+    
+    This function provides a test entry point for comprehensive file system mocking,
+    enabling controlled file existence and content scenarios during test execution.
+    
+    Args:
+        mock_exists: Callable that mimics Path.exists() behavior
+        mock_open: Callable that mimics open() behavior
+        
+    Returns:
+        FileSystemProtocol implementation for testing
+    """
+    class TestFileSystem:
+        def exists(self, path: Path) -> bool:
+            return mock_exists(path)
+        
+        def open(self, path: Path, mode: str = 'r'):
+            return mock_open(path, mode)
+    
+    return TestFileSystem()
+
+
+def create_test_validator(
+    mock_validate_structure: Optional[Callable] = None,
+    mock_validate_dates_vials: Optional[Callable] = None
+) -> ConfigValidatorProtocol:
+    """
+    Create a test-specific configuration validator with custom validation behavior.
+    
+    This function provides a test entry point for comprehensive validation mocking,
+    enabling controlled validation behavior and error scenarios during test execution.
+    
+    Args:
+        mock_validate_structure: Optional callable for structure validation
+        mock_validate_dates_vials: Optional callable for dates_vials validation
+        
+    Returns:
+        ConfigValidatorProtocol implementation for testing
+    """
+    class TestValidator:
+        def validate_structure(self, config: Dict[str, Any]) -> Dict[str, Any]:
+            if mock_validate_structure:
+                return mock_validate_structure(config)
+            return config
+        
+        def validate_dates_vials(self, config: Dict[str, Any]) -> None:
+            if mock_validate_dates_vials:
+                mock_validate_dates_vials(config)
+    
+    return TestValidator()
