@@ -1,1910 +1,2617 @@
 #!/usr/bin/env python3
 """
-Coverage Trend Analysis Script for FlyRigLoader Test Suite
+FlyrigLoader Coverage Trend Analysis Script
 
-Comprehensive coverage trend tracking with automated regression detection, performance 
-correlation analysis, and statistical trend validation. Implements proactive quality 
-assurance monitoring per Section 0.2.5 infrastructure requirements.
+Comprehensive coverage trend analysis providing automated tracking of coverage metrics 
+over time with regression detection, performance correlation analysis, and statistical 
+trend validation. Implements comprehensive historical analysis enabling proactive 
+quality assurance per Section 0.2.5 infrastructure requirements.
 
-Features:
-- Historical coverage data persistence and analysis
-- Regression detection algorithms with configurable sensitivity thresholds  
-- Performance correlation analysis linking coverage trends with SLA compliance
-- Statistical trend analysis with confidence intervals and significance testing
-- Automated alerting for coverage degradation with module-specific feedback
-- Comprehensive reporting with visualization generation for CI/CD integration
+This script serves as the central orchestrator for coverage trend monitoring in the 
+flyrigloader test suite enhancement system, providing:
 
-Requirements Compliance:
+- Historical coverage data persistence and trend tracking over time
+- Statistical regression detection with configurable sensitivity thresholds
+- Performance benchmark correlation analysis for comprehensive quality metrics
+- Automated alerting for coverage degradation with actionable feedback
+- Confidence interval analysis and significance testing for reliable trend detection
+- CI/CD integration with automated trend monitoring and quality gate enforcement
+
+Requirements Implementation:
 - Section 0.2.5: Coverage trend tracking over time per Infrastructure Updates
 - TST-COV-004: Block merges when coverage drops below thresholds
 - TST-PERF-001: Data loading SLA validation within 1s per 100MB
 - Section 3.6.4: Quality metrics dashboard integration with coverage trend tracking
-- Section 2.1.12: Coverage Enhancement System with detailed reporting
 - Section 4.1.1.5: Test execution workflow with automated quality gate enforcement
+- Section 2.1.12: Coverage Enhancement System with detailed reporting and visualization
 
-Usage:
-    python analyze-coverage-trends.py [options]
-    
-Examples:
-    # Analyze current coverage with trend tracking
-    python analyze-coverage-trends.py --collect-current
-    
-    # Generate comprehensive trend report
-    python analyze-coverage-trends.py --report --output-dir reports/
-    
-    # Check for regressions with CI integration
-    python analyze-coverage-trends.py --check-regression --fail-on-regression
-    
-    # Correlate coverage with performance data
-    python analyze-coverage-trends.py --correlate-performance --performance-data benchmarks.json
+Author: FlyrigLoader Test Suite Enhancement Team
+Created: 2024-12-19
+License: MIT
 """
 
 import argparse
 import json
 import logging
 import os
-import sqlite3
 import statistics
 import sys
-import warnings
-from collections import defaultdict
-from datetime import datetime, timedelta
+import time
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
-import xml.etree.ElementTree as ET
 
-# Statistical analysis imports
+# Third-party imports for statistical analysis and visualization
 try:
-    import numpy as np
-    HAS_NUMPY = True
-except ImportError:  # pragma: no cover
-    HAS_NUMPY = False
-    warnings.warn("NumPy not available - statistical analysis will be limited")
-
-try:
+    import matplotlib
+    matplotlib.use('Agg')  # Use non-interactive backend for CI/CD environments
     import matplotlib.pyplot as plt
     import matplotlib.dates as mdates
-    HAS_MATPLOTLIB = True
-except ImportError:  # pragma: no cover
-    HAS_MATPLOTLIB = False
-    warnings.warn("Matplotlib not available - visualization generation disabled")
+    MATPLOTLIB_AVAILABLE = True
+except ImportError:
+    MATPLOTLIB_AVAILABLE = False
 
 try:
-    from scipy import stats
-    HAS_SCIPY = True
-except ImportError:  # pragma: no cover
-    HAS_SCIPY = False
+    import numpy as np
+    NUMPY_AVAILABLE = True
+except ImportError:
+    NUMPY_AVAILABLE = False
 
-# Configure logging for trend analysis
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.StreamHandler(sys.stdout),
-        logging.FileHandler('tests/coverage/logs/trend-analysis.log', mode='a')
-    ]
-)
-logger = logging.getLogger('coverage-trends')
+try:
+    import scipy.stats as stats
+    SCIPY_AVAILABLE = True
+except ImportError:
+    SCIPY_AVAILABLE = False
 
-# Constants for trend analysis
-DEFAULT_HISTORY_DAYS = 90  # Default historical analysis period
-MIN_DATA_POINTS = 5        # Minimum data points for statistical analysis
-REGRESSION_SENSITIVITY = 0.95  # Statistical confidence level for regression detection
-PERFORMANCE_CORRELATION_THRESHOLD = 0.7  # Correlation coefficient threshold
-
-
-class CoverageMetrics:
-    """Data structure for coverage metrics with validation and serialization."""
-    
-    def __init__(
-        self,
-        timestamp: datetime,
-        overall_coverage: float,
-        branch_coverage: float,
-        module_coverage: Dict[str, float],
-        total_lines: int,
-        covered_lines: int,
-        total_branches: int = 0,
-        covered_branches: int = 0,
-        commit_hash: Optional[str] = None,
-        build_id: Optional[str] = None
-    ):
-        """Initialize coverage metrics with validation."""
-        self.timestamp = timestamp
-        self.overall_coverage = self._validate_percentage(overall_coverage)
-        self.branch_coverage = self._validate_percentage(branch_coverage)
-        self.module_coverage = {k: self._validate_percentage(v) for k, v in module_coverage.items()}
-        self.total_lines = max(0, total_lines)
-        self.covered_lines = max(0, min(covered_lines, total_lines))
-        self.total_branches = max(0, total_branches)
-        self.covered_branches = max(0, min(covered_branches, total_branches))
-        self.commit_hash = commit_hash
-        self.build_id = build_id
-        
-    @staticmethod
-    def _validate_percentage(value: float) -> float:
-        """Validate percentage values are within valid range."""
-        return max(0.0, min(100.0, value))
-    
-    def to_dict(self) -> Dict[str, Any]:
-        """Convert metrics to dictionary for serialization."""
-        return {
-            'timestamp': self.timestamp.isoformat(),
-            'overall_coverage': self.overall_coverage,
-            'branch_coverage': self.branch_coverage,
-            'module_coverage': self.module_coverage,
-            'total_lines': self.total_lines,
-            'covered_lines': self.covered_lines,
-            'total_branches': self.total_branches,
-            'covered_branches': self.covered_branches,
-            'commit_hash': self.commit_hash,
-            'build_id': self.build_id
-        }
-    
-    @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> 'CoverageMetrics':
-        """Create metrics instance from dictionary."""
-        return cls(
-            timestamp=datetime.fromisoformat(data['timestamp']),
-            overall_coverage=data['overall_coverage'],
-            branch_coverage=data['branch_coverage'],
-            module_coverage=data['module_coverage'],
-            total_lines=data['total_lines'],
-            covered_lines=data['covered_lines'],
-            total_branches=data.get('total_branches', 0),
-            covered_branches=data.get('covered_branches', 0),
-            commit_hash=data.get('commit_hash'),
-            build_id=data.get('build_id')
-        )
-
-
-class PerformanceMetrics:
-    """Data structure for performance metrics correlation with coverage."""
-    
-    def __init__(
-        self,
-        timestamp: datetime,
-        data_loading_time: float,
-        transformation_time: float,
-        test_execution_time: float,
-        sla_compliance: Dict[str, bool],
-        benchmark_results: Optional[Dict[str, Any]] = None
-    ):
-        """Initialize performance metrics."""
-        self.timestamp = timestamp
-        self.data_loading_time = max(0.0, data_loading_time)
-        self.transformation_time = max(0.0, transformation_time)
-        self.test_execution_time = max(0.0, test_execution_time)
-        self.sla_compliance = sla_compliance
-        self.benchmark_results = benchmark_results or {}
-    
-    def to_dict(self) -> Dict[str, Any]:
-        """Convert metrics to dictionary for serialization."""
-        return {
-            'timestamp': self.timestamp.isoformat(),
-            'data_loading_time': self.data_loading_time,
-            'transformation_time': self.transformation_time,
-            'test_execution_time': self.test_execution_time,
-            'sla_compliance': self.sla_compliance,
-            'benchmark_results': self.benchmark_results
-        }
-    
-    @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> 'PerformanceMetrics':
-        """Create metrics instance from dictionary."""
-        return cls(
-            timestamp=datetime.fromisoformat(data['timestamp']),
-            data_loading_time=data['data_loading_time'],
-            transformation_time=data['transformation_time'],
-            test_execution_time=data['test_execution_time'],
-            sla_compliance=data['sla_compliance'],
-            benchmark_results=data.get('benchmark_results', {})
-        )
-
-
-class TrendRegressionResult:
-    """Results from trend regression analysis."""
-    
-    def __init__(
-        self,
-        has_regression: bool,
-        confidence_level: float,
-        regression_details: Dict[str, Any],
-        affected_modules: List[str],
-        recommendations: List[str]
-    ):
-        """Initialize regression analysis result."""
-        self.has_regression = has_regression
-        self.confidence_level = confidence_level
-        self.regression_details = regression_details
-        self.affected_modules = affected_modules
-        self.recommendations = recommendations
-    
-    def to_dict(self) -> Dict[str, Any]:
-        """Convert result to dictionary for reporting."""
-        return {
-            'has_regression': self.has_regression,
-            'confidence_level': self.confidence_level,
-            'regression_details': self.regression_details,
-            'affected_modules': self.affected_modules,
-            'recommendations': self.recommendations
-        }
+# Import project dependencies
+try:
+    from .generate_coverage_reports import CoverageReportGenerator
+except ImportError:
+    try:
+        from generate_coverage_reports import CoverageReportGenerator
+    except ImportError:
+        print("ERROR: Unable to import CoverageReportGenerator")
+        print("Ensure generate-coverage-reports.py is available in the same directory")
+        sys.exit(1)
 
 
 class CoverageTrendAnalyzer:
-    """Main coverage trend analysis engine with statistical validation."""
+    """
+    Comprehensive coverage trend analysis engine implementing automated tracking
+    of coverage metrics over time with advanced statistical analysis, regression
+    detection, and performance correlation capabilities.
     
-    def __init__(self, data_dir: str = "tests/coverage/data", config_path: str = None):
-        """Initialize trend analyzer with configuration."""
-        self.data_dir = Path(data_dir)
-        self.data_dir.mkdir(parents=True, exist_ok=True)
+    This class orchestrates the complete coverage trend analysis pipeline including:
+    - Historical coverage data collection and persistence
+    - Statistical trend analysis with confidence intervals
+    - Regression detection algorithms with configurable sensitivity
+    - Performance benchmark correlation and SLA validation
+    - Automated alerting and notification systems
+    - CI/CD integration with quality gate enforcement
+    """
+
+    def __init__(self,
+                 coverage_data_file: Optional[str] = None,
+                 thresholds_file: Optional[str] = None,
+                 quality_gates_file: Optional[str] = None,
+                 historical_data_dir: Optional[str] = None,
+                 output_dir: Optional[str] = None,
+                 verbose: bool = False):
+        """
+        Initialize the coverage trend analyzer with configuration and data sources.
         
-        # Database for historical data persistence
-        self.db_path = self.data_dir / "coverage_trends.db"
-        self._init_database()
+        Args:
+            coverage_data_file: Path to current coverage data file (.coverage)
+            thresholds_file: Path to coverage thresholds JSON file
+            quality_gates_file: Path to quality gates YAML file
+            historical_data_dir: Directory for storing historical trend data
+            output_dir: Base output directory for generated reports and visualizations
+            verbose: Enable verbose logging output
+        """
+        self.verbose = verbose
+        self.setup_logging()
         
-        # Load configuration
-        self.config = self._load_configuration(config_path)
+        # Initialize paths and configuration
+        self.project_root = Path(__file__).parent.parent.parent.parent
+        self.coverage_dir = self.project_root / "tests" / "coverage"
+        self.scripts_dir = self.coverage_dir / "scripts"
+        
+        # Set default paths if not provided
+        self.coverage_data_file = coverage_data_file or str(self.project_root / ".coverage")
+        self.thresholds_file = thresholds_file or str(self.coverage_dir / "coverage-thresholds.json")
+        self.quality_gates_file = quality_gates_file or str(self.coverage_dir / "quality-gates.yml")
+        self.historical_data_dir = Path(historical_data_dir) if historical_data_dir else self.coverage_dir / "historical"
+        self.output_dir = Path(output_dir) if output_dir else self.coverage_dir / "trends"
+        
+        # Ensure directories exist
+        self.historical_data_dir.mkdir(parents=True, exist_ok=True)
+        self.output_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Initialize configuration and data storage
+        self.thresholds: Dict[str, Any] = {}
+        self.quality_gates: Dict[str, Any] = {}
+        self.current_coverage: Dict[str, Any] = {}
+        self.historical_data: List[Dict[str, Any]] = []
+        self.trend_analysis: Dict[str, Any] = {}
+        
+        # Runtime statistics and analysis settings
+        self.start_time = time.time()
+        self.analysis_stats: Dict[str, Any] = {
+            'start_time': datetime.now(timezone.utc),
+            'analysis_completed': False,
+            'warnings': [],
+            'errors': [],
+            'quality_gates_passed': False,
+            'regression_detected': False
+        }
+        
+        # Statistical analysis configuration
+        self.confidence_level = 0.95  # 95% confidence interval
+        self.regression_sensitivity = 0.05  # 5% decrease threshold
+        self.trend_window_days = 30  # 30-day trend analysis window
+        self.minimum_data_points = 3  # Minimum data points for statistical analysis
+        
+        self.logger.info(f"Initialized CoverageTrendAnalyzer")
+        self.logger.info(f"Project root: {self.project_root}")
+        self.logger.info(f"Historical data directory: {self.historical_data_dir}")
+        self.logger.info(f"Output directory: {self.output_dir}")
+
+    def setup_logging(self) -> None:
+        """Configure comprehensive logging for coverage trend analysis."""
+        log_level = logging.DEBUG if self.verbose else logging.INFO
+        log_file = self.project_root / "tests" / "coverage" / "coverage-trends.log"
+        
+        # Ensure log directory exists
+        log_file.parent.mkdir(parents=True, exist_ok=True)
+        
+        logging.basicConfig(
+            level=log_level,
+            format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+            handlers=[
+                logging.StreamHandler(sys.stdout),
+                logging.FileHandler(log_file, mode='a')
+            ]
+        )
+        self.logger = logging.getLogger("flyrigloader.coverage.trends")
+
+    def load_configuration(self) -> None:
+        """
+        Load comprehensive configuration from JSON and YAML files including
+        coverage thresholds, quality gates, and trend analysis settings.
+        
+        Raises:
+            FileNotFoundError: If configuration files are missing
+            json.JSONDecodeError: If JSON configuration files are malformed
+        """
+        self.logger.info("Loading configuration files...")
         
         # Load coverage thresholds
-        self.thresholds = self._load_coverage_thresholds()
-        
-        logger.info(f"Coverage trend analyzer initialized with data directory: {self.data_dir}")
-    
-    def _init_database(self) -> None:
-        """Initialize SQLite database for historical data persistence."""
-        with sqlite3.connect(self.db_path) as conn:
-            conn.execute("""
-                CREATE TABLE IF NOT EXISTS coverage_history (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    timestamp TEXT NOT NULL,
-                    overall_coverage REAL NOT NULL,
-                    branch_coverage REAL NOT NULL,
-                    total_lines INTEGER NOT NULL,
-                    covered_lines INTEGER NOT NULL,
-                    total_branches INTEGER DEFAULT 0,
-                    covered_branches INTEGER DEFAULT 0,
-                    commit_hash TEXT,
-                    build_id TEXT,
-                    module_coverage_json TEXT NOT NULL,
-                    created_at TEXT DEFAULT CURRENT_TIMESTAMP
-                )
-            """)
-            
-            conn.execute("""
-                CREATE TABLE IF NOT EXISTS performance_history (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    timestamp TEXT NOT NULL,
-                    data_loading_time REAL NOT NULL,
-                    transformation_time REAL NOT NULL,
-                    test_execution_time REAL NOT NULL,
-                    sla_compliance_json TEXT NOT NULL,
-                    benchmark_results_json TEXT,
-                    created_at TEXT DEFAULT CURRENT_TIMESTAMP
-                )
-            """)
-            
-            # Create indexes for efficient querying
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_coverage_timestamp ON coverage_history(timestamp)")
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_performance_timestamp ON performance_history(timestamp)")
-    
-    def _load_configuration(self, config_path: Optional[str]) -> Dict[str, Any]:
-        """Load trend analysis configuration with defaults."""
-        default_config = {
-            'history_retention_days': 365,
-            'regression_sensitivity': REGRESSION_SENSITIVITY,
-            'min_data_points': MIN_DATA_POINTS,
-            'performance_correlation_threshold': PERFORMANCE_CORRELATION_THRESHOLD,
-            'alert_thresholds': {
-                'coverage_drop': 2.0,  # Percentage points
-                'performance_degradation': 20.0  # Percentage
-            },
-            'visualization': {
-                'enabled': HAS_MATPLOTLIB,
-                'dpi': 300,
-                'figure_size': (12, 8)
-            }
-        }
-        
-        if config_path and Path(config_path).exists():
-            try:
-                with open(config_path) as f:
-                    user_config = json.load(f)
-                default_config.update(user_config)
-                logger.info(f"Loaded configuration from {config_path}")
-            except Exception as e:
-                logger.warning(f"Failed to load configuration from {config_path}: {e}")
-        
-        return default_config
-    
-    def _load_coverage_thresholds(self) -> Dict[str, Any]:
-        """Load coverage thresholds from configuration file."""
-        threshold_path = Path("tests/coverage/coverage-thresholds.json")
-        if not threshold_path.exists():
-            logger.warning(f"Coverage thresholds file not found: {threshold_path}")
-            return {}
-        
         try:
-            with open(threshold_path) as f:
-                return json.load(f)
-        except Exception as e:
-            logger.error(f"Failed to load coverage thresholds: {e}")
-            return {}
-    
-    def collect_current_coverage(self, coverage_file: str = None) -> CoverageMetrics:
-        """Collect current coverage metrics from various sources."""
-        logger.info("Collecting current coverage metrics")
-        
-        # Try to detect coverage files automatically
-        possible_files = [
-            coverage_file,
-            "coverage.xml",
-            "tests/coverage/coverage.xml",
-            "htmlcov/coverage.xml",
-            ".coverage"
-        ]
-        
-        coverage_data = None
-        for file_path in possible_files:
-            if file_path and Path(file_path).exists():
-                try:
-                    coverage_data = self._parse_coverage_file(file_path)
-                    if coverage_data:
-                        logger.info(f"Loaded coverage data from {file_path}")
-                        break
-                except Exception as e:
-                    logger.debug(f"Failed to parse {file_path}: {e}")
-        
-        if not coverage_data:
-            logger.warning("No coverage data found - generating synthetic metrics for testing")
-            coverage_data = self._generate_synthetic_coverage()
-        
-        # Add runtime information
-        coverage_data.commit_hash = os.environ.get('GITHUB_SHA') or os.environ.get('CI_COMMIT_SHA')
-        coverage_data.build_id = os.environ.get('GITHUB_RUN_ID') or os.environ.get('BUILD_ID')
-        
-        return coverage_data
-    
-    def _parse_coverage_file(self, file_path: str) -> Optional[CoverageMetrics]:
-        """Parse coverage data from XML, JSON, or .coverage files."""
-        file_path = Path(file_path)
-        
-        if file_path.suffix == '.xml':
-            return self._parse_coverage_xml(file_path)
-        elif file_path.suffix == '.json':
-            return self._parse_coverage_json(file_path)
-        elif file_path.name == '.coverage':
-            return self._parse_coverage_db(file_path)
-        
-        return None
-    
-    def _parse_coverage_xml(self, xml_path: Path) -> CoverageMetrics:
-        """Parse Cobertura XML coverage report."""
-        tree = ET.parse(xml_path)
-        root = tree.getroot()
-        
-        # Extract overall metrics
-        overall_coverage = float(root.get('line-rate', 0)) * 100
-        branch_coverage = float(root.get('branch-rate', 0)) * 100
-        
-        total_lines = int(root.get('lines-valid', 0))
-        covered_lines = int(root.get('lines-covered', 0))
-        total_branches = int(root.get('branches-valid', 0))
-        covered_branches = int(root.get('branches-covered', 0))
-        
-        # Extract module-level coverage
-        module_coverage = {}
-        for package in root.findall('.//package'):
-            package_name = package.get('name', '')
-            for cls in package.findall('.//class'):
-                filename = cls.get('filename', '')
-                if filename:
-                    module_name = filename.replace('/', '.').replace('.py', '')
-                    line_rate = float(cls.get('line-rate', 0)) * 100
-                    module_coverage[module_name] = line_rate
-        
-        return CoverageMetrics(
-            timestamp=datetime.now(),
-            overall_coverage=overall_coverage,
-            branch_coverage=branch_coverage,
-            module_coverage=module_coverage,
-            total_lines=total_lines,
-            covered_lines=covered_lines,
-            total_branches=total_branches,
-            covered_branches=covered_branches
-        )
-    
-    def _parse_coverage_json(self, json_path: Path) -> CoverageMetrics:
-        """Parse JSON coverage report."""
-        with open(json_path) as f:
-            data = json.load(f)
-        
-        # Extract summary metrics
-        summary = data.get('totals', {})
-        overall_coverage = summary.get('percent_covered', 0)
-        
-        # Calculate branch coverage if available
-        branch_coverage = 0
-        if 'percent_covered_display' in summary:
-            branch_coverage = summary.get('percent_covered_display', 0)
-        
-        total_lines = summary.get('num_statements', 0)
-        covered_lines = summary.get('covered_lines', 0)
-        
-        # Extract file-level coverage
-        module_coverage = {}
-        files = data.get('files', {})
-        for filename, file_data in files.items():
-            module_name = filename.replace('/', '.').replace('.py', '')
-            if 'summary' in file_data:
-                file_coverage = file_data['summary'].get('percent_covered', 0)
-                module_coverage[module_name] = file_coverage
-        
-        return CoverageMetrics(
-            timestamp=datetime.now(),
-            overall_coverage=overall_coverage,
-            branch_coverage=branch_coverage,
-            module_coverage=module_coverage,
-            total_lines=total_lines,
-            covered_lines=covered_lines
-        )
-    
-    def _parse_coverage_db(self, coverage_path: Path) -> CoverageMetrics:
-        """Parse .coverage database file using coverage.py API."""
+            with open(self.thresholds_file, 'r', encoding='utf-8') as f:
+                self.thresholds = json.load(f)
+            self.logger.info(f"Loaded coverage thresholds from {self.thresholds_file}")
+        except FileNotFoundError:
+            self.logger.error(f"Coverage thresholds file not found: {self.thresholds_file}")
+            raise
+        except json.JSONDecodeError as e:
+            self.logger.error(f"Invalid JSON in thresholds config: {e}")
+            raise
+
+        # Load quality gates configuration
         try:
-            import coverage
-            
-            cov = coverage.Coverage(data_file=str(coverage_path))
-            cov.load()
-            
-            # Get summary report
-            total_statements = 0
-            missing_statements = 0
-            
-            for filename in cov.get_data().measured_files():
-                analysis = cov.analysis2(filename)
-                total_statements += len(analysis.statements)
-                missing_statements += len(analysis.missing)
-            
-            covered_statements = total_statements - missing_statements
-            overall_coverage = (covered_statements / total_statements * 100) if total_statements > 0 else 0
-            
-            # Module-level coverage
-            module_coverage = {}
-            for filename in cov.get_data().measured_files():
-                analysis = cov.analysis2(filename)
-                file_statements = len(analysis.statements)
-                file_missing = len(analysis.missing)
-                file_covered = file_statements - file_missing
-                file_coverage = (file_covered / file_statements * 100) if file_statements > 0 else 0
-                
-                module_name = filename.replace('/', '.').replace('.py', '')
-                module_coverage[module_name] = file_coverage
-            
-            return CoverageMetrics(
-                timestamp=datetime.now(),
-                overall_coverage=overall_coverage,
-                branch_coverage=overall_coverage,  # Approximate for now
-                module_coverage=module_coverage,
-                total_lines=total_statements,
-                covered_lines=covered_statements
-            )
-            
+            import yaml
+            with open(self.quality_gates_file, 'r', encoding='utf-8') as f:
+                self.quality_gates = yaml.safe_load(f)
+            self.logger.info(f"Loaded quality gates from {self.quality_gates_file}")
         except ImportError:
-            logger.error("coverage.py not available for parsing .coverage file")
-            return None
-    
-    def _generate_synthetic_coverage(self) -> CoverageMetrics:
-        """Generate synthetic coverage data for testing purposes."""
-        import random
-        
-        # Generate realistic coverage values
-        overall_coverage = random.uniform(85, 95)
-        branch_coverage = overall_coverage - random.uniform(0, 5)
-        
-        # Module coverage based on thresholds
-        module_coverage = {}
-        if self.thresholds:
-            for module_type, config in self.thresholds.get('module_thresholds', {}).items():
-                for module_name, module_config in config.get('modules', {}).items():
-                    threshold = module_config.get('threshold', 90)
-                    # Add some realistic variance around threshold
-                    coverage = max(0, min(100, threshold + random.uniform(-2, 5)))
-                    module_coverage[module_name] = coverage
-        
-        return CoverageMetrics(
-            timestamp=datetime.now(),
-            overall_coverage=overall_coverage,
-            branch_coverage=branch_coverage,
-            module_coverage=module_coverage,
-            total_lines=random.randint(1000, 5000),
-            covered_lines=int(random.randint(1000, 5000) * overall_coverage / 100)
-        )
-    
-    def store_coverage_metrics(self, metrics: CoverageMetrics) -> None:
-        """Store coverage metrics in historical database."""
-        logger.info(f"Storing coverage metrics for {metrics.timestamp}")
-        
-        with sqlite3.connect(self.db_path) as conn:
-            conn.execute("""
-                INSERT INTO coverage_history 
-                (timestamp, overall_coverage, branch_coverage, total_lines, covered_lines,
-                 total_branches, covered_branches, commit_hash, build_id, module_coverage_json)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (
-                metrics.timestamp.isoformat(),
-                metrics.overall_coverage,
-                metrics.branch_coverage,
-                metrics.total_lines,
-                metrics.covered_lines,
-                metrics.total_branches,
-                metrics.covered_branches,
-                metrics.commit_hash,
-                metrics.build_id,
-                json.dumps(metrics.module_coverage)
-            ))
-    
-    def collect_performance_metrics(self, performance_file: str = None) -> Optional[PerformanceMetrics]:
-        """Collect current performance metrics for correlation analysis."""
-        logger.info("Collecting performance metrics for correlation analysis")
-        
-        # Try to load performance data from various sources
-        performance_data = None
-        
-        if performance_file and Path(performance_file).exists():
+            self.logger.warning("PyYAML not available, loading quality gates as JSON")
             try:
-                with open(performance_file) as f:
-                    data = json.load(f)
-                performance_data = self._parse_performance_data(data)
-            except Exception as e:
-                logger.warning(f"Failed to parse performance file {performance_file}: {e}")
+                # Fallback to JSON parsing if YAML not available
+                with open(self.quality_gates_file.replace('.yml', '.json'), 'r', encoding='utf-8') as f:
+                    self.quality_gates = json.load(f)
+            except FileNotFoundError:
+                self.logger.error("Neither YAML nor JSON quality gates file found")
+                raise
+        except FileNotFoundError:
+            self.logger.error(f"Quality gates file not found: {self.quality_gates_file}")
+            raise
+        except Exception as e:
+            self.logger.error(f"Failed to load quality gates: {e}")
+            raise
+
+        # Validate configuration structure
+        self._validate_configuration()
+
+    def _validate_configuration(self) -> None:
+        """Validate that required configuration keys are present and properly formatted."""
+        # Validate thresholds configuration
+        required_threshold_keys = ['global_settings', 'critical_modules']
+        for key in required_threshold_keys:
+            if key not in self.thresholds:
+                raise ValueError(f"Missing required threshold key: {key}")
+
+        # Validate quality gates configuration
+        required_quality_keys = ['coverage', 'performance', 'global']
+        for key in required_quality_keys:
+            if key not in self.quality_gates:
+                raise ValueError(f"Missing required quality gates key: {key}")
+
+        # Extract trend analysis configuration
+        trend_config = self.quality_gates.get('coverage', {}).get('regression_detection', {})
+        if trend_config.get('enabled', True):
+            self.regression_sensitivity = trend_config.get('maximum_allowed_decrease', 0.05)
+            self.trend_window_days = trend_config.get('trend_analysis_window', 30)
+
+        self.logger.info("Configuration validation completed successfully")
+        self.logger.info(f"Regression sensitivity: {self.regression_sensitivity}")
+        self.logger.info(f"Trend analysis window: {self.trend_window_days} days")
+
+    def collect_current_coverage_data(self) -> None:
+        """
+        Collect current coverage metrics using the CoverageReportGenerator
+        and extract comprehensive coverage statistics for trend analysis.
         
-        # Try to load from pytest-benchmark results
-        benchmark_files = [
-            ".benchmarks/results.json",
-            "tests/benchmarks/results.json",
-            "benchmarks.json"
-        ]
+        Raises:
+            RuntimeError: If coverage data collection fails
+        """
+        self.logger.info("Collecting current coverage data...")
         
-        for benchmark_file in benchmark_files:
-            if Path(benchmark_file).exists():
-                try:
-                    with open(benchmark_file) as f:
-                        data = json.load(f)
-                    performance_data = self._parse_benchmark_data(data)
-                    break
-                except Exception as e:
-                    logger.debug(f"Failed to parse benchmark file {benchmark_file}: {e}")
-        
-        if not performance_data:
-            logger.info("No performance data found - generating synthetic metrics")
-            performance_data = self._generate_synthetic_performance()
-        
-        return performance_data
-    
-    def _parse_performance_data(self, data: Dict[str, Any]) -> PerformanceMetrics:
-        """Parse performance data from custom format."""
-        return PerformanceMetrics(
-            timestamp=datetime.now(),
-            data_loading_time=data.get('data_loading_time', 0),
-            transformation_time=data.get('transformation_time', 0),
-            test_execution_time=data.get('test_execution_time', 0),
-            sla_compliance=data.get('sla_compliance', {}),
-            benchmark_results=data.get('benchmark_results', {})
-        )
-    
-    def _parse_benchmark_data(self, data: Dict[str, Any]) -> PerformanceMetrics:
-        """Parse pytest-benchmark results."""
-        benchmarks = data.get('benchmarks', [])
-        
-        # Aggregate benchmark results
-        data_loading_times = []
-        transformation_times = []
-        total_time = 0
-        
-        sla_compliance = {}
-        
-        for benchmark in benchmarks:
-            name = benchmark.get('name', '')
-            stats = benchmark.get('stats', {})
-            mean_time = stats.get('mean', 0)
-            
-            total_time += mean_time
-            
-            if 'load' in name.lower():
-                data_loading_times.append(mean_time)
-                # Check data loading SLA (1s per 100MB)
-                sla_compliance[f'{name}_sla'] = mean_time <= 1.0
-            elif 'transform' in name.lower() or 'dataframe' in name.lower():
-                transformation_times.append(mean_time)
-                # Check transformation SLA (500ms per 1M rows)
-                sla_compliance[f'{name}_sla'] = mean_time <= 0.5
-        
-        avg_loading_time = statistics.mean(data_loading_times) if data_loading_times else 0
-        avg_transformation_time = statistics.mean(transformation_times) if transformation_times else 0
-        
-        return PerformanceMetrics(
-            timestamp=datetime.now(),
-            data_loading_time=avg_loading_time,
-            transformation_time=avg_transformation_time,
-            test_execution_time=total_time,
-            sla_compliance=sla_compliance,
-            benchmark_results=data
-        )
-    
-    def _generate_synthetic_performance(self) -> PerformanceMetrics:
-        """Generate synthetic performance data for testing."""
-        import random
-        
-        # Generate realistic performance values
-        data_loading_time = random.uniform(0.5, 1.2)  # Around SLA threshold
-        transformation_time = random.uniform(0.2, 0.7)  # Around SLA threshold
-        test_execution_time = random.uniform(30, 120)
-        
-        sla_compliance = {
-            'data_loading_sla': data_loading_time <= 1.0,
-            'transformation_sla': transformation_time <= 0.5
-        }
-        
-        return PerformanceMetrics(
-            timestamp=datetime.now(),
-            data_loading_time=data_loading_time,
-            transformation_time=transformation_time,
-            test_execution_time=test_execution_time,
-            sla_compliance=sla_compliance
-        )
-    
-    def store_performance_metrics(self, metrics: PerformanceMetrics) -> None:
-        """Store performance metrics in historical database."""
-        logger.info(f"Storing performance metrics for {metrics.timestamp}")
-        
-        with sqlite3.connect(self.db_path) as conn:
-            conn.execute("""
-                INSERT INTO performance_history 
-                (timestamp, data_loading_time, transformation_time, test_execution_time,
-                 sla_compliance_json, benchmark_results_json)
-                VALUES (?, ?, ?, ?, ?, ?)
-            """, (
-                metrics.timestamp.isoformat(),
-                metrics.data_loading_time,
-                metrics.transformation_time,
-                metrics.test_execution_time,
-                json.dumps(metrics.sla_compliance),
-                json.dumps(metrics.benchmark_results)
-            ))
-    
-    def get_historical_coverage(
-        self, 
-        days: int = None, 
-        start_date: datetime = None,
-        end_date: datetime = None
-    ) -> List[CoverageMetrics]:
-        """Retrieve historical coverage data for trend analysis."""
-        if days is None:
-            days = self.config.get('history_retention_days', DEFAULT_HISTORY_DAYS)
-        
-        if start_date is None:
-            start_date = datetime.now() - timedelta(days=days)
-        if end_date is None:
-            end_date = datetime.now()
-        
-        logger.info(f"Retrieving historical coverage data from {start_date} to {end_date}")
-        
-        with sqlite3.connect(self.db_path) as conn:
-            cursor = conn.execute("""
-                SELECT timestamp, overall_coverage, branch_coverage, total_lines, covered_lines,
-                       total_branches, covered_branches, commit_hash, build_id, module_coverage_json
-                FROM coverage_history
-                WHERE timestamp BETWEEN ? AND ?
-                ORDER BY timestamp ASC
-            """, (start_date.isoformat(), end_date.isoformat()))
-            
-            results = []
-            for row in cursor.fetchall():
-                results.append(CoverageMetrics(
-                    timestamp=datetime.fromisoformat(row[0]),
-                    overall_coverage=row[1],
-                    branch_coverage=row[2],
-                    total_lines=row[3],
-                    covered_lines=row[4],
-                    total_branches=row[5] or 0,
-                    covered_branches=row[6] or 0,
-                    commit_hash=row[7],
-                    build_id=row[8],
-                    module_coverage=json.loads(row[9])
-                ))
-            
-            logger.info(f"Retrieved {len(results)} historical coverage records")
-            return results
-    
-    def detect_coverage_regression(
-        self, 
-        current_metrics: CoverageMetrics,
-        historical_data: List[CoverageMetrics] = None
-    ) -> TrendRegressionResult:
-        """Detect coverage regressions using statistical analysis."""
-        logger.info("Performing coverage regression analysis")
-        
-        if historical_data is None:
-            historical_data = self.get_historical_coverage(days=30)  # Recent history
-        
-        if len(historical_data) < self.config.get('min_data_points', MIN_DATA_POINTS):
-            logger.warning(f"Insufficient historical data for regression analysis: {len(historical_data)} points")
-            return TrendRegressionResult(
-                has_regression=False,
-                confidence_level=0.0,
-                regression_details={'reason': 'insufficient_data'},
-                affected_modules=[],
-                recommendations=['Collect more historical data for reliable regression analysis']
+        try:
+            # Initialize coverage report generator
+            generator = CoverageReportGenerator(
+                coverage_data_file=self.coverage_data_file,
+                thresholds_file=self.thresholds_file,
+                verbose=self.verbose
             )
-        
-        # Analyze overall coverage trend
-        overall_regression = self._analyze_coverage_trend(
-            [m.overall_coverage for m in historical_data],
-            current_metrics.overall_coverage,
-            'overall_coverage'
-        )
-        
-        # Analyze branch coverage trend
-        branch_regression = self._analyze_coverage_trend(
-            [m.branch_coverage for m in historical_data],
-            current_metrics.branch_coverage,
-            'branch_coverage'
-        )
-        
-        # Analyze module-specific trends
-        module_regressions = []
-        affected_modules = []
-        
-        # Get all modules that appear in historical data
-        all_modules = set()
-        for metrics in historical_data:
-            all_modules.update(metrics.module_coverage.keys())
-        
-        for module in all_modules:
-            if module in current_metrics.module_coverage:
-                historical_values = []
-                for metrics in historical_data:
-                    if module in metrics.module_coverage:
-                        historical_values.append(metrics.module_coverage[module])
-                
-                if len(historical_values) >= 3:  # Minimum for module analysis
-                    module_regression = self._analyze_coverage_trend(
-                        historical_values,
-                        current_metrics.module_coverage[module],
-                        f'module_{module}'
-                    )
-                    
-                    module_regressions.append(module_regression)
-                    if module_regression['has_regression']:
-                        affected_modules.append(module)
-        
-        # Combine regression analysis results
-        has_regression = (
-            overall_regression['has_regression'] or 
-            branch_regression['has_regression'] or 
-            any(r['has_regression'] for r in module_regressions)
-        )
-        
-        # Calculate overall confidence level
-        confidence_levels = [overall_regression['confidence'], branch_regression['confidence']]
-        confidence_levels.extend(r['confidence'] for r in module_regressions)
-        overall_confidence = max(confidence_levels) if confidence_levels else 0.0
-        
-        # Generate recommendations
-        recommendations = self._generate_regression_recommendations(
-            overall_regression, branch_regression, module_regressions, affected_modules
-        )
-        
-        regression_details = {
-            'overall_coverage_analysis': overall_regression,
-            'branch_coverage_analysis': branch_regression,
-            'module_analyses': module_regressions,
-            'threshold_violations': self._check_threshold_violations(current_metrics),
-            'analysis_timestamp': datetime.now().isoformat()
-        }
-        
-        return TrendRegressionResult(
-            has_regression=has_regression,
-            confidence_level=overall_confidence,
-            regression_details=regression_details,
-            affected_modules=affected_modules,
-            recommendations=recommendations
-        )
-    
-    def _analyze_coverage_trend(
-        self, 
-        historical_values: List[float], 
-        current_value: float,
-        metric_name: str
-    ) -> Dict[str, Any]:
-        """Analyze trend for a specific coverage metric."""
-        if len(historical_values) < 2:
-            return {
-                'has_regression': False,
-                'confidence': 0.0,
-                'reason': 'insufficient_data'
+            
+            # Load configuration and data
+            generator.load_configuration()
+            generator.load_coverage_data()
+            
+            # Perform coverage analysis
+            analysis_results = generator.analyze_coverage_data()
+            
+            # Extract key metrics for trend analysis
+            self.current_coverage = {
+                'timestamp': datetime.now(timezone.utc).isoformat(),
+                'summary': analysis_results['summary'],
+                'quality_gates': analysis_results['quality_gates'],
+                'statistics': analysis_results['statistics'],
+                'critical_modules': analysis_results['critical_modules'],
+                'module_coverage': {}
             }
+            
+            # Extract module-specific coverage data
+            for module_path, module_data in analysis_results['modules'].items():
+                self.current_coverage['module_coverage'][module_path] = {
+                    'line_coverage': module_data['coverage_percentage'],
+                    'branch_coverage': module_data['branch_coverage_percentage'],
+                    'category': module_data['category'],
+                    'status': module_data['status'],
+                    'statements': module_data['statements'],
+                    'missing': module_data['missing']
+                }
+            
+            # Add build and environment metadata
+            self.current_coverage['metadata'] = self._collect_build_metadata()
+            
+            self.logger.info(f"Current overall coverage: {self.current_coverage['summary']['overall_coverage_percentage']:.2f}%")
+            self.logger.info(f"Current branch coverage: {self.current_coverage['summary']['branch_coverage_percentage']:.2f}%")
+            
+        except Exception as e:
+            self.logger.error(f"Failed to collect current coverage data: {e}")
+            raise RuntimeError(f"Coverage data collection failed: {e}")
+
+    def _collect_build_metadata(self) -> Dict[str, Any]:
+        """Collect build and environment metadata for historical tracking."""
+        metadata = {
+            'collection_time': datetime.now(timezone.utc).isoformat(),
+            'python_version': sys.version.split()[0],
+            'platform': sys.platform,
+        }
         
-        # Statistical trend analysis
-        trend_analysis = {}
+        # Add CI/CD metadata if available
+        ci_vars = {
+            'build_number': 'BUILD_NUMBER',
+            'build_url': 'BUILD_URL',
+            'branch_name': 'BRANCH_NAME',
+            'commit_sha': 'COMMIT_SHA',
+            'pr_number': 'PR_NUMBER',
+            'ci_environment': 'CI_ENVIRONMENT',
+            'runner_os': 'RUNNER_OS'
+        }
         
-        if HAS_NUMPY and HAS_SCIPY:
-            # Use advanced statistical analysis
-            x = np.arange(len(historical_values))
-            y = np.array(historical_values)
+        for key, env_var in ci_vars.items():
+            metadata[key] = os.environ.get(env_var, 'unknown')
+        
+        # Add Git information if available
+        try:
+            import git
+            repo = git.Repo(self.project_root)
+            metadata.update({
+                'git_branch': repo.active_branch.name,
+                'git_commit': repo.head.commit.hexsha[:8],
+                'git_commit_message': repo.head.commit.message.strip(),
+                'git_is_dirty': repo.is_dirty()
+            })
+        except Exception:
+            self.logger.debug("Git information not available")
+        
+        return metadata
+
+    def load_historical_data(self) -> None:
+        """
+        Load historical coverage data from persistent storage for trend analysis.
+        Creates historical data structure if it doesn't exist.
+        """
+        self.logger.info("Loading historical coverage data...")
+        
+        historical_file = self.historical_data_dir / "coverage_history.json"
+        
+        if historical_file.exists():
+            try:
+                with open(historical_file, 'r', encoding='utf-8') as f:
+                    raw_data = json.load(f)
+                
+                # Validate and filter historical data
+                self.historical_data = self._validate_historical_data(raw_data.get('entries', []))
+                
+                self.logger.info(f"Loaded {len(self.historical_data)} historical data points")
+                
+                if self.historical_data:
+                    latest_entry = max(self.historical_data, key=lambda x: x['timestamp'])
+                    self.logger.info(f"Latest entry: {latest_entry['timestamp']}")
+                
+            except (json.JSONDecodeError, KeyError) as e:
+                self.logger.error(f"Failed to load historical data: {e}")
+                self.historical_data = []
+        else:
+            self.logger.info("No historical data found, starting fresh")
+            self.historical_data = []
+
+    def _validate_historical_data(self, raw_entries: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """
+        Validate and filter historical data entries to ensure data quality.
+        
+        Args:
+            raw_entries: List of raw historical data entries
             
-            # Linear regression to detect trend
-            slope, intercept, r_value, p_value, std_err = stats.linregress(x, y)
+        Returns:
+            List of validated and filtered historical data entries
+        """
+        validated_entries = []
+        cutoff_date = datetime.now(timezone.utc) - timedelta(days=365)  # Keep last year
+        
+        for entry in raw_entries:
+            try:
+                # Validate required fields
+                if not all(key in entry for key in ['timestamp', 'summary']):
+                    continue
+                
+                # Parse and validate timestamp
+                entry_time = datetime.fromisoformat(entry['timestamp'].replace('Z', '+00:00'))
+                
+                # Filter out entries older than cutoff
+                if entry_time < cutoff_date:
+                    continue
+                
+                # Validate coverage data structure
+                if 'overall_coverage_percentage' not in entry['summary']:
+                    continue
+                
+                validated_entries.append(entry)
+                
+            except (ValueError, KeyError, TypeError) as e:
+                self.logger.warning(f"Skipping invalid historical entry: {e}")
+                continue
+        
+        # Sort by timestamp
+        validated_entries.sort(key=lambda x: x['timestamp'])
+        
+        return validated_entries
+
+    def persist_current_data(self) -> None:
+        """
+        Persist current coverage data to historical storage for future trend analysis.
+        Implements data deduplication and storage optimization.
+        """
+        self.logger.info("Persisting current coverage data to historical storage...")
+        
+        # Add current data to historical collection
+        self.historical_data.append(self.current_coverage.copy())
+        
+        # Remove duplicates and old entries
+        self.historical_data = self._deduplicate_historical_data(self.historical_data)
+        
+        # Prepare data for storage
+        storage_data = {
+            'metadata': {
+                'version': '2.0',
+                'last_updated': datetime.now(timezone.utc).isoformat(),
+                'total_entries': len(self.historical_data),
+                'data_schema': 'flyrigloader_coverage_trends_v2'
+            },
+            'entries': self.historical_data
+        }
+        
+        # Write to historical storage
+        historical_file = self.historical_data_dir / "coverage_history.json"
+        try:
+            with open(historical_file, 'w', encoding='utf-8') as f:
+                json.dump(storage_data, f, indent=2, ensure_ascii=False)
             
-            # Predict expected value based on trend
-            expected_value = slope * len(historical_values) + intercept
+            self.logger.info(f"Persisted {len(self.historical_data)} entries to {historical_file}")
             
-            # Calculate deviation from expected trend
-            deviation = current_value - expected_value
+        except Exception as e:
+            self.logger.error(f"Failed to persist historical data: {e}")
+            raise
+
+    def _deduplicate_historical_data(self, entries: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """
+        Remove duplicate entries and implement data retention policies.
+        
+        Args:
+            entries: List of historical data entries
             
-            # Calculate confidence interval
-            residuals = y - (slope * x + intercept)
-            mse = np.mean(residuals ** 2)
-            std_residual = np.sqrt(mse)
-            
-            # Determine if current value is significantly below trend
-            z_score = deviation / std_residual if std_residual > 0 else 0
-            confidence = abs(z_score)
-            
-            # Check for regression (significant negative deviation)
-            regression_threshold = self.config.get('regression_sensitivity', REGRESSION_SENSITIVITY)
-            has_regression = (
-                z_score < -1.96 and  # 95% confidence interval
-                confidence >= regression_threshold and
-                deviation < -self.config['alert_thresholds']['coverage_drop']
+        Returns:
+            Deduplicated and filtered list of entries
+        """
+        # Sort by timestamp
+        entries.sort(key=lambda x: x['timestamp'])
+        
+        # Remove exact duplicates based on timestamp and coverage
+        seen_signatures = set()
+        deduplicated = []
+        
+        for entry in entries:
+            signature = (
+                entry['timestamp'],
+                entry['summary']['overall_coverage_percentage'],
+                entry['summary']['branch_coverage_percentage']
             )
             
-            trend_analysis.update({
-                'slope': slope,
-                'r_squared': r_value ** 2,
-                'p_value': p_value,
-                'expected_value': expected_value,
-                'actual_value': current_value,
-                'deviation': deviation,
-                'z_score': z_score,
-                'confidence': confidence,
-                'has_regression': has_regression
-            })
+            if signature not in seen_signatures:
+                seen_signatures.add(signature)
+                deduplicated.append(entry)
+        
+        # Implement retention policy (keep last 500 entries)
+        max_entries = 500
+        if len(deduplicated) > max_entries:
+            self.logger.info(f"Trimming historical data to {max_entries} entries")
+            deduplicated = deduplicated[-max_entries:]
+        
+        return deduplicated
+
+    def perform_trend_analysis(self) -> None:
+        """
+        Perform comprehensive statistical trend analysis including regression detection,
+        confidence interval calculation, and performance correlation analysis.
+        """
+        self.logger.info("Performing comprehensive trend analysis...")
+        
+        if len(self.historical_data) < self.minimum_data_points:
+            self.logger.warning(f"Insufficient data for trend analysis ({len(self.historical_data)} < {self.minimum_data_points})")
+            self.trend_analysis = self._create_minimal_analysis()
+            return
+        
+        analysis_start = time.time()
+        
+        # Initialize trend analysis results
+        self.trend_analysis = {
+            'timestamp': datetime.now(timezone.utc).isoformat(),
+            'data_points': len(self.historical_data),
+            'analysis_window_days': self.trend_window_days,
+            'overall_trends': {},
+            'module_trends': {},
+            'regression_analysis': {},
+            'statistical_metrics': {},
+            'performance_correlation': {},
+            'quality_predictions': {},
+            'alerts': []
+        }
+        
+        # Perform overall coverage trend analysis
+        self._analyze_overall_trends()
+        
+        # Perform module-specific trend analysis
+        self._analyze_module_trends()
+        
+        # Perform regression detection
+        self._detect_coverage_regression()
+        
+        # Calculate statistical metrics
+        self._calculate_statistical_metrics()
+        
+        # Correlate with performance data if available
+        self._correlate_performance_data()
+        
+        # Generate quality predictions
+        self._generate_quality_predictions()
+        
+        # Generate alerts for detected issues
+        self._generate_trend_alerts()
+        
+        analysis_duration = time.time() - analysis_start
+        self.trend_analysis['analysis_duration'] = analysis_duration
+        
+        self.logger.info(f"Trend analysis completed in {analysis_duration:.2f} seconds")
+        self.logger.info(f"Analyzed {len(self.historical_data)} data points over {self.trend_window_days} days")
+
+    def _create_minimal_analysis(self) -> Dict[str, Any]:
+        """Create minimal analysis structure when insufficient data is available."""
+        return {
+            'timestamp': datetime.now(timezone.utc).isoformat(),
+            'data_points': len(self.historical_data),
+            'insufficient_data': True,
+            'minimum_required': self.minimum_data_points,
+            'overall_trends': {'trend_available': False},
+            'regression_analysis': {'regression_detected': False, 'confidence': 'low'},
+            'alerts': [{
+                'type': 'warning',
+                'message': f'Insufficient historical data for trend analysis ({len(self.historical_data)} < {self.minimum_data_points})',
+                'severity': 'medium',
+                'actionable': True,
+                'recommendations': ['Collect more coverage data over time', 'Run regular coverage analysis']
+            }]
+        }
+
+    def _analyze_overall_trends(self) -> None:
+        """Analyze overall coverage trends with statistical significance testing."""
+        self.logger.debug("Analyzing overall coverage trends...")
+        
+        # Extract time series data
+        timestamps = [datetime.fromisoformat(entry['timestamp'].replace('Z', '+00:00')) for entry in self.historical_data]
+        overall_coverage = [entry['summary']['overall_coverage_percentage'] for entry in self.historical_data]
+        branch_coverage = [entry['summary']['branch_coverage_percentage'] for entry in self.historical_data]
+        
+        # Filter data to analysis window
+        cutoff_date = datetime.now(timezone.utc) - timedelta(days=self.trend_window_days)
+        window_data = [(t, oc, bc) for t, oc, bc in zip(timestamps, overall_coverage, branch_coverage) if t >= cutoff_date]
+        
+        if len(window_data) < 2:
+            self.trend_analysis['overall_trends'] = {'insufficient_window_data': True}
+            return
+        
+        window_timestamps, window_overall, window_branch = zip(*window_data)
+        
+        # Calculate trend metrics
+        self.trend_analysis['overall_trends'] = {
+            'line_coverage': self._calculate_trend_metrics(list(window_timestamps), list(window_overall)),
+            'branch_coverage': self._calculate_trend_metrics(list(window_timestamps), list(window_branch)),
+            'data_points_in_window': len(window_data),
+            'window_start': min(window_timestamps).isoformat(),
+            'window_end': max(window_timestamps).isoformat()
+        }
+
+    def _calculate_trend_metrics(self, timestamps: List[datetime], values: List[float]) -> Dict[str, Any]:
+        """
+        Calculate comprehensive trend metrics including slope, correlation, and significance.
+        
+        Args:
+            timestamps: List of timestamp values
+            values: List of coverage percentage values
             
+        Returns:
+            Dictionary containing trend analysis metrics
+        """
+        if len(values) < 2:
+            return {'insufficient_data': True}
+        
+        # Convert timestamps to numeric values for correlation analysis
+        epoch_times = [(ts - timestamps[0]).total_seconds() for ts in timestamps]
+        
+        trend_metrics = {
+            'current_value': values[-1],
+            'previous_value': values[-2] if len(values) > 1 else values[0],
+            'min_value': min(values),
+            'max_value': max(values),
+            'mean_value': statistics.mean(values),
+            'median_value': statistics.median(values),
+            'std_deviation': statistics.stdev(values) if len(values) > 1 else 0.0,
+            'value_change': values[-1] - values[0],
+            'percentage_change': ((values[-1] - values[0]) / values[0] * 100) if values[0] > 0 else 0.0
+        }
+        
+        # Calculate linear regression if scipy is available
+        if SCIPY_AVAILABLE and len(values) > 2:
+            try:
+                slope, intercept, r_value, p_value, std_err = stats.linregress(epoch_times, values)
+                
+                trend_metrics.update({
+                    'linear_trend': {
+                        'slope': slope,
+                        'intercept': intercept,
+                        'correlation_coefficient': r_value,
+                        'p_value': p_value,
+                        'standard_error': std_err,
+                        'trend_direction': 'increasing' if slope > 0 else 'decreasing' if slope < 0 else 'stable',
+                        'trend_strength': abs(r_value),
+                        'statistically_significant': p_value < 0.05
+                    }
+                })
+                
+                # Calculate confidence intervals
+                if len(values) > 3:
+                    confidence_interval = self._calculate_confidence_interval(values, self.confidence_level)
+                    trend_metrics['confidence_interval'] = confidence_interval
+                    
+            except Exception as e:
+                self.logger.warning(f"Failed to calculate linear regression: {e}")
+        
+        # Detect trend patterns
+        trend_metrics['trend_pattern'] = self._detect_trend_pattern(values)
+        
+        return trend_metrics
+
+    def _calculate_confidence_interval(self, values: List[float], confidence_level: float) -> Dict[str, float]:
+        """
+        Calculate confidence interval for coverage values.
+        
+        Args:
+            values: List of coverage values
+            confidence_level: Confidence level (e.g., 0.95 for 95%)
+            
+        Returns:
+            Dictionary containing confidence interval bounds
+        """
+        if not SCIPY_AVAILABLE or len(values) < 3:
+            return {'error': 'Insufficient data or scipy not available'}
+        
+        try:
+            mean_val = statistics.mean(values)
+            std_err = statistics.stdev(values) / (len(values) ** 0.5)
+            
+            # Calculate t-distribution critical value
+            alpha = 1 - confidence_level
+            degrees_freedom = len(values) - 1
+            t_critical = stats.t.ppf(1 - alpha/2, degrees_freedom)
+            
+            margin_error = t_critical * std_err
+            
+            return {
+                'mean': mean_val,
+                'margin_of_error': margin_error,
+                'lower_bound': mean_val - margin_error,
+                'upper_bound': mean_val + margin_error,
+                'confidence_level': confidence_level
+            }
+            
+        except Exception as e:
+            self.logger.warning(f"Failed to calculate confidence interval: {e}")
+            return {'error': str(e)}
+
+    def _detect_trend_pattern(self, values: List[float]) -> Dict[str, Any]:
+        """
+        Detect trend patterns in coverage data.
+        
+        Args:
+            values: List of coverage values
+            
+        Returns:
+            Dictionary describing the detected trend pattern
+        """
+        if len(values) < 3:
+            return {'pattern': 'insufficient_data'}
+        
+        # Calculate moving averages for pattern detection
+        window_size = min(5, len(values) // 2)
+        if window_size < 2:
+            return {'pattern': 'too_few_points'}
+        
+        moving_avg = []
+        for i in range(len(values) - window_size + 1):
+            avg = sum(values[i:i + window_size]) / window_size
+            moving_avg.append(avg)
+        
+        # Analyze pattern characteristics
+        if len(moving_avg) < 2:
+            return {'pattern': 'stable'}
+        
+        # Check for consistent trends
+        increases = sum(1 for i in range(1, len(moving_avg)) if moving_avg[i] > moving_avg[i-1])
+        decreases = sum(1 for i in range(1, len(moving_avg)) if moving_avg[i] < moving_avg[i-1])
+        stable = len(moving_avg) - 1 - increases - decreases
+        
+        total_changes = len(moving_avg) - 1
+        
+        pattern_analysis = {
+            'increases': increases,
+            'decreases': decreases,
+            'stable_periods': stable,
+            'volatility': statistics.stdev(values) if len(values) > 1 else 0.0,
+            'range_span': max(values) - min(values)
+        }
+        
+        # Classify pattern
+        if increases > total_changes * 0.7:
+            pattern_analysis['pattern'] = 'consistently_increasing'
+        elif decreases > total_changes * 0.7:
+            pattern_analysis['pattern'] = 'consistently_decreasing'
+        elif stable > total_changes * 0.7:
+            pattern_analysis['pattern'] = 'stable'
+        elif pattern_analysis['volatility'] > 5.0:
+            pattern_analysis['pattern'] = 'volatile'
         else:
-            # Fallback to simple statistical analysis
-            mean_historical = statistics.mean(historical_values)
-            std_historical = statistics.stdev(historical_values) if len(historical_values) > 1 else 0
-            
-            deviation = current_value - mean_historical
-            
-            # Simple threshold-based regression detection
-            threshold_drop = self.config['alert_thresholds']['coverage_drop']
-            has_regression = deviation < -threshold_drop
-            
-            confidence = abs(deviation / std_historical) if std_historical > 0 else 0
-            
-            trend_analysis.update({
-                'mean_historical': mean_historical,
-                'std_historical': std_historical,
-                'deviation': deviation,
-                'confidence': confidence,
-                'has_regression': has_regression
-            })
+            pattern_analysis['pattern'] = 'mixed'
         
-        trend_analysis.update({
-            'metric_name': metric_name,
-            'historical_count': len(historical_values),
-            'analysis_method': 'statistical' if HAS_NUMPY and HAS_SCIPY else 'simple'
-        })
+        return pattern_analysis
+
+    def _analyze_module_trends(self) -> None:
+        """Analyze coverage trends for individual modules and categories."""
+        self.logger.debug("Analyzing module-specific coverage trends...")
         
-        return trend_analysis
-    
-    def _check_threshold_violations(self, metrics: CoverageMetrics) -> Dict[str, Any]:
-        """Check for coverage threshold violations."""
-        violations = {}
+        module_trends = {}
         
-        if not self.thresholds:
-            return violations
+        # Extract all unique modules from historical data
+        all_modules = set()
+        for entry in self.historical_data:
+            if 'module_coverage' in entry:
+                all_modules.update(entry['module_coverage'].keys())
+        
+        # Analyze trends for each module
+        for module_path in all_modules:
+            module_data = []
+            timestamps = []
+            
+            # Extract time series for this module
+            for entry in self.historical_data:
+                if 'module_coverage' in entry and module_path in entry['module_coverage']:
+                    timestamps.append(datetime.fromisoformat(entry['timestamp'].replace('Z', '+00:00')))
+                    module_data.append(entry['module_coverage'][module_path]['line_coverage'])
+            
+            if len(module_data) >= 2:
+                # Filter to analysis window
+                cutoff_date = datetime.now(timezone.utc) - timedelta(days=self.trend_window_days)
+                window_data = [(t, d) for t, d in zip(timestamps, module_data) if t >= cutoff_date]
+                
+                if len(window_data) >= 2:
+                    window_timestamps, window_values = zip(*window_data)
+                    
+                    module_trends[module_path] = {
+                        'trend_metrics': self._calculate_trend_metrics(list(window_timestamps), list(window_values)),
+                        'category': self._get_module_category(module_path),
+                        'data_points': len(window_data),
+                        'is_critical': self._is_critical_module(module_path)
+                    }
+        
+        self.trend_analysis['module_trends'] = module_trends
+
+    def _get_module_category(self, module_path: str) -> str:
+        """Determine module category based on flyrigloader architecture."""
+        if 'api.py' in module_path:
+            return 'api_layer'
+        elif '/config/' in module_path:
+            return 'configuration_system'
+        elif '/discovery/' in module_path:
+            return 'discovery_engine'
+        elif '/io/' in module_path:
+            return 'io_pipeline'
+        elif '/utils/' in module_path:
+            return 'utilities'
+        elif '__init__.py' in module_path:
+            return 'initialization_modules'
+        else:
+            return 'other'
+
+    def _is_critical_module(self, module_path: str) -> bool:
+        """Check if module is classified as critical requiring 100% coverage."""
+        critical_modules = self.thresholds.get('critical_modules', {}).get('modules', {})
+        
+        # Check direct path match
+        for critical_path in critical_modules.keys():
+            if module_path in critical_path or critical_path in module_path:
+                return True
+        
+        # Check category-based classification
+        category = self._get_module_category(module_path)
+        critical_categories = ['api_layer', 'configuration_system', 'discovery_engine', 'io_pipeline']
+        
+        return category in critical_categories
+
+    def _detect_coverage_regression(self) -> None:
+        """
+        Detect coverage regression using statistical analysis and configurable thresholds.
+        Implements TST-COV-004 requirement to block merges when coverage drops below thresholds.
+        """
+        self.logger.debug("Detecting coverage regression...")
+        
+        regression_analysis = {
+            'regression_detected': False,
+            'severity': 'none',
+            'confidence': 'low',
+            'affected_modules': [],
+            'overall_regression': {},
+            'critical_module_regression': {},
+            'threshold_violations': []
+        }
+        
+        if len(self.historical_data) < 2:
+            regression_analysis['insufficient_data'] = True
+            self.trend_analysis['regression_analysis'] = regression_analysis
+            return
+        
+        # Analyze overall coverage regression
+        overall_regression = self._analyze_overall_regression()
+        regression_analysis['overall_regression'] = overall_regression
+        
+        if overall_regression['regression_detected']:
+            regression_analysis['regression_detected'] = True
+            regression_analysis['severity'] = max(regression_analysis['severity'], overall_regression['severity'], key=self._severity_level)
+        
+        # Analyze critical module regression
+        critical_regression = self._analyze_critical_module_regression()
+        regression_analysis['critical_module_regression'] = critical_regression
+        
+        if critical_regression['regression_detected']:
+            regression_analysis['regression_detected'] = True
+            regression_analysis['severity'] = max(regression_analysis['severity'], critical_regression['severity'], key=self._severity_level)
+            regression_analysis['affected_modules'].extend(critical_regression['affected_modules'])
+        
+        # Check threshold violations
+        threshold_violations = self._check_threshold_violations()
+        regression_analysis['threshold_violations'] = threshold_violations
+        
+        if threshold_violations:
+            regression_analysis['regression_detected'] = True
+            regression_analysis['severity'] = max(regression_analysis['severity'], 'high', key=self._severity_level)
+        
+        # Calculate overall confidence
+        regression_analysis['confidence'] = self._calculate_regression_confidence(regression_analysis)
+        
+        # Update analysis stats
+        self.analysis_stats['regression_detected'] = regression_analysis['regression_detected']
+        
+        self.trend_analysis['regression_analysis'] = regression_analysis
+
+    def _severity_level(self, severity: str) -> int:
+        """Convert severity string to numeric level for comparison."""
+        levels = {'none': 0, 'low': 1, 'medium': 2, 'high': 3, 'critical': 4}
+        return levels.get(severity, 0)
+
+    def _analyze_overall_regression(self) -> Dict[str, Any]:
+        """Analyze regression in overall coverage metrics."""
+        recent_entries = self.historical_data[-5:]  # Last 5 entries
+        
+        if len(recent_entries) < 2:
+            return {'regression_detected': False, 'insufficient_data': True}
+        
+        current_coverage = recent_entries[-1]['summary']['overall_coverage_percentage']
+        baseline_coverage = statistics.mean([entry['summary']['overall_coverage_percentage'] for entry in recent_entries[:-1]])
+        
+        coverage_drop = baseline_coverage - current_coverage
+        percentage_drop = (coverage_drop / baseline_coverage * 100) if baseline_coverage > 0 else 0
+        
+        # Check against sensitivity threshold
+        regression_detected = percentage_drop > (self.regression_sensitivity * 100)
+        
+        severity = 'none'
+        if regression_detected:
+            if percentage_drop > 10:
+                severity = 'critical'
+            elif percentage_drop > 5:
+                severity = 'high'
+            elif percentage_drop > 2:
+                severity = 'medium'
+            else:
+                severity = 'low'
+        
+        return {
+            'regression_detected': regression_detected,
+            'current_coverage': current_coverage,
+            'baseline_coverage': baseline_coverage,
+            'coverage_drop': coverage_drop,
+            'percentage_drop': percentage_drop,
+            'severity': severity,
+            'threshold_exceeded': percentage_drop > (self.regression_sensitivity * 100)
+        }
+
+    def _analyze_critical_module_regression(self) -> Dict[str, Any]:
+        """Analyze regression in critical modules requiring 100% coverage."""
+        critical_regression = {
+            'regression_detected': False,
+            'affected_modules': [],
+            'severity': 'none'
+        }
+        
+        if 'module_coverage' not in self.current_coverage:
+            return critical_regression
+        
+        current_modules = self.current_coverage['module_coverage']
+        
+        for module_path, module_data in current_modules.items():
+            if self._is_critical_module(module_path):
+                current_coverage = module_data['line_coverage']
+                
+                # Critical modules must maintain 100% coverage
+                if current_coverage < 100.0:
+                    critical_regression['regression_detected'] = True
+                    critical_regression['affected_modules'].append({
+                        'module': module_path,
+                        'current_coverage': current_coverage,
+                        'required_coverage': 100.0,
+                        'coverage_gap': 100.0 - current_coverage
+                    })
+                    critical_regression['severity'] = 'critical'
+        
+        return critical_regression
+
+    def _check_threshold_violations(self) -> List[Dict[str, Any]]:
+        """Check for threshold violations based on quality gates configuration."""
+        violations = []
         
         # Check overall threshold
-        overall_threshold = self.thresholds.get('global_configuration', {}).get('overall_threshold', 90)
-        if metrics.overall_coverage < overall_threshold:
-            violations['overall_coverage'] = {
-                'actual': metrics.overall_coverage,
+        overall_threshold = self.quality_gates.get('coverage', {}).get('overall_coverage_threshold', 90.0)
+        current_overall = self.current_coverage['summary']['overall_coverage_percentage']
+        
+        if current_overall < overall_threshold:
+            violations.append({
+                'type': 'overall_coverage',
                 'threshold': overall_threshold,
-                'violation': overall_threshold - metrics.overall_coverage
-            }
-        
-        # Check module-specific thresholds
-        module_violations = {}
-        for module_type, config in self.thresholds.get('module_thresholds', {}).items():
-            for module_name, module_config in config.get('modules', {}).items():
-                threshold = module_config.get('threshold', 90)
-                if module_name in metrics.module_coverage:
-                    actual_coverage = metrics.module_coverage[module_name]
-                    if actual_coverage < threshold:
-                        module_violations[module_name] = {
-                            'actual': actual_coverage,
-                            'threshold': threshold,
-                            'violation': threshold - actual_coverage,
-                            'module_type': module_type
-                        }
-        
-        if module_violations:
-            violations['module_coverage'] = module_violations
-        
-        return violations
-    
-    def _generate_regression_recommendations(
-        self,
-        overall_analysis: Dict[str, Any],
-        branch_analysis: Dict[str, Any],
-        module_analyses: List[Dict[str, Any]],
-        affected_modules: List[str]
-    ) -> List[str]:
-        """Generate actionable recommendations for addressing regressions."""
-        recommendations = []
-        
-        if overall_analysis.get('has_regression'):
-            recommendations.extend([
-                "Overall coverage has regressed - review recent changes and add missing tests",
-                "Consider running coverage analysis on individual commits to identify the change that caused regression",
-                "Ensure new features and bug fixes include comprehensive test cases"
-            ])
-        
-        if branch_analysis.get('has_regression'):
-            recommendations.extend([
-                "Branch coverage has declined - add tests for conditional logic and error handling paths",
-                "Review decision points (if/else, try/catch) in recent changes",
-                "Use pytest parametrization to test multiple code paths efficiently"
-            ])
-        
-        if affected_modules:
-            recommendations.append(
-                f"Focus testing efforts on affected modules: {', '.join(affected_modules[:5])}"
-            )
-            
-            # Module-specific recommendations
-            for module in affected_modules[:3]:  # Top 3 most affected
-                if 'api' in module.lower():
-                    recommendations.append(
-                        f"Module {module}: Add integration tests for API endpoints and error scenarios"
-                    )
-                elif 'config' in module.lower():
-                    recommendations.append(
-                        f"Module {module}: Test configuration validation and edge cases"
-                    )
-                elif 'discovery' in module.lower():
-                    recommendations.append(
-                        f"Module {module}: Test file discovery patterns and edge cases"
-                    )
-                elif 'io' in module.lower():
-                    recommendations.append(
-                        f"Module {module}: Test data loading formats and error handling"
-                    )
-        
-        # General quality improvement recommendations
-        if not recommendations:
-            recommendations.extend([
-                "Coverage levels are stable - consider adding property-based tests for robustness",
-                "Review test quality and consider refactoring tests for better maintainability"
-            ])
-        
-        return recommendations
-    
-    def correlate_coverage_with_performance(
-        self,
-        coverage_data: List[CoverageMetrics],
-        performance_data: List[PerformanceMetrics]
-    ) -> Dict[str, Any]:
-        """Analyze correlation between coverage trends and performance metrics."""
-        logger.info("Analyzing coverage-performance correlation")
-        
-        if not HAS_NUMPY:
-            logger.warning("NumPy not available - correlation analysis limited")
-            return {'correlation_available': False, 'reason': 'numpy_unavailable'}
-        
-        # Align data by timestamp
-        aligned_data = self._align_coverage_performance_data(coverage_data, performance_data)
-        
-        if len(aligned_data) < 3:
-            logger.warning("Insufficient aligned data for correlation analysis")
-            return {'correlation_available': False, 'reason': 'insufficient_data'}
-        
-        # Extract aligned values
-        coverage_values = [d['coverage'].overall_coverage for d in aligned_data]
-        loading_times = [d['performance'].data_loading_time for d in aligned_data]
-        transformation_times = [d['performance'].transformation_time for d in aligned_data]
-        test_times = [d['performance'].test_execution_time for d in aligned_data]
-        
-        correlations = {}
-        
-        # Calculate correlations
-        if HAS_SCIPY:
-            # Coverage vs Performance correlations
-            corr_loading, p_loading = stats.pearsonr(coverage_values, loading_times)
-            corr_transform, p_transform = stats.pearsonr(coverage_values, transformation_times)
-            corr_test, p_test = stats.pearsonr(coverage_values, test_times)
-            
-            correlations = {
-                'coverage_vs_loading_time': {
-                    'correlation': corr_loading,
-                    'p_value': p_loading,
-                    'significant': p_loading < 0.05
-                },
-                'coverage_vs_transformation_time': {
-                    'correlation': corr_transform,
-                    'p_value': p_transform,
-                    'significant': p_transform < 0.05
-                },
-                'coverage_vs_test_time': {
-                    'correlation': corr_test,
-                    'p_value': p_test,
-                    'significant': p_test < 0.05
-                }
-            }
-        else:
-            # Simple correlation calculation
-            corr_loading = np.corrcoef(coverage_values, loading_times)[0, 1]
-            corr_transform = np.corrcoef(coverage_values, transformation_times)[0, 1]
-            corr_test = np.corrcoef(coverage_values, test_times)[0, 1]
-            
-            correlations = {
-                'coverage_vs_loading_time': {'correlation': corr_loading},
-                'coverage_vs_transformation_time': {'correlation': corr_transform},
-                'coverage_vs_test_time': {'correlation': corr_test}
-            }
-        
-        # Analyze correlation strength and patterns
-        analysis = self._analyze_correlation_patterns(correlations, aligned_data)
-        
-        return {
-            'correlation_available': True,
-            'data_points': len(aligned_data),
-            'correlations': correlations,
-            'analysis': analysis,
-            'timestamp': datetime.now().isoformat()
-        }
-    
-    def _align_coverage_performance_data(
-        self,
-        coverage_data: List[CoverageMetrics],
-        performance_data: List[PerformanceMetrics]
-    ) -> List[Dict[str, Any]]:
-        """Align coverage and performance data by timestamp."""
-        aligned = []
-        
-        # Create time-based matching with tolerance
-        time_tolerance = timedelta(minutes=30)  # 30-minute window for matching
-        
-        for coverage in coverage_data:
-            # Find closest performance data point
-            closest_performance = None
-            min_diff = timedelta.max
-            
-            for performance in performance_data:
-                diff = abs(coverage.timestamp - performance.timestamp)
-                if diff < min_diff and diff <= time_tolerance:
-                    min_diff = diff
-                    closest_performance = performance
-            
-            if closest_performance:
-                aligned.append({
-                    'coverage': coverage,
-                    'performance': closest_performance,
-                    'time_diff': min_diff
-                })
-        
-        return aligned
-    
-    def _analyze_correlation_patterns(
-        self,
-        correlations: Dict[str, Any],
-        aligned_data: List[Dict[str, Any]]
-    ) -> Dict[str, Any]:
-        """Analyze correlation patterns and generate insights."""
-        patterns = {}
-        
-        # Analyze correlation strength
-        threshold = self.config.get('performance_correlation_threshold', PERFORMANCE_CORRELATION_THRESHOLD)
-        
-        strong_correlations = []
-        for metric, corr_data in correlations.items():
-            correlation = corr_data.get('correlation', 0)
-            if abs(correlation) >= threshold:
-                strong_correlations.append({
-                    'metric': metric,
-                    'correlation': correlation,
-                    'strength': 'strong positive' if correlation > threshold else 'strong negative'
-                })
-        
-        patterns['strong_correlations'] = strong_correlations
-        
-        # Analyze trends over time
-        if len(aligned_data) >= 5:
-            # Look for trend changes
-            mid_point = len(aligned_data) // 2
-            early_data = aligned_data[:mid_point]
-            late_data = aligned_data[mid_point:]
-            
-            early_coverage = np.mean([d['coverage'].overall_coverage for d in early_data])
-            late_coverage = np.mean([d['coverage'].overall_coverage for d in late_data])
-            
-            early_performance = np.mean([d['performance'].test_execution_time for d in early_data])
-            late_performance = np.mean([d['performance'].test_execution_time for d in late_data])
-            
-            patterns['trends'] = {
-                'coverage_trend': 'improving' if late_coverage > early_coverage else 'declining',
-                'performance_trend': 'improving' if late_performance < early_performance else 'declining',
-                'coverage_change': late_coverage - early_coverage,
-                'performance_change': late_performance - early_performance
-            }
-        
-        return patterns
-    
-    def generate_trend_report(
-        self,
-        output_dir: str = "tests/coverage/reports",
-        include_visualizations: bool = True
-    ) -> Dict[str, Any]:
-        """Generate comprehensive trend analysis report."""
-        logger.info(f"Generating trend analysis report in {output_dir}")
-        
-        output_path = Path(output_dir)
-        output_path.mkdir(parents=True, exist_ok=True)
-        
-        # Collect current and historical data
-        current_coverage = self.collect_current_coverage()
-        historical_coverage = self.get_historical_coverage()
-        
-        # Store current metrics
-        self.store_coverage_metrics(current_coverage)
-        
-        # Collect performance data
-        current_performance = self.collect_performance_metrics()
-        historical_performance = self._get_historical_performance()
-        
-        if current_performance:
-            self.store_performance_metrics(current_performance)
-        
-        # Perform regression analysis
-        regression_result = self.detect_coverage_regression(current_coverage, historical_coverage)
-        
-        # Correlation analysis
-        correlation_analysis = {}
-        if current_performance and historical_performance:
-            correlation_analysis = self.correlate_coverage_with_performance(
-                historical_coverage, historical_performance
-            )
-        
-        # Generate report data
-        report_data = {
-            'report_metadata': {
-                'generated_at': datetime.now().isoformat(),
-                'report_version': '1.0.0',
-                'analyzer_config': self.config,
-                'data_points': len(historical_coverage)
-            },
-            'current_metrics': {
-                'coverage': current_coverage.to_dict(),
-                'performance': current_performance.to_dict() if current_performance else None
-            },
-            'historical_summary': self._generate_historical_summary(historical_coverage),
-            'regression_analysis': regression_result.to_dict(),
-            'correlation_analysis': correlation_analysis,
-            'quality_assessment': self._assess_overall_quality(current_coverage, regression_result),
-            'recommendations': self._generate_comprehensive_recommendations(
-                current_coverage, regression_result, correlation_analysis
-            )
-        }
-        
-        # Save JSON report
-        json_report_path = output_path / f"coverage-trend-report-{datetime.now().strftime('%Y%m%d-%H%M%S')}.json"
-        with open(json_report_path, 'w') as f:
-            json.dump(report_data, f, indent=2, default=str)
-        
-        logger.info(f"JSON report saved to {json_report_path}")
-        
-        # Generate visualizations if enabled
-        if include_visualizations and HAS_MATPLOTLIB:
-            viz_paths = self._generate_visualizations(
-                historical_coverage, historical_performance, output_path
-            )
-            report_data['visualizations'] = viz_paths
-        
-        # Generate HTML report
-        html_report_path = self._generate_html_report(report_data, output_path)
-        report_data['html_report'] = str(html_report_path)
-        
-        return report_data
-    
-    def _get_historical_performance(self, days: int = None) -> List[PerformanceMetrics]:
-        """Retrieve historical performance data."""
-        if days is None:
-            days = self.config.get('history_retention_days', DEFAULT_HISTORY_DAYS)
-        
-        start_date = datetime.now() - timedelta(days=days)
-        
-        with sqlite3.connect(self.db_path) as conn:
-            cursor = conn.execute("""
-                SELECT timestamp, data_loading_time, transformation_time, test_execution_time,
-                       sla_compliance_json, benchmark_results_json
-                FROM performance_history
-                WHERE timestamp >= ?
-                ORDER BY timestamp ASC
-            """, (start_date.isoformat(),))
-            
-            results = []
-            for row in cursor.fetchall():
-                results.append(PerformanceMetrics(
-                    timestamp=datetime.fromisoformat(row[0]),
-                    data_loading_time=row[1],
-                    transformation_time=row[2],
-                    test_execution_time=row[3],
-                    sla_compliance=json.loads(row[4]),
-                    benchmark_results=json.loads(row[5]) if row[5] else {}
-                ))
-            
-            return results
-    
-    def _generate_historical_summary(self, historical_data: List[CoverageMetrics]) -> Dict[str, Any]:
-        """Generate summary statistics for historical coverage data."""
-        if not historical_data:
-            return {'available': False}
-        
-        overall_coverages = [m.overall_coverage for m in historical_data]
-        branch_coverages = [m.branch_coverage for m in historical_data]
-        
-        summary = {
-            'available': True,
-            'time_range': {
-                'start': historical_data[0].timestamp.isoformat(),
-                'end': historical_data[-1].timestamp.isoformat(),
-                'days': (historical_data[-1].timestamp - historical_data[0].timestamp).days
-            },
-            'overall_coverage': {
-                'current': overall_coverages[-1],
-                'min': min(overall_coverages),
-                'max': max(overall_coverages),
-                'mean': statistics.mean(overall_coverages),
-                'median': statistics.median(overall_coverages),
-                'std': statistics.stdev(overall_coverages) if len(overall_coverages) > 1 else 0
-            },
-            'branch_coverage': {
-                'current': branch_coverages[-1],
-                'min': min(branch_coverages),
-                'max': max(branch_coverages),
-                'mean': statistics.mean(branch_coverages),
-                'median': statistics.median(branch_coverages),
-                'std': statistics.stdev(branch_coverages) if len(branch_coverages) > 1 else 0
-            }
-        }
-        
-        # Module-specific summaries
-        all_modules = set()
-        for metrics in historical_data:
-            all_modules.update(metrics.module_coverage.keys())
-        
-        module_summaries = {}
-        for module in all_modules:
-            module_values = []
-            for metrics in historical_data:
-                if module in metrics.module_coverage:
-                    module_values.append(metrics.module_coverage[module])
-            
-            if module_values:
-                module_summaries[module] = {
-                    'current': module_values[-1],
-                    'min': min(module_values),
-                    'max': max(module_values),
-                    'mean': statistics.mean(module_values),
-                    'trend': 'improving' if len(module_values) > 1 and module_values[-1] > module_values[0] else 'stable'
-                }
-        
-        summary['module_coverage'] = module_summaries
-        
-        return summary
-    
-    def _assess_overall_quality(
-        self, 
-        current_metrics: CoverageMetrics, 
-        regression_result: TrendRegressionResult
-    ) -> Dict[str, Any]:
-        """Assess overall code quality based on coverage and trends."""
-        quality_score = 100  # Start with perfect score
-        
-        # Coverage-based scoring
-        if current_metrics.overall_coverage < 90:
-            quality_score -= (90 - current_metrics.overall_coverage) * 2
-        
-        if current_metrics.branch_coverage < 85:
-            quality_score -= (85 - current_metrics.branch_coverage) * 1.5
-        
-        # Regression penalty
-        if regression_result.has_regression:
-            quality_score -= regression_result.confidence_level * 20
-        
-        # Threshold violations
-        threshold_violations = self._check_threshold_violations(current_metrics)
-        if threshold_violations:
-            quality_score -= len(threshold_violations) * 10
-        
-        quality_score = max(0, quality_score)
-        
-        # Determine quality level
-        if quality_score >= 90:
-            quality_level = 'excellent'
-        elif quality_score >= 75:
-            quality_level = 'good'
-        elif quality_score >= 60:
-            quality_level = 'acceptable'
-        else:
-            quality_level = 'needs_improvement'
-        
-        return {
-            'quality_score': quality_score,
-            'quality_level': quality_level,
-            'assessment_criteria': {
-                'overall_coverage': current_metrics.overall_coverage,
-                'branch_coverage': current_metrics.branch_coverage,
-                'has_regression': regression_result.has_regression,
-                'threshold_violations': len(threshold_violations)
-            }
-        }
-    
-    def _generate_comprehensive_recommendations(
-        self,
-        current_metrics: CoverageMetrics,
-        regression_result: TrendRegressionResult,
-        correlation_analysis: Dict[str, Any]
-    ) -> List[Dict[str, Any]]:
-        """Generate comprehensive, actionable recommendations."""
-        recommendations = []
-        
-        # Coverage improvement recommendations
-        if current_metrics.overall_coverage < 90:
-            recommendations.append({
-                'type': 'coverage_improvement',
-                'priority': 'high',
-                'title': 'Increase overall test coverage',
-                'description': f'Current coverage ({current_metrics.overall_coverage:.1f}%) is below target (90%)',
-                'actions': [
-                    'Identify untested code paths using coverage reports',
-                    'Add unit tests for missing functionality',
-                    'Review recent changes for test completeness'
-                ]
+                'actual': current_overall,
+                'gap': overall_threshold - current_overall,
+                'severity': 'high'
             })
         
-        # Regression-specific recommendations
-        if regression_result.has_regression:
-            recommendations.append({
-                'type': 'regression_mitigation',
-                'priority': 'critical',
-                'title': 'Address coverage regression',
-                'description': f'Coverage regression detected with {regression_result.confidence_level:.1f} confidence',
-                'actions': regression_result.recommendations
+        # Check branch coverage threshold
+        branch_threshold = self.quality_gates.get('coverage', {}).get('overall_branch_threshold', 90.0)
+        current_branch = self.current_coverage['summary']['branch_coverage_percentage']
+        
+        if current_branch < branch_threshold:
+            violations.append({
+                'type': 'branch_coverage',
+                'threshold': branch_threshold,
+                'actual': current_branch,
+                'gap': branch_threshold - current_branch,
+                'severity': 'high'
             })
         
-        # Module-specific recommendations
-        threshold_violations = self._check_threshold_violations(current_metrics)
-        if threshold_violations.get('module_coverage'):
-            for module, violation in threshold_violations['module_coverage'].items():
-                recommendations.append({
-                    'type': 'module_improvement',
-                    'priority': 'high' if violation['violation'] > 5 else 'medium',
-                    'title': f'Improve coverage for {module}',
-                    'description': f'Module coverage ({violation["actual"]:.1f}%) below threshold ({violation["threshold"]:.1f}%)',
-                    'actions': [
-                        f'Review {module} for untested code paths',
-                        'Add module-specific test cases',
-                        'Consider refactoring for better testability'
-                    ]
-                })
+        # Check critical module thresholds
+        critical_threshold = self.quality_gates.get('coverage', {}).get('critical_module_coverage_threshold', 100.0)
         
-        # Performance correlation recommendations
-        if correlation_analysis.get('correlation_available'):
-            strong_correls = correlation_analysis.get('analysis', {}).get('strong_correlations', [])
-            for correl in strong_correls:
-                if 'negative' in correl['strength']:
-                    recommendations.append({
-                        'type': 'performance_optimization',
-                        'priority': 'medium',
-                        'title': 'Optimize test performance',
-                        'description': f'Strong negative correlation detected: {correl["metric"]}',
-                        'actions': [
-                            'Review test execution efficiency',
-                            'Consider parallel test execution',
-                            'Optimize slow test cases'
-                        ]
+        for module_path, module_data in self.current_coverage.get('module_coverage', {}).items():
+            if self._is_critical_module(module_path):
+                module_coverage = module_data['line_coverage']
+                if module_coverage < critical_threshold:
+                    violations.append({
+                        'type': 'critical_module_coverage',
+                        'module': module_path,
+                        'threshold': critical_threshold,
+                        'actual': module_coverage,
+                        'gap': critical_threshold - module_coverage,
+                        'severity': 'critical'
                     })
         
-        # Quality maintenance recommendations
-        if not recommendations:
-            recommendations.append({
-                'type': 'quality_maintenance',
-                'priority': 'low',
-                'title': 'Maintain current quality standards',
-                'description': 'Coverage levels are healthy - focus on quality maintenance',
-                'actions': [
-                    'Continue monitoring coverage trends',
-                    'Consider property-based testing for robustness',
-                    'Review test quality and maintainability'
-                ]
+        return violations
+
+    def _calculate_regression_confidence(self, regression_analysis: Dict[str, Any]) -> str:
+        """Calculate confidence level for regression detection based on data quality and statistical metrics."""
+        if regression_analysis.get('insufficient_data'):
+            return 'low'
+        
+        confidence_factors = []
+        
+        # Data quantity factor
+        data_points = len(self.historical_data)
+        if data_points >= 10:
+            confidence_factors.append(0.9)
+        elif data_points >= 5:
+            confidence_factors.append(0.7)
+        else:
+            confidence_factors.append(0.3)
+        
+        # Regression severity factor
+        severity = regression_analysis.get('severity', 'none')
+        severity_confidence = {'none': 0.1, 'low': 0.5, 'medium': 0.7, 'high': 0.9, 'critical': 1.0}
+        confidence_factors.append(severity_confidence.get(severity, 0.1))
+        
+        # Statistical significance factor
+        overall_regression = regression_analysis.get('overall_regression', {})
+        if 'threshold_exceeded' in overall_regression and overall_regression['threshold_exceeded']:
+            confidence_factors.append(0.8)
+        else:
+            confidence_factors.append(0.4)
+        
+        # Calculate weighted average confidence
+        avg_confidence = sum(confidence_factors) / len(confidence_factors)
+        
+        if avg_confidence >= 0.8:
+            return 'high'
+        elif avg_confidence >= 0.6:
+            return 'medium'
+        else:
+            return 'low'
+
+    def _calculate_statistical_metrics(self) -> None:
+        """Calculate comprehensive statistical metrics for trend analysis."""
+        self.logger.debug("Calculating statistical metrics...")
+        
+        if len(self.historical_data) < 2:
+            self.trend_analysis['statistical_metrics'] = {'insufficient_data': True}
+            return
+        
+        # Extract coverage time series
+        overall_coverage = [entry['summary']['overall_coverage_percentage'] for entry in self.historical_data]
+        branch_coverage = [entry['summary']['branch_coverage_percentage'] for entry in self.historical_data]
+        
+        statistical_metrics = {
+            'overall_coverage_stats': self._calculate_descriptive_stats(overall_coverage),
+            'branch_coverage_stats': self._calculate_descriptive_stats(branch_coverage),
+            'data_quality_metrics': self._calculate_data_quality_metrics(),
+            'trend_stability': self._calculate_trend_stability(overall_coverage),
+            'prediction_reliability': self._calculate_prediction_reliability()
+        }
+        
+        self.trend_analysis['statistical_metrics'] = statistical_metrics
+
+    def _calculate_descriptive_stats(self, values: List[float]) -> Dict[str, float]:
+        """Calculate descriptive statistics for a series of values."""
+        if not values:
+            return {'error': 'no_data'}
+        
+        stats_dict = {
+            'count': len(values),
+            'mean': statistics.mean(values),
+            'median': statistics.median(values),
+            'mode': statistics.mode(values) if len(set(values)) < len(values) else None,
+            'min': min(values),
+            'max': max(values),
+            'range': max(values) - min(values),
+            'variance': statistics.variance(values) if len(values) > 1 else 0.0,
+            'std_deviation': statistics.stdev(values) if len(values) > 1 else 0.0
+        }
+        
+        # Calculate percentiles if numpy is available
+        if NUMPY_AVAILABLE:
+            try:
+                np_values = np.array(values)
+                stats_dict.update({
+                    'percentile_25': np.percentile(np_values, 25),
+                    'percentile_75': np.percentile(np_values, 75),
+                    'iqr': np.percentile(np_values, 75) - np.percentile(np_values, 25)
+                })
+            except Exception:
+                pass
+        
+        return stats_dict
+
+    def _calculate_data_quality_metrics(self) -> Dict[str, Any]:
+        """Calculate metrics related to data quality and completeness."""
+        total_entries = len(self.historical_data)
+        
+        if total_entries == 0:
+            return {'no_data': True}
+        
+        # Check data completeness
+        complete_entries = sum(1 for entry in self.historical_data 
+                              if all(key in entry for key in ['timestamp', 'summary', 'module_coverage']))
+        
+        completeness_ratio = complete_entries / total_entries
+        
+        # Check temporal consistency
+        timestamps = [datetime.fromisoformat(entry['timestamp'].replace('Z', '+00:00')) for entry in self.historical_data]
+        time_gaps = [(timestamps[i+1] - timestamps[i]).total_seconds() for i in range(len(timestamps)-1)]
+        
+        data_quality = {
+            'total_entries': total_entries,
+            'complete_entries': complete_entries,
+            'completeness_ratio': completeness_ratio,
+            'temporal_consistency': {
+                'average_gap_hours': statistics.mean(time_gaps) / 3600 if time_gaps else 0,
+                'max_gap_hours': max(time_gaps) / 3600 if time_gaps else 0,
+                'min_gap_hours': min(time_gaps) / 3600 if time_gaps else 0
+            },
+            'data_freshness_hours': (datetime.now(timezone.utc) - max(timestamps)).total_seconds() / 3600 if timestamps else float('inf')
+        }
+        
+        return data_quality
+
+    def _calculate_trend_stability(self, values: List[float]) -> Dict[str, Any]:
+        """Calculate trend stability metrics to assess prediction reliability."""
+        if len(values) < 3:
+            return {'insufficient_data': True}
+        
+        # Calculate moving averages to assess stability
+        window_sizes = [3, 5, min(10, len(values))]
+        stability_metrics = {}
+        
+        for window_size in window_sizes:
+            if len(values) >= window_size:
+                moving_avgs = []
+                for i in range(len(values) - window_size + 1):
+                    avg = sum(values[i:i + window_size]) / window_size
+                    moving_avgs.append(avg)
+                
+                if len(moving_avgs) > 1:
+                    avg_variance = statistics.variance(moving_avgs)
+                    stability_metrics[f'moving_avg_{window_size}_variance'] = avg_variance
+        
+        # Calculate overall stability score
+        if stability_metrics:
+            avg_variance = statistics.mean(stability_metrics.values())
+            stability_score = max(0, 1 - (avg_variance / 100))  # Normalize to 0-1 scale
+            stability_metrics['overall_stability_score'] = stability_score
+            
+            if stability_score > 0.8:
+                stability_metrics['stability_level'] = 'high'
+            elif stability_score > 0.6:
+                stability_metrics['stability_level'] = 'medium'
+            else:
+                stability_metrics['stability_level'] = 'low'
+        
+        return stability_metrics
+
+    def _calculate_prediction_reliability(self) -> Dict[str, Any]:
+        """Calculate metrics for assessing the reliability of trend predictions."""
+        if len(self.historical_data) < 5:
+            return {'insufficient_data': True}
+        
+        # Simple prediction reliability based on trend consistency
+        recent_values = [entry['summary']['overall_coverage_percentage'] for entry in self.historical_data[-10:]]
+        
+        reliability_metrics = {
+            'recent_data_points': len(recent_values),
+            'recent_variance': statistics.variance(recent_values) if len(recent_values) > 1 else 0,
+            'data_age_days': (datetime.now(timezone.utc) - 
+                             datetime.fromisoformat(self.historical_data[-1]['timestamp'].replace('Z', '+00:00'))).days
+        }
+        
+        # Calculate reliability score
+        variance_penalty = min(reliability_metrics['recent_variance'] / 10, 0.5)  # Penalize high variance
+        age_penalty = min(reliability_metrics['data_age_days'] / 7, 0.3)  # Penalize old data
+        
+        reliability_score = max(0, 1 - variance_penalty - age_penalty)
+        reliability_metrics['reliability_score'] = reliability_score
+        
+        if reliability_score > 0.8:
+            reliability_metrics['reliability_level'] = 'high'
+        elif reliability_score > 0.6:
+            reliability_metrics['reliability_level'] = 'medium'
+        else:
+            reliability_metrics['reliability_level'] = 'low'
+        
+        return reliability_metrics
+
+    def _correlate_performance_data(self) -> None:
+        """
+        Correlate coverage trends with performance benchmark data per TST-PERF-001
+        and TST-PERF-002 requirements for comprehensive quality metrics.
+        """
+        self.logger.debug("Correlating coverage trends with performance data...")
+        
+        performance_correlation = {
+            'correlation_available': False,
+            'data_loading_correlation': {},
+            'transformation_correlation': {},
+            'overall_performance_impact': {}
+        }
+        
+        # Check for performance data availability
+        performance_data_file = self.historical_data_dir / "performance_history.json"
+        
+        if performance_data_file.exists():
+            try:
+                with open(performance_data_file, 'r', encoding='utf-8') as f:
+                    perf_data = json.load(f)
+                
+                performance_correlation = self._analyze_performance_correlation(perf_data)
+                
+            except Exception as e:
+                self.logger.warning(f"Failed to load performance data: {e}")
+                performance_correlation['error'] = str(e)
+        else:
+            self.logger.info("No performance data available for correlation analysis")
+            performance_correlation['message'] = "Performance data not available - run benchmark tests to enable correlation analysis"
+        
+        self.trend_analysis['performance_correlation'] = performance_correlation
+
+    def _analyze_performance_correlation(self, perf_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Analyze correlation between coverage and performance metrics."""
+        correlation_results = {
+            'correlation_available': True,
+            'data_loading_correlation': {'correlation_coefficient': 0.0, 'significance': 'not_calculated'},
+            'transformation_correlation': {'correlation_coefficient': 0.0, 'significance': 'not_calculated'},
+            'overall_performance_impact': {'impact_detected': False}
+        }
+        
+        # Extract performance time series
+        perf_entries = perf_data.get('entries', [])
+        if not perf_entries:
+            return correlation_results
+        
+        # Match performance data with coverage data by timestamp
+        matched_data = []
+        for cov_entry in self.historical_data:
+            cov_timestamp = datetime.fromisoformat(cov_entry['timestamp'].replace('Z', '+00:00'))
+            
+            # Find closest performance entry (within 1 hour)
+            closest_perf = None
+            min_time_diff = timedelta(hours=1)
+            
+            for perf_entry in perf_entries:
+                perf_timestamp = datetime.fromisoformat(perf_entry['timestamp'].replace('Z', '+00:00'))
+                time_diff = abs(cov_timestamp - perf_timestamp)
+                
+                if time_diff < min_time_diff:
+                    min_time_diff = time_diff
+                    closest_perf = perf_entry
+            
+            if closest_perf:
+                matched_data.append({
+                    'coverage': cov_entry['summary']['overall_coverage_percentage'],
+                    'data_loading_time': closest_perf.get('data_loading_time', 0),
+                    'transformation_time': closest_perf.get('transformation_time', 0)
+                })
+        
+        if len(matched_data) < 3:
+            correlation_results['insufficient_matched_data'] = True
+            return correlation_results
+        
+        # Calculate correlations if scipy is available
+        if SCIPY_AVAILABLE:
+            try:
+                coverage_values = [d['coverage'] for d in matched_data]
+                loading_times = [d['data_loading_time'] for d in matched_data]
+                transform_times = [d['transformation_time'] for d in matched_data]
+                
+                # Correlation between coverage and data loading performance
+                if any(t > 0 for t in loading_times):
+                    loading_corr, loading_p = stats.pearsonr(coverage_values, loading_times)
+                    correlation_results['data_loading_correlation'] = {
+                        'correlation_coefficient': loading_corr,
+                        'p_value': loading_p,
+                        'significance': 'significant' if loading_p < 0.05 else 'not_significant',
+                        'interpretation': self._interpret_correlation(loading_corr)
+                    }
+                
+                # Correlation between coverage and transformation performance
+                if any(t > 0 for t in transform_times):
+                    transform_corr, transform_p = stats.pearsonr(coverage_values, transform_times)
+                    correlation_results['transformation_correlation'] = {
+                        'correlation_coefficient': transform_corr,
+                        'p_value': transform_p,
+                        'significance': 'significant' if transform_p < 0.05 else 'not_significant',
+                        'interpretation': self._interpret_correlation(transform_corr)
+                    }
+                
+                # Overall performance impact assessment
+                significant_correlations = []
+                if correlation_results['data_loading_correlation'].get('significance') == 'significant':
+                    significant_correlations.append('data_loading')
+                if correlation_results['transformation_correlation'].get('significance') == 'significant':
+                    significant_correlations.append('transformation')
+                
+                correlation_results['overall_performance_impact'] = {
+                    'impact_detected': len(significant_correlations) > 0,
+                    'affected_areas': significant_correlations,
+                    'matched_data_points': len(matched_data)
+                }
+                
+            except Exception as e:
+                self.logger.warning(f"Failed to calculate performance correlations: {e}")
+                correlation_results['correlation_error'] = str(e)
+        
+        return correlation_results
+
+    def _interpret_correlation(self, correlation: float) -> str:
+        """Interpret correlation coefficient magnitude and direction."""
+        abs_corr = abs(correlation)
+        direction = "positive" if correlation > 0 else "negative" if correlation < 0 else "none"
+        
+        if abs_corr >= 0.7:
+            strength = "strong"
+        elif abs_corr >= 0.5:
+            strength = "moderate"
+        elif abs_corr >= 0.3:
+            strength = "weak"
+        else:
+            strength = "negligible"
+        
+        return f"{strength} {direction} correlation"
+
+    def _generate_quality_predictions(self) -> None:
+        """Generate quality predictions based on trend analysis and statistical models."""
+        self.logger.debug("Generating quality predictions...")
+        
+        predictions = {
+            'prediction_available': False,
+            'short_term_prediction': {},
+            'trend_based_forecast': {},
+            'risk_assessment': {}
+        }
+        
+        if len(self.historical_data) < 5:
+            predictions['insufficient_data'] = True
+            self.trend_analysis['quality_predictions'] = predictions
+            return
+        
+        predictions['prediction_available'] = True
+        
+        # Short-term prediction (next data point)
+        predictions['short_term_prediction'] = self._predict_short_term_coverage()
+        
+        # Trend-based forecast (next 7-30 days)
+        predictions['trend_based_forecast'] = self._forecast_coverage_trend()
+        
+        # Risk assessment
+        predictions['risk_assessment'] = self._assess_quality_risks()
+        
+        self.trend_analysis['quality_predictions'] = predictions
+
+    def _predict_short_term_coverage(self) -> Dict[str, Any]:
+        """Predict next coverage value based on recent trends."""
+        recent_values = [entry['summary']['overall_coverage_percentage'] for entry in self.historical_data[-5:]]
+        
+        if len(recent_values) < 3:
+            return {'insufficient_data': True}
+        
+        # Simple moving average prediction
+        moving_avg = sum(recent_values) / len(recent_values)
+        
+        # Linear trend prediction if scipy available
+        prediction_result = {
+            'moving_average_prediction': moving_avg,
+            'prediction_confidence': 'medium'
+        }
+        
+        if SCIPY_AVAILABLE and len(recent_values) >= 3:
+            try:
+                x_values = list(range(len(recent_values)))
+                slope, intercept, r_value, p_value, std_err = stats.linregress(x_values, recent_values)
+                
+                next_prediction = slope * len(recent_values) + intercept
+                prediction_result.update({
+                    'linear_trend_prediction': next_prediction,
+                    'trend_slope': slope,
+                    'prediction_r_squared': r_value ** 2,
+                    'prediction_confidence': 'high' if abs(r_value) > 0.7 else 'medium'
+                })
+                
+            except Exception:
+                pass
+        
+        return prediction_result
+
+    def _forecast_coverage_trend(self) -> Dict[str, Any]:
+        """Forecast coverage trends for the next 7-30 days."""
+        if len(self.historical_data) < 5:
+            return {'insufficient_data': True}
+        
+        coverage_values = [entry['summary']['overall_coverage_percentage'] for entry in self.historical_data]
+        
+        forecast = {
+            'forecast_horizon_days': 30,
+            'trend_direction': 'stable',
+            'confidence_level': 'low'
+        }
+        
+        # Calculate recent trend direction
+        recent_values = coverage_values[-10:]  # Last 10 data points
+        if len(recent_values) >= 3:
+            recent_trend = recent_values[-1] - recent_values[0]
+            
+            if recent_trend > 1:
+                forecast['trend_direction'] = 'improving'
+            elif recent_trend < -1:
+                forecast['trend_direction'] = 'declining'
+            else:
+                forecast['trend_direction'] = 'stable'
+            
+            # Simple confidence assessment based on trend consistency
+            direction_changes = 0
+            for i in range(1, len(recent_values)):
+                if (recent_values[i] - recent_values[i-1]) * recent_trend < 0:
+                    direction_changes += 1
+            
+            consistency_ratio = 1 - (direction_changes / (len(recent_values) - 1))
+            
+            if consistency_ratio > 0.7:
+                forecast['confidence_level'] = 'high'
+            elif consistency_ratio > 0.5:
+                forecast['confidence_level'] = 'medium'
+            else:
+                forecast['confidence_level'] = 'low'
+            
+            forecast['trend_consistency'] = consistency_ratio
+        
+        return forecast
+
+    def _assess_quality_risks(self) -> Dict[str, Any]:
+        """Assess quality risks based on trend analysis and threshold proximity."""
+        risk_assessment = {
+            'overall_risk_level': 'low',
+            'risk_factors': [],
+            'immediate_concerns': [],
+            'recommendations': []
+        }
+        
+        current_coverage = self.current_coverage['summary']['overall_coverage_percentage']
+        threshold = self.quality_gates.get('coverage', {}).get('overall_coverage_threshold', 90.0)
+        
+        # Assess proximity to threshold
+        threshold_gap = current_coverage - threshold
+        
+        if threshold_gap < 0:
+            risk_assessment['risk_factors'].append({
+                'factor': 'below_threshold',
+                'severity': 'high',
+                'description': f'Coverage {current_coverage:.1f}% is below threshold {threshold}%'
             })
+            risk_assessment['overall_risk_level'] = 'high'
+        elif threshold_gap < 2:
+            risk_assessment['risk_factors'].append({
+                'factor': 'near_threshold',
+                'severity': 'medium',
+                'description': f'Coverage {current_coverage:.1f}% is close to threshold {threshold}%'
+            })
+            risk_assessment['overall_risk_level'] = 'medium'
         
-        return recommendations
-    
-    def _generate_visualizations(
-        self,
-        coverage_data: List[CoverageMetrics],
-        performance_data: List[PerformanceMetrics],
-        output_dir: Path
-    ) -> List[str]:
-        """Generate trend visualization charts."""
-        if not HAS_MATPLOTLIB:
-            logger.warning("Matplotlib not available - skipping visualization generation")
-            return []
+        # Assess trend direction risk
+        overall_trends = self.trend_analysis.get('overall_trends', {})
+        line_coverage_trend = overall_trends.get('line_coverage', {})
         
-        viz_paths = []
+        if line_coverage_trend.get('trend_pattern', {}).get('pattern') == 'consistently_decreasing':
+            risk_assessment['risk_factors'].append({
+                'factor': 'declining_trend',
+                'severity': 'medium',
+                'description': 'Coverage shows consistently declining trend'
+            })
+            if risk_assessment['overall_risk_level'] == 'low':
+                risk_assessment['overall_risk_level'] = 'medium'
         
-        # Configure matplotlib
-        plt.style.use('seaborn-v0_8' if hasattr(plt.style, 'library') else 'default')
-        fig_size = tuple(self.config['visualization']['figure_size'])
-        dpi = self.config['visualization']['dpi']
+        # Assess regression detection
+        if self.trend_analysis.get('regression_analysis', {}).get('regression_detected'):
+            regression_severity = self.trend_analysis['regression_analysis'].get('severity', 'low')
+            risk_assessment['risk_factors'].append({
+                'factor': 'regression_detected',
+                'severity': regression_severity,
+                'description': f'Coverage regression detected with {regression_severity} severity'
+            })
+            
+            if regression_severity in ['high', 'critical']:
+                risk_assessment['overall_risk_level'] = 'high'
+            elif regression_severity == 'medium' and risk_assessment['overall_risk_level'] != 'high':
+                risk_assessment['overall_risk_level'] = 'medium'
+        
+        # Generate recommendations based on risks
+        risk_assessment['recommendations'] = self._generate_risk_recommendations(risk_assessment)
+        
+        return risk_assessment
+
+    def _generate_risk_recommendations(self, risk_assessment: Dict[str, Any]) -> List[str]:
+        """Generate actionable recommendations based on identified risks."""
+        recommendations = []
+        
+        risk_level = risk_assessment['overall_risk_level']
+        risk_factors = [rf['factor'] for rf in risk_assessment['risk_factors']]
+        
+        if 'below_threshold' in risk_factors:
+            recommendations.extend([
+                'Immediately review and improve test coverage for modules below threshold',
+                'Focus on critical modules that require 100% coverage',
+                'Run comprehensive test suite analysis to identify coverage gaps'
+            ])
+        
+        if 'near_threshold' in risk_factors:
+            recommendations.extend([
+                'Proactively add tests for uncovered code paths',
+                'Monitor coverage closely with more frequent measurements',
+                'Review recent code changes that may have reduced coverage'
+            ])
+        
+        if 'declining_trend' in risk_factors:
+            recommendations.extend([
+                'Investigate root causes of coverage decline',
+                'Implement stricter code review processes',
+                'Add pre-commit hooks for coverage validation'
+            ])
+        
+        if 'regression_detected' in risk_factors:
+            recommendations.extend([
+                'Block merges until coverage regression is resolved',
+                'Review recent commits that may have contributed to regression',
+                'Run full test suite validation before deployment'
+            ])
+        
+        # General recommendations based on risk level
+        if risk_level == 'high':
+            recommendations.extend([
+                'Consider implementing emergency coverage improvement plan',
+                'Increase test development velocity temporarily',
+                'Review testing infrastructure for potential issues'
+            ])
+        
+        return list(set(recommendations))  # Remove duplicates
+
+    def _generate_trend_alerts(self) -> None:
+        """Generate comprehensive alerts for detected trends and quality issues."""
+        self.logger.debug("Generating trend alerts...")
+        
+        alerts = []
+        
+        # Regression alerts
+        regression = self.trend_analysis.get('regression_analysis', {})
+        if regression.get('regression_detected'):
+            severity = regression.get('severity', 'medium')
+            
+            alert = {
+                'type': 'regression',
+                'severity': severity,
+                'title': f'Coverage Regression Detected ({severity.title()} Severity)',
+                'message': self._format_regression_alert_message(regression),
+                'actionable': True,
+                'timestamp': datetime.now(timezone.utc).isoformat(),
+                'recommendations': []
+            }
+            
+            # Add specific recommendations based on regression type
+            if regression.get('overall_regression', {}).get('regression_detected'):
+                alert['recommendations'].extend([
+                    'Review recent code changes that may have reduced overall coverage',
+                    'Run comprehensive test analysis to identify coverage gaps',
+                    'Consider blocking merge until coverage is restored'
+                ])
+            
+            if regression.get('critical_module_regression', {}).get('regression_detected'):
+                alert['recommendations'].extend([
+                    'Immediately address critical module coverage failures',
+                    'Critical modules must maintain 100% coverage per TST-COV-002',
+                    'Run focused testing on affected critical modules'
+                ])
+            
+            alerts.append(alert)
+        
+        # Threshold violation alerts
+        threshold_violations = regression.get('threshold_violations', [])
+        for violation in threshold_violations:
+            alert = {
+                'type': 'threshold_violation',
+                'severity': violation.get('severity', 'medium'),
+                'title': f'Coverage Threshold Violation: {violation["type"]}',
+                'message': self._format_threshold_violation_message(violation),
+                'actionable': True,
+                'timestamp': datetime.now(timezone.utc).isoformat(),
+                'recommendations': [
+                    f'Increase {violation["type"]} to meet {violation["threshold"]}% threshold',
+                    'Review and improve test coverage in affected areas',
+                    'Consider implementing additional test scenarios'
+                ]
+            }
+            alerts.append(alert)
+        
+        # Performance correlation alerts
+        perf_correlation = self.trend_analysis.get('performance_correlation', {})
+        if perf_correlation.get('overall_performance_impact', {}).get('impact_detected'):
+            alert = {
+                'type': 'performance_correlation',
+                'severity': 'medium',
+                'title': 'Coverage-Performance Correlation Detected',
+                'message': 'Significant correlation detected between coverage and performance metrics',
+                'actionable': True,
+                'timestamp': datetime.now(timezone.utc).isoformat(),
+                'recommendations': [
+                    'Review test execution efficiency and optimization opportunities',
+                    'Monitor performance impact of coverage improvements',
+                    'Consider balanced approach to coverage and performance'
+                ]
+            }
+            alerts.append(alert)
+        
+        # Data quality alerts
+        stats = self.trend_analysis.get('statistical_metrics', {})
+        data_quality = stats.get('data_quality_metrics', {})
+        
+        if data_quality.get('completeness_ratio', 1.0) < 0.8:
+            alert = {
+                'type': 'data_quality',
+                'severity': 'low',
+                'title': 'Historical Data Quality Issues',
+                'message': f'Data completeness ratio: {data_quality["completeness_ratio"]:.1%}',
+                'actionable': True,
+                'timestamp': datetime.now(timezone.utc).isoformat(),
+                'recommendations': [
+                    'Improve coverage data collection consistency',
+                    'Validate data persistence mechanisms',
+                    'Consider data cleaning and validation processes'
+                ]
+            }
+            alerts.append(alert)
+        
+        # Prediction reliability alerts
+        prediction_reliability = stats.get('prediction_reliability', {})
+        if prediction_reliability.get('reliability_level') == 'low':
+            alert = {
+                'type': 'prediction_reliability',
+                'severity': 'low',
+                'title': 'Low Prediction Reliability',
+                'message': 'Trend predictions have low reliability due to data variance or age',
+                'actionable': True,
+                'timestamp': datetime.now(timezone.utc).isoformat(),
+                'recommendations': [
+                    'Collect more consistent coverage data',
+                    'Increase frequency of coverage measurements',
+                    'Reduce variance in test execution environment'
+                ]
+            }
+            alerts.append(alert)
+        
+        self.trend_analysis['alerts'] = alerts
+        
+        # Update analysis stats
+        self.analysis_stats['warnings'].extend([alert for alert in alerts if alert['severity'] in ['low', 'medium']])
+        self.analysis_stats['errors'].extend([alert for alert in alerts if alert['severity'] in ['high', 'critical']])
+
+    def _format_regression_alert_message(self, regression: Dict[str, Any]) -> str:
+        """Format detailed message for regression alerts."""
+        messages = []
+        
+        overall_reg = regression.get('overall_regression', {})
+        if overall_reg.get('regression_detected'):
+            drop = overall_reg.get('percentage_drop', 0)
+            messages.append(f"Overall coverage dropped by {drop:.1f}%")
+        
+        critical_reg = regression.get('critical_module_regression', {})
+        if critical_reg.get('regression_detected'):
+            affected_count = len(critical_reg.get('affected_modules', []))
+            messages.append(f"{affected_count} critical module(s) below 100% coverage")
+        
+        threshold_violations = regression.get('threshold_violations', [])
+        if threshold_violations:
+            messages.append(f"{len(threshold_violations)} threshold violation(s) detected")
+        
+        return "; ".join(messages) if messages else "Coverage regression detected"
+
+    def _format_threshold_violation_message(self, violation: Dict[str, Any]) -> str:
+        """Format detailed message for threshold violation alerts."""
+        if violation['type'] == 'critical_module_coverage':
+            return f"Module {violation['module']} has {violation['actual']:.1f}% coverage (required: {violation['threshold']}%)"
+        else:
+            return f"{violation['type']} is {violation['actual']:.1f}% (required: {violation['threshold']}%)"
+
+    def generate_trend_reports(self) -> None:
+        """
+        Generate comprehensive trend reports including HTML, JSON, and CSV formats
+        with visualization charts and detailed analysis summaries.
+        """
+        self.logger.info("Generating comprehensive trend reports...")
         
         try:
-            # Coverage trend chart
-            if coverage_data:
-                fig, (ax1, ax2) = plt.subplots(2, 1, figsize=fig_size, dpi=dpi)
-                
-                dates = [m.timestamp for m in coverage_data]
-                overall_cov = [m.overall_coverage for m in coverage_data]
-                branch_cov = [m.branch_coverage for m in coverage_data]
-                
-                # Overall coverage trend
-                ax1.plot(dates, overall_cov, 'b-', linewidth=2, label='Overall Coverage')
-                ax1.axhline(y=90, color='r', linestyle='--', alpha=0.7, label='Target (90%)')
-                ax1.set_ylabel('Coverage %')
-                ax1.set_title('Coverage Trends Over Time')
-                ax1.legend()
-                ax1.grid(True, alpha=0.3)
-                
-                # Branch coverage trend
-                ax2.plot(dates, branch_cov, 'g-', linewidth=2, label='Branch Coverage')
-                ax2.axhline(y=85, color='r', linestyle='--', alpha=0.7, label='Target (85%)')
-                ax2.set_ylabel('Coverage %')
-                ax2.set_xlabel('Date')
-                ax2.legend()
-                ax2.grid(True, alpha=0.3)
-                
-                # Format x-axis
-                for ax in [ax1, ax2]:
-                    ax.xaxis.set_major_formatter(mdates.DateFormatter('%m/%d'))
-                    ax.xaxis.set_major_locator(mdates.DayLocator(interval=max(1, len(dates)//10)))
-                    plt.setp(ax.xaxis.get_majorticklabels(), rotation=45)
-                
-                plt.tight_layout()
-                
-                coverage_chart_path = output_dir / 'coverage-trends.png'
-                plt.savefig(coverage_chart_path, dpi=dpi, bbox_inches='tight')
-                plt.close()
-                
-                viz_paths.append(str(coverage_chart_path))
-                logger.info(f"Coverage trend chart saved to {coverage_chart_path}")
+            # Generate JSON report (machine-readable)
+            self._generate_json_trend_report()
             
-            # Performance correlation chart
-            if coverage_data and performance_data:
-                aligned_data = self._align_coverage_performance_data(coverage_data, performance_data)
-                
-                if len(aligned_data) >= 3:
-                    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=fig_size, dpi=dpi)
-                    
-                    coverage_vals = [d['coverage'].overall_coverage for d in aligned_data]
-                    loading_times = [d['performance'].data_loading_time for d in aligned_data]
-                    test_times = [d['performance'].test_execution_time for d in aligned_data]
-                    
-                    # Coverage vs Loading Time
-                    ax1.scatter(coverage_vals, loading_times, alpha=0.7, color='blue')
-                    ax1.set_xlabel('Coverage %')
-                    ax1.set_ylabel('Data Loading Time (s)')
-                    ax1.set_title('Coverage vs Data Loading Performance')
-                    ax1.grid(True, alpha=0.3)
-                    
-                    # Coverage vs Test Execution Time
-                    ax2.scatter(coverage_vals, test_times, alpha=0.7, color='green')
-                    ax2.set_xlabel('Coverage %')
-                    ax2.set_ylabel('Test Execution Time (s)')
-                    ax2.set_title('Coverage vs Test Execution Time')
-                    ax2.grid(True, alpha=0.3)
-                    
-                    plt.tight_layout()
-                    
-                    correlation_chart_path = output_dir / 'coverage-performance-correlation.png'
-                    plt.savefig(correlation_chart_path, dpi=dpi, bbox_inches='tight')
-                    plt.close()
-                    
-                    viz_paths.append(str(correlation_chart_path))
-                    logger.info(f"Correlation chart saved to {correlation_chart_path}")
+            # Generate CSV report (data analysis)
+            self._generate_csv_trend_report()
+            
+            # Generate HTML report with visualizations
+            self._generate_html_trend_report()
+            
+            # Generate text summary report
+            self._generate_text_summary_report()
+            
+            self.logger.info("All trend reports generated successfully")
             
         except Exception as e:
-            logger.error(f"Error generating visualizations: {e}")
+            self.logger.error(f"Failed to generate trend reports: {e}")
+            raise
+
+    def _generate_json_trend_report(self) -> None:
+        """Generate comprehensive JSON trend report for programmatic analysis."""
+        json_report = {
+            'metadata': {
+                'version': '2.0',
+                'timestamp': datetime.now(timezone.utc).isoformat(),
+                'generator': 'flyrigloader-coverage-trend-analyzer',
+                'analysis_window_days': self.trend_window_days,
+                'data_points_analyzed': len(self.historical_data)
+            },
+            'current_coverage': self.current_coverage,
+            'trend_analysis': self.trend_analysis,
+            'configuration': {
+                'thresholds': self.thresholds,
+                'quality_gates': self.quality_gates,
+                'analysis_settings': {
+                    'confidence_level': self.confidence_level,
+                    'regression_sensitivity': self.regression_sensitivity,
+                    'minimum_data_points': self.minimum_data_points
+                }
+            },
+            'analysis_statistics': self.analysis_stats
+        }
         
-        return viz_paths
-    
-    def _generate_html_report(self, report_data: Dict[str, Any], output_dir: Path) -> Path:
-        """Generate HTML report from report data."""
-        html_template = """
+        output_file = self.output_dir / "coverage_trend_analysis.json"
+        with open(output_file, 'w', encoding='utf-8') as f:
+            json.dump(json_report, f, indent=2, ensure_ascii=False)
+        
+        self.logger.info(f"Generated JSON trend report: {output_file}")
+
+    def _generate_csv_trend_report(self) -> None:
+        """Generate CSV trend report for data analysis and visualization tools."""
+        import csv
+        
+        csv_file = self.output_dir / "coverage_trends.csv"
+        
+        with open(csv_file, 'w', newline='', encoding='utf-8') as f:
+            writer = csv.writer(f)
+            
+            # Write header
+            header = [
+                'timestamp', 'overall_coverage', 'branch_coverage', 
+                'total_statements', 'covered_statements', 'total_files',
+                'critical_modules_passing', 'critical_modules_total',
+                'build_number', 'branch_name', 'commit_sha'
+            ]
+            writer.writerow(header)
+            
+            # Write historical data
+            for entry in self.historical_data:
+                row = [
+                    entry['timestamp'],
+                    entry['summary']['overall_coverage_percentage'],
+                    entry['summary']['branch_coverage_percentage'],
+                    entry['summary']['total_statements'],
+                    entry['summary']['covered_statements'],
+                    entry['summary']['total_files'],
+                    entry.get('critical_modules', {}).get('passing_critical', 0),
+                    entry.get('critical_modules', {}).get('total_critical', 0),
+                    entry.get('metadata', {}).get('build_number', 'unknown'),
+                    entry.get('metadata', {}).get('branch_name', 'unknown'),
+                    entry.get('metadata', {}).get('commit_sha', 'unknown')
+                ]
+                writer.writerow(row)
+        
+        self.logger.info(f"Generated CSV trend report: {csv_file}")
+
+    def _generate_html_trend_report(self) -> None:
+        """Generate HTML trend report with interactive visualizations."""
+        html_report = self._create_html_trend_template()
+        
+        # Generate visualizations if matplotlib is available
+        if MATPLOTLIB_AVAILABLE:
+            try:
+                self._generate_trend_visualizations()
+                html_report = html_report.replace('{{CHARTS_AVAILABLE}}', 'true')
+            except Exception as e:
+                self.logger.warning(f"Failed to generate visualizations: {e}")
+                html_report = html_report.replace('{{CHARTS_AVAILABLE}}', 'false')
+        else:
+            html_report = html_report.replace('{{CHARTS_AVAILABLE}}', 'false')
+        
+        # Replace template variables
+        html_report = self._replace_html_template_variables(html_report)
+        
+        output_file = self.output_dir / "coverage_trends.html"
+        with open(output_file, 'w', encoding='utf-8') as f:
+            f.write(html_report)
+        
+        self.logger.info(f"Generated HTML trend report: {output_file}")
+
+    def _create_html_trend_template(self) -> str:
+        """Create HTML template for trend report."""
+        return """
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>FlyRigLoader Coverage Trend Analysis Report</title>
+    <title>FlyrigLoader Coverage Trend Analysis</title>
     <style>
-        body { font-family: Arial, sans-serif; margin: 40px; line-height: 1.6; }
-        .header { background: #f4f4f4; padding: 20px; border-radius: 5px; margin-bottom: 30px; }
-        .section { margin-bottom: 30px; }
-        .metric { background: #e9e9e9; padding: 15px; border-radius: 5px; margin: 10px 0; }
-        .regression { background: #ffebee; border-left: 4px solid #f44336; }
-        .good { background: #e8f5e8; border-left: 4px solid #4caf50; }
-        .warning { background: #fff3e0; border-left: 4px solid #ff9800; }
-        .recommendation { background: #f0f8ff; padding: 10px; border-radius: 3px; margin: 5px 0; }
-        .critical { border-left: 4px solid #f44336; }
-        .high { border-left: 4px solid #ff9800; }
-        .medium { border-left: 4px solid #ffeb3b; }
-        .low { border-left: 4px solid #4caf50; }
-        .chart { text-align: center; margin: 20px 0; }
-        table { border-collapse: collapse; width: 100%; }
-        th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
-        th { background-color: #f2f2f2; }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f5f5f5;
+            color: #333;
+        }
+        .header {
+            background: linear-gradient(135deg, #2E7D32, #4CAF50);
+            color: white;
+            padding: 30px;
+            border-radius: 10px;
+            margin-bottom: 30px;
+            text-align: center;
+        }
+        .header h1 {
+            margin: 0;
+            font-size: 2.5em;
+            font-weight: 300;
+        }
+        .header .subtitle {
+            margin-top: 10px;
+            font-size: 1.1em;
+            opacity: 0.9;
+        }
+        .dashboard {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+        .card {
+            background: white;
+            padding: 25px;
+            border-radius: 10px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            transition: transform 0.2s;
+        }
+        .card:hover {
+            transform: translateY(-2px);
+        }
+        .card h3 {
+            margin-top: 0;
+            color: #2E7D32;
+            border-bottom: 2px solid #E8F5E8;
+            padding-bottom: 10px;
+        }
+        .metric {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin: 15px 0;
+            padding: 10px;
+            background: #f8f9fa;
+            border-radius: 5px;
+        }
+        .metric-label {
+            font-weight: 500;
+        }
+        .metric-value {
+            font-weight: bold;
+            font-size: 1.1em;
+        }
+        .status-excellent { color: #2E7D32; }
+        .status-good { color: #FFA000; }
+        .status-warning { color: #F57C00; }
+        .status-critical { color: #D32F2F; }
+        .alert {
+            padding: 15px;
+            margin: 10px 0;
+            border-radius: 5px;
+            border-left: 4px solid;
+        }
+        .alert-critical {
+            background: #ffebee;
+            border-color: #f44336;
+            color: #c62828;
+        }
+        .alert-high {
+            background: #fff3e0;
+            border-color: #ff9800;
+            color: #e65100;
+        }
+        .alert-medium {
+            background: #fff8e1;
+            border-color: #ffc107;
+            color: #f57c00;
+        }
+        .alert-low {
+            background: #e8f5e8;
+            border-color: #4caf50;
+            color: #2e7d32;
+        }
+        .chart-container {
+            background: white;
+            padding: 25px;
+            border-radius: 10px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            margin: 20px 0;
+            text-align: center;
+        }
+        .recommendations {
+            background: white;
+            padding: 25px;
+            border-radius: 10px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            margin: 20px 0;
+        }
+        .recommendations ul {
+            padding-left: 20px;
+        }
+        .recommendations li {
+            margin: 10px 0;
+            line-height: 1.5;
+        }
+        .timestamp {
+            text-align: center;
+            color: #666;
+            font-style: italic;
+            margin-top: 30px;
+        }
     </style>
 </head>
 <body>
     <div class="header">
-        <h1>FlyRigLoader Coverage Trend Analysis Report</h1>
-        <p><strong>Generated:</strong> {generated_at}</p>
-        <p><strong>Data Points:</strong> {data_points}</p>
+        <h1>FlyrigLoader Coverage Trend Analysis</h1>
+        <div class="subtitle">Comprehensive automated coverage tracking and regression detection</div>
+        <div class="subtitle">Generated: {{GENERATION_TIME}}</div>
     </div>
-    
-    <div class="section">
-        <h2>Current Coverage Metrics</h2>
-        <div class="metric {coverage_class}">
-            <h3>Overall Coverage: {overall_coverage:.1f}%</h3>
-            <p>Branch Coverage: {branch_coverage:.1f}%</p>
-            <p>Total Lines: {total_lines:,} | Covered Lines: {covered_lines:,}</p>
+
+    <div class="dashboard">
+        <div class="card">
+            <h3>Current Coverage Status</h3>
+            <div class="metric">
+                <span class="metric-label">Overall Coverage:</span>
+                <span class="metric-value status-{{OVERALL_STATUS}}">{{OVERALL_COVERAGE}}%</span>
+            </div>
+            <div class="metric">
+                <span class="metric-label">Branch Coverage:</span>
+                <span class="metric-value status-{{BRANCH_STATUS}}">{{BRANCH_COVERAGE}}%</span>
+            </div>
+            <div class="metric">
+                <span class="metric-label">Total Files:</span>
+                <span class="metric-value">{{TOTAL_FILES}}</span>
+            </div>
+            <div class="metric">
+                <span class="metric-label">Total Statements:</span>
+                <span class="metric-value">{{TOTAL_STATEMENTS}}</span>
+            </div>
+        </div>
+
+        <div class="card">
+            <h3>Trend Analysis</h3>
+            <div class="metric">
+                <span class="metric-label">Trend Direction:</span>
+                <span class="metric-value">{{TREND_DIRECTION}}</span>
+            </div>
+            <div class="metric">
+                <span class="metric-label">Data Points:</span>
+                <span class="metric-value">{{DATA_POINTS}}</span>
+            </div>
+            <div class="metric">
+                <span class="metric-label">Analysis Window:</span>
+                <span class="metric-value">{{ANALYSIS_WINDOW}} days</span>
+            </div>
+            <div class="metric">
+                <span class="metric-label">Prediction Confidence:</span>
+                <span class="metric-value">{{PREDICTION_CONFIDENCE}}</span>
+            </div>
+        </div>
+
+        <div class="card">
+            <h3>Quality Gates</h3>
+            <div class="metric">
+                <span class="metric-label">Overall Threshold:</span>
+                <span class="metric-value status-{{OVERALL_GATE_STATUS}}">{{OVERALL_GATE_RESULT}}</span>
+            </div>
+            <div class="metric">
+                <span class="metric-label">Critical Modules:</span>
+                <span class="metric-value status-{{CRITICAL_GATE_STATUS}}">{{CRITICAL_GATE_RESULT}}</span>
+            </div>
+            <div class="metric">
+                <span class="metric-label">Regression Detection:</span>
+                <span class="metric-value status-{{REGRESSION_STATUS}}">{{REGRESSION_RESULT}}</span>
+            </div>
+        </div>
+
+        <div class="card">
+            <h3>Risk Assessment</h3>
+            <div class="metric">
+                <span class="metric-label">Overall Risk Level:</span>
+                <span class="metric-value status-{{RISK_STATUS}}">{{RISK_LEVEL}}</span>
+            </div>
+            <div class="metric">
+                <span class="metric-label">Risk Factors:</span>
+                <span class="metric-value">{{RISK_FACTORS_COUNT}}</span>
+            </div>
+            <div class="metric">
+                <span class="metric-label">Trend Stability:</span>
+                <span class="metric-value">{{TREND_STABILITY}}</span>
+            </div>
         </div>
     </div>
-    
-    <div class="section">
-        <h2>Quality Assessment</h2>
-        <div class="metric {quality_class}">
-            <h3>Quality Score: {quality_score:.0f}/100 ({quality_level})</h3>
-            {quality_details}
-        </div>
+
+    {{CHARTS_SECTION}}
+
+    <div class="card">
+        <h3>Alerts and Notifications</h3>
+        {{ALERTS_SECTION}}
     </div>
-    
-    {regression_section}
-    
-    {recommendations_section}
-    
-    {visualizations_section}
-    
-    <div class="section">
-        <h2>Historical Summary</h2>
-        {historical_summary}
+
+    <div class="recommendations">
+        <h3>Recommendations</h3>
+        {{RECOMMENDATIONS_SECTION}}
     </div>
-    
-    <div class="section">
-        <h2>Technical Details</h2>
-        <p><strong>Analysis Version:</strong> {report_version}</p>
-        <p><strong>Configuration:</strong> {config_summary}</p>
+
+    <div class="timestamp">
+        Report generated by FlyrigLoader Coverage Trend Analyzer<br>
+        Analysis completed: {{ANALYSIS_COMPLETION_TIME}}
     </div>
 </body>
 </html>
         """
+
+    def _replace_html_template_variables(self, html_template: str) -> str:
+        """Replace template variables with actual data values."""
+        # Current coverage data
+        current_summary = self.current_coverage['summary']
+        overall_coverage = current_summary['overall_coverage_percentage']
+        branch_coverage = current_summary['branch_coverage_percentage']
         
-        # Prepare template variables
-        current = report_data['current_metrics']['coverage']
-        quality = report_data['quality_assessment']
-        regression = report_data['regression_analysis']
+        # Determine status classes
+        overall_status = self._get_status_class(overall_coverage, 90.0)
+        branch_status = self._get_status_class(branch_coverage, 90.0)
         
-        # Determine CSS classes based on status
-        coverage_class = 'good' if current['overall_coverage'] >= 90 else 'warning'
-        quality_class = 'good' if quality['quality_score'] >= 75 else 'warning'
+        # Trend analysis data
+        trend_analysis = self.trend_analysis
+        overall_trends = trend_analysis.get('overall_trends', {})
+        line_trend = overall_trends.get('line_coverage', {})
+        trend_pattern = line_trend.get('trend_pattern', {})
         
-        quality_details = f"""
-        <ul>
-            <li>Overall Coverage: {current['overall_coverage']:.1f}%</li>
-            <li>Branch Coverage: {current['branch_coverage']:.1f}%</li>
-            <li>Regression Detected: {'Yes' if regression['has_regression'] else 'No'}</li>
-        </ul>
-        """
+        # Quality gates
+        quality_gates = self.current_coverage.get('quality_gates', {})
+        overall_gate = quality_gates.get('overall_threshold', {})
+        critical_gate = quality_gates.get('critical_modules', {})
         
-        # Regression section
-        regression_section = ""
-        if regression['has_regression']:
-            regression_section = f"""
-            <div class="section">
-                <h2>Regression Analysis</h2>
-                <div class="metric regression">
-                    <h3>⚠️ Coverage Regression Detected</h3>
-                    <p><strong>Confidence Level:</strong> {regression['confidence_level']:.2f}</p>
-                    <p><strong>Affected Modules:</strong> {', '.join(regression['affected_modules'][:5])}</p>
-                </div>
-            </div>
-            """
+        # Risk assessment
+        risk_assessment = trend_analysis.get('quality_predictions', {}).get('risk_assessment', {})
+        
+        # Regression analysis
+        regression = trend_analysis.get('regression_analysis', {})
+        
+        # Replace variables
+        replacements = {
+            '{{GENERATION_TIME}}': datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC'),
+            '{{OVERALL_COVERAGE}}': f"{overall_coverage:.1f}",
+            '{{BRANCH_COVERAGE}}': f"{branch_coverage:.1f}",
+            '{{TOTAL_FILES}}': str(current_summary['total_files']),
+            '{{TOTAL_STATEMENTS}}': f"{current_summary['total_statements']:,}",
+            '{{OVERALL_STATUS}}': overall_status,
+            '{{BRANCH_STATUS}}': branch_status,
+            '{{TREND_DIRECTION}}': trend_pattern.get('pattern', 'unknown').replace('_', ' ').title(),
+            '{{DATA_POINTS}}': str(len(self.historical_data)),
+            '{{ANALYSIS_WINDOW}}': str(self.trend_window_days),
+            '{{PREDICTION_CONFIDENCE}}': trend_analysis.get('quality_predictions', {}).get('short_term_prediction', {}).get('prediction_confidence', 'unknown').title(),
+            '{{OVERALL_GATE_STATUS}}': 'excellent' if overall_gate.get('passed', False) else 'critical',
+            '{{OVERALL_GATE_RESULT}}': 'PASS' if overall_gate.get('passed', False) else 'FAIL',
+            '{{CRITICAL_GATE_STATUS}}': 'excellent' if critical_gate.get('passed', False) else 'critical',
+            '{{CRITICAL_GATE_RESULT}}': 'PASS' if critical_gate.get('passed', False) else 'FAIL',
+            '{{REGRESSION_STATUS}}': 'critical' if regression.get('regression_detected', False) else 'excellent',
+            '{{REGRESSION_RESULT}}': 'DETECTED' if regression.get('regression_detected', False) else 'NONE',
+            '{{RISK_LEVEL}}': risk_assessment.get('overall_risk_level', 'unknown').title(),
+            '{{RISK_STATUS}}': self._get_risk_status_class(risk_assessment.get('overall_risk_level', 'low')),
+            '{{RISK_FACTORS_COUNT}}': str(len(risk_assessment.get('risk_factors', []))),
+            '{{TREND_STABILITY}}': trend_analysis.get('statistical_metrics', {}).get('trend_stability', {}).get('stability_level', 'unknown').title(),
+            '{{ANALYSIS_COMPLETION_TIME}}': self.analysis_stats['start_time'].strftime('%Y-%m-%d %H:%M:%S UTC')
+        }
+        
+        # Charts section
+        charts_section = self._generate_charts_section()
+        replacements['{{CHARTS_SECTION}}'] = charts_section
+        
+        # Alerts section
+        alerts_section = self._generate_alerts_section()
+        replacements['{{ALERTS_SECTION}}'] = alerts_section
         
         # Recommendations section
-        recommendations_section = "<div class='section'><h2>Recommendations</h2>"
-        for rec in report_data['recommendations'][:10]:  # Top 10 recommendations
-            priority_class = rec['priority']
-            recommendations_section += f"""
-            <div class="recommendation {priority_class}">
-                <h4>{rec['title']} ({rec['priority']} priority)</h4>
-                <p>{rec['description']}</p>
-                <ul>
-                    {''.join(f'<li>{action}</li>' for action in rec['actions'][:3])}
-                </ul>
-            </div>
-            """
-        recommendations_section += "</div>"
+        recommendations_section = self._generate_recommendations_section()
+        replacements['{{RECOMMENDATIONS_SECTION}}'] = recommendations_section
         
-        # Visualizations section
-        visualizations_section = ""
-        if report_data.get('visualizations'):
-            visualizations_section = "<div class='section'><h2>Trend Visualizations</h2>"
-            for viz_path in report_data['visualizations']:
-                viz_name = Path(viz_path).name
-                visualizations_section += f"""
-                <div class="chart">
-                    <h3>{viz_name.replace('-', ' ').title()}</h3>
-                    <img src="{viz_name}" alt="{viz_name}" style="max-width: 100%; height: auto;">
-                </div>
-                """
-            visualizations_section += "</div>"
+        # Apply replacements
+        for placeholder, value in replacements.items():
+            html_template = html_template.replace(placeholder, str(value))
         
-        # Historical summary
-        historical = report_data['historical_summary']
-        historical_summary = ""
-        if historical.get('available'):
-            historical_summary = f"""
-            <table>
-                <tr><th>Metric</th><th>Current</th><th>Mean</th><th>Min</th><th>Max</th></tr>
-                <tr>
-                    <td>Overall Coverage</td>
-                    <td>{historical['overall_coverage']['current']:.1f}%</td>
-                    <td>{historical['overall_coverage']['mean']:.1f}%</td>
-                    <td>{historical['overall_coverage']['min']:.1f}%</td>
-                    <td>{historical['overall_coverage']['max']:.1f}%</td>
-                </tr>
-                <tr>
-                    <td>Branch Coverage</td>
-                    <td>{historical['branch_coverage']['current']:.1f}%</td>
-                    <td>{historical['branch_coverage']['mean']:.1f}%</td>
-                    <td>{historical['branch_coverage']['min']:.1f}%</td>
-                    <td>{historical['branch_coverage']['max']:.1f}%</td>
-                </tr>
-            </table>
-            """
+        return html_template
+
+    def _get_status_class(self, value: float, threshold: float) -> str:
+        """Get CSS status class based on value and threshold."""
+        if value >= threshold:
+            return 'excellent'
+        elif value >= threshold - 5:
+            return 'good'
+        elif value >= threshold - 10:
+            return 'warning'
         else:
-            historical_summary = "<p>No historical data available yet.</p>"
+            return 'critical'
+
+    def _get_risk_status_class(self, risk_level: str) -> str:
+        """Get CSS status class for risk level."""
+        risk_classes = {
+            'low': 'excellent',
+            'medium': 'warning',
+            'high': 'critical'
+        }
+        return risk_classes.get(risk_level, 'warning')
+
+    def _generate_charts_section(self) -> str:
+        """Generate charts section for HTML report."""
+        if not MATPLOTLIB_AVAILABLE:
+            return '''
+            <div class="chart-container">
+                <h3>Coverage Trend Visualization</h3>
+                <p><em>Visualization charts not available (matplotlib not installed)</em></p>
+                <p>Install matplotlib to enable trend visualization: <code>pip install matplotlib</code></p>
+            </div>
+            '''
         
-        # Fill template
-        html_content = html_template.format(
-            generated_at=report_data['report_metadata']['generated_at'],
-            data_points=report_data['report_metadata']['data_points'],
-            overall_coverage=current['overall_coverage'],
-            branch_coverage=current['branch_coverage'],
-            total_lines=current['total_lines'],
-            covered_lines=current['covered_lines'],
-            coverage_class=coverage_class,
-            quality_score=quality['quality_score'],
-            quality_level=quality['quality_level'],
-            quality_class=quality_class,
-            quality_details=quality_details,
-            regression_section=regression_section,
-            recommendations_section=recommendations_section,
-            visualizations_section=visualizations_section,
-            historical_summary=historical_summary,
-            report_version=report_data['report_metadata']['report_version'],
-            config_summary=f"Regression sensitivity: {self.config['regression_sensitivity']}"
-        )
+        return '''
+        <div class="chart-container">
+            <h3>Coverage Trend Visualization</h3>
+            <img src="coverage_trend_chart.png" alt="Coverage Trend Chart" style="max-width: 100%; height: auto;">
+        </div>
+        <div class="chart-container">
+            <h3>Module Coverage Heatmap</h3>
+            <img src="module_coverage_heatmap.png" alt="Module Coverage Heatmap" style="max-width: 100%; height: auto;">
+        </div>
+        '''
+
+    def _generate_alerts_section(self) -> str:
+        """Generate alerts section for HTML report."""
+        alerts = self.trend_analysis.get('alerts', [])
         
-        # Save HTML report
-        html_path = output_dir / f"coverage-trend-report-{datetime.now().strftime('%Y%m%d-%H%M%S')}.html"
-        with open(html_path, 'w') as f:
-            f.write(html_content)
+        if not alerts:
+            return '<p><em>No alerts detected. Coverage trends are within acceptable parameters.</em></p>'
         
-        logger.info(f"HTML report saved to {html_path}")
-        return html_path
+        alerts_html = []
+        for alert in alerts:
+            severity_class = f"alert-{alert.get('severity', 'medium')}"
+            alerts_html.append(f'''
+            <div class="alert {severity_class}">
+                <strong>{alert.get('title', 'Alert')}</strong><br>
+                {alert.get('message', 'No message available')}
+            </div>
+            ''')
+        
+        return ''.join(alerts_html)
+
+    def _generate_recommendations_section(self) -> str:
+        """Generate recommendations section for HTML report."""
+        recommendations = []
+        
+        # Get recommendations from risk assessment
+        risk_assessment = self.trend_analysis.get('quality_predictions', {}).get('risk_assessment', {})
+        recommendations.extend(risk_assessment.get('recommendations', []))
+        
+        # Get recommendations from alerts
+        alerts = self.trend_analysis.get('alerts', [])
+        for alert in alerts:
+            recommendations.extend(alert.get('recommendations', []))
+        
+        # Remove duplicates and sort
+        unique_recommendations = list(set(recommendations))
+        
+        if not unique_recommendations:
+            return '<p><em>No specific recommendations at this time. Continue monitoring coverage trends.</em></p>'
+        
+        recommendations_html = ['<ul>']
+        for rec in unique_recommendations:
+            recommendations_html.append(f'<li>{rec}</li>')
+        recommendations_html.append('</ul>')
+        
+        return ''.join(recommendations_html)
+
+    def _generate_trend_visualizations(self) -> None:
+        """Generate trend visualization charts using matplotlib."""
+        if not MATPLOTLIB_AVAILABLE or len(self.historical_data) < 2:
+            return
+        
+        try:
+            # Set up matplotlib for better-looking charts
+            plt.style.use('default')
+            
+            # Generate coverage trend chart
+            self._generate_coverage_trend_chart()
+            
+            # Generate module coverage heatmap
+            self._generate_module_coverage_heatmap()
+            
+        except Exception as e:
+            self.logger.warning(f"Failed to generate visualizations: {e}")
+
+    def _generate_coverage_trend_chart(self) -> None:
+        """Generate line chart showing coverage trends over time."""
+        # Extract time series data
+        timestamps = [datetime.fromisoformat(entry['timestamp'].replace('Z', '+00:00')) for entry in self.historical_data]
+        overall_coverage = [entry['summary']['overall_coverage_percentage'] for entry in self.historical_data]
+        branch_coverage = [entry['summary']['branch_coverage_percentage'] for entry in self.historical_data]
+        
+        # Create figure
+        fig, ax = plt.subplots(figsize=(12, 6))
+        
+        # Plot coverage trends
+        ax.plot(timestamps, overall_coverage, 'o-', label='Overall Coverage', linewidth=2, markersize=4)
+        ax.plot(timestamps, branch_coverage, 's-', label='Branch Coverage', linewidth=2, markersize=4)
+        
+        # Add threshold lines
+        overall_threshold = self.quality_gates.get('coverage', {}).get('overall_coverage_threshold', 90.0)
+        ax.axhline(y=overall_threshold, color='red', linestyle='--', alpha=0.7, label=f'Threshold ({overall_threshold}%)')
+        
+        # Formatting
+        ax.set_xlabel('Date')
+        ax.set_ylabel('Coverage Percentage (%)')
+        ax.set_title('FlyrigLoader Coverage Trends Over Time')
+        ax.legend()
+        ax.grid(True, alpha=0.3)
+        
+        # Format x-axis
+        ax.xaxis.set_major_formatter(mdates.DateFormatter('%m/%d'))
+        ax.xaxis.set_major_locator(mdates.DayLocator(interval=max(1, len(timestamps) // 10)))
+        plt.xticks(rotation=45)
+        
+        # Adjust layout and save
+        plt.tight_layout()
+        chart_path = self.output_dir / "coverage_trend_chart.png"
+        plt.savefig(chart_path, dpi=150, bbox_inches='tight')
+        plt.close()
+        
+        self.logger.info(f"Generated coverage trend chart: {chart_path}")
+
+    def _generate_module_coverage_heatmap(self) -> None:
+        """Generate heatmap showing module coverage status."""
+        if not self.current_coverage.get('module_coverage'):
+            return
+        
+        # Prepare data for heatmap
+        modules = list(self.current_coverage['module_coverage'].keys())
+        coverages = [self.current_coverage['module_coverage'][mod]['line_coverage'] for mod in modules]
+        
+        # Limit to top modules if too many
+        if len(modules) > 20:
+            # Sort by coverage and take worst performing modules
+            module_coverage_pairs = list(zip(modules, coverages))
+            module_coverage_pairs.sort(key=lambda x: x[1])
+            modules = [pair[0] for pair in module_coverage_pairs[:20]]
+            coverages = [pair[1] for pair in module_coverage_pairs[:20]]
+        
+        # Create figure
+        fig, ax = plt.subplots(figsize=(10, max(6, len(modules) * 0.3)))
+        
+        # Create color map
+        colors = []
+        for coverage in coverages:
+            if coverage >= 95:
+                colors.append('#2E7D32')  # Green
+            elif coverage >= 90:
+                colors.append('#FFA000')  # Orange
+            elif coverage >= 80:
+                colors.append('#F57C00')  # Deep Orange
+            else:
+                colors.append('#D32F2F')  # Red
+        
+        # Create horizontal bar chart
+        y_pos = range(len(modules))
+        bars = ax.barh(y_pos, coverages, color=colors)
+        
+        # Formatting
+        ax.set_yticks(y_pos)
+        ax.set_yticklabels([mod.split('/')[-1] for mod in modules])  # Show only filename
+        ax.set_xlabel('Coverage Percentage (%)')
+        ax.set_title('Module Coverage Status')
+        ax.set_xlim(0, 100)
+        
+        # Add percentage labels on bars
+        for i, (bar, coverage) in enumerate(zip(bars, coverages)):
+            width = bar.get_width()
+            ax.text(width + 1, bar.get_y() + bar.get_height()/2, 
+                   f'{coverage:.1f}%', ha='left', va='center', fontsize=8)
+        
+        # Add threshold line
+        threshold = 90.0
+        ax.axvline(x=threshold, color='red', linestyle='--', alpha=0.7, label=f'Threshold ({threshold}%)')
+        ax.legend()
+        
+        plt.tight_layout()
+        chart_path = self.output_dir / "module_coverage_heatmap.png"
+        plt.savefig(chart_path, dpi=150, bbox_inches='tight')
+        plt.close()
+        
+        self.logger.info(f"Generated module coverage heatmap: {chart_path}")
+
+    def _generate_text_summary_report(self) -> None:
+        """Generate text summary report for console output and logging."""
+        summary_lines = [
+            "="*80,
+            "FLYRIGLOADER COVERAGE TREND ANALYSIS SUMMARY",
+            "="*80,
+            "",
+            f"Analysis Timestamp: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')}",
+            f"Analysis Window: {self.trend_window_days} days",
+            f"Historical Data Points: {len(self.historical_data)}",
+            "",
+            "CURRENT COVERAGE STATUS:",
+            f"  Overall Coverage: {self.current_coverage['summary']['overall_coverage_percentage']:.2f}%",
+            f"  Branch Coverage: {self.current_coverage['summary']['branch_coverage_percentage']:.2f}%",
+            f"  Total Files: {self.current_coverage['summary']['total_files']}",
+            f"  Total Statements: {self.current_coverage['summary']['total_statements']:,}",
+            ""
+        ]
+        
+        # Quality gates status
+        quality_gates = self.current_coverage.get('quality_gates', {})
+        summary_lines.extend([
+            "QUALITY GATES STATUS:",
+            f"  Overall Threshold: {'PASS' if quality_gates.get('overall_threshold', {}).get('passed', False) else 'FAIL'}",
+            f"  Critical Modules: {'PASS' if quality_gates.get('critical_modules', {}).get('passed', False) else 'FAIL'}",
+            ""
+        ])
+        
+        # Regression analysis
+        regression = self.trend_analysis.get('regression_analysis', {})
+        summary_lines.extend([
+            "REGRESSION ANALYSIS:",
+            f"  Regression Detected: {'YES' if regression.get('regression_detected', False) else 'NO'}",
+            f"  Severity: {regression.get('severity', 'none').title()}",
+            f"  Confidence: {regression.get('confidence', 'low').title()}",
+            ""
+        ])
+        
+        # Alerts
+        alerts = self.trend_analysis.get('alerts', [])
+        if alerts:
+            summary_lines.extend(["ALERTS:"])
+            for alert in alerts[:5]:  # Show top 5 alerts
+                summary_lines.append(f"  [{alert.get('severity', 'medium').upper()}] {alert.get('title', 'Alert')}")
+            if len(alerts) > 5:
+                summary_lines.append(f"  ... and {len(alerts) - 5} more alerts")
+            summary_lines.append("")
+        
+        # Risk assessment
+        risk_assessment = self.trend_analysis.get('quality_predictions', {}).get('risk_assessment', {})
+        summary_lines.extend([
+            "RISK ASSESSMENT:",
+            f"  Overall Risk Level: {risk_assessment.get('overall_risk_level', 'unknown').title()}",
+            f"  Risk Factors: {len(risk_assessment.get('risk_factors', []))}",
+            ""
+        ])
+        
+        # Recommendations
+        recommendations = risk_assessment.get('recommendations', [])
+        if recommendations:
+            summary_lines.extend(["TOP RECOMMENDATIONS:"])
+            for rec in recommendations[:3]:  # Show top 3 recommendations
+                summary_lines.append(f"  • {rec}")
+            summary_lines.append("")
+        
+        summary_lines.extend([
+            "="*80,
+            f"Analysis completed in {time.time() - self.start_time:.2f} seconds",
+            "="*80
+        ])
+        
+        # Write to file
+        summary_text = "\n".join(summary_lines)
+        output_file = self.output_dir / "coverage_trend_summary.txt"
+        with open(output_file, 'w', encoding='utf-8') as f:
+            f.write(summary_text)
+        
+        # Also log to console
+        self.logger.info("Coverage Trend Analysis Summary:")
+        for line in summary_lines[2:-2]:  # Skip decorative borders
+            if line.strip():
+                self.logger.info(line)
+        
+        self.logger.info(f"Generated text summary report: {output_file}")
+
+    def validate_quality_gates(self) -> bool:
+        """
+        Validate current coverage against quality gates and return pass/fail status.
+        Implements TST-COV-004 requirement to block merges when coverage drops below thresholds.
+        
+        Returns:
+            True if all quality gates pass, False otherwise
+        """
+        self.logger.info("Validating quality gates...")
+        
+        quality_gates_passed = True
+        
+        # Check overall coverage threshold
+        overall_threshold = self.quality_gates.get('coverage', {}).get('overall_coverage_threshold', 90.0)
+        current_overall = self.current_coverage['summary']['overall_coverage_percentage']
+        
+        if current_overall < overall_threshold:
+            quality_gates_passed = False
+            self.logger.error(f"Overall coverage {current_overall:.2f}% below threshold {overall_threshold}%")
+        else:
+            self.logger.info(f"Overall coverage {current_overall:.2f}% meets threshold {overall_threshold}%")
+        
+        # Check branch coverage threshold
+        branch_threshold = self.quality_gates.get('coverage', {}).get('overall_branch_threshold', 90.0)
+        current_branch = self.current_coverage['summary']['branch_coverage_percentage']
+        
+        if current_branch < branch_threshold:
+            quality_gates_passed = False
+            self.logger.error(f"Branch coverage {current_branch:.2f}% below threshold {branch_threshold}%")
+        else:
+            self.logger.info(f"Branch coverage {current_branch:.2f}% meets threshold {branch_threshold}%")
+        
+        # Check critical module coverage
+        critical_threshold = self.quality_gates.get('coverage', {}).get('critical_module_coverage_threshold', 100.0)
+        critical_failures = []
+        
+        for module_path, module_data in self.current_coverage.get('module_coverage', {}).items():
+            if self._is_critical_module(module_path):
+                module_coverage = module_data['line_coverage']
+                if module_coverage < critical_threshold:
+                    critical_failures.append((module_path, module_coverage))
+        
+        if critical_failures:
+            quality_gates_passed = False
+            self.logger.error(f"Critical module coverage failures: {len(critical_failures)}")
+            for module_path, coverage in critical_failures:
+                self.logger.error(f"  {module_path}: {coverage:.2f}% < {critical_threshold}%")
+        else:
+            self.logger.info("All critical modules meet coverage requirements")
+        
+        # Check for regression
+        if self.trend_analysis.get('regression_analysis', {}).get('regression_detected', False):
+            regression_severity = self.trend_analysis['regression_analysis'].get('severity', 'low')
+            if regression_severity in ['high', 'critical']:
+                quality_gates_passed = False
+                self.logger.error(f"Coverage regression detected with {regression_severity} severity")
+        
+        # Update analysis stats
+        self.analysis_stats['quality_gates_passed'] = quality_gates_passed
+        
+        if quality_gates_passed:
+            self.logger.info("All quality gates PASSED")
+        else:
+            self.logger.error("Quality gates FAILED - merge should be blocked per TST-COV-004")
+        
+        return quality_gates_passed
+
+    def run_complete_analysis(self) -> int:
+        """
+        Execute the complete coverage trend analysis pipeline including data collection,
+        trend analysis, regression detection, and report generation.
+        
+        Returns:
+            Exit code: 0 for success, 1 for quality gate failures, 2 for analysis errors
+        """
+        self.logger.info("Starting complete coverage trend analysis pipeline...")
+        
+        try:
+            # Load configuration
+            self.load_configuration()
+            
+            # Collect current coverage data
+            self.collect_current_coverage_data()
+            
+            # Load historical data
+            self.load_historical_data()
+            
+            # Persist current data for future analysis
+            self.persist_current_data()
+            
+            # Perform comprehensive trend analysis
+            self.perform_trend_analysis()
+            
+            # Generate all reports
+            self.generate_trend_reports()
+            
+            # Validate quality gates
+            quality_gates_passed = self.validate_quality_gates()
+            
+            # Update final analysis stats
+            self.analysis_stats['analysis_completed'] = True
+            self.analysis_stats['end_time'] = datetime.now(timezone.utc)
+            self.analysis_stats['duration'] = time.time() - self.start_time
+            
+            # Log completion summary
+            self.logger.info("Coverage trend analysis completed successfully")
+            self.logger.info(f"Analysis duration: {self.analysis_stats['duration']:.2f} seconds")
+            self.logger.info(f"Historical data points: {len(self.historical_data)}")
+            self.logger.info(f"Alerts generated: {len(self.trend_analysis.get('alerts', []))}")
+            self.logger.info(f"Quality gates: {'PASSED' if quality_gates_passed else 'FAILED'}")
+            
+            # Return appropriate exit code
+            if not quality_gates_passed:
+                self.logger.error("Returning exit code 1 due to quality gate failures")
+                return 1
+            
+            return 0
+            
+        except Exception as e:
+            self.logger.error(f"Coverage trend analysis failed: {e}")
+            self.analysis_stats['errors'].append(str(e))
+            return 2
 
 
-def main():
-    """Main entry point for coverage trend analysis."""
+def main() -> int:
+    """
+    Main entry point for the coverage trend analysis script.
+    
+    Supports command-line arguments for configuration and provides
+    comprehensive error handling and CI/CD integration.
+    
+    Returns:
+        Exit code: 0 for success, 1 for quality gate failures, 2 for analysis errors
+    """
     parser = argparse.ArgumentParser(
-        description="Analyze coverage trends with regression detection and performance correlation",
+        description="FlyrigLoader Coverage Trend Analyzer - Automated coverage tracking with regression detection",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-    # Collect and analyze current coverage
-    python analyze-coverage-trends.py --collect-current
-    
-    # Generate comprehensive trend report
-    python analyze-coverage-trends.py --report --output-dir reports/
-    
-    # Check for regressions (CI mode)
-    python analyze-coverage-trends.py --check-regression --fail-on-regression
-    
-    # Correlate with performance data
-    python analyze-coverage-trends.py --correlate-performance --performance-data benchmarks.json
+  %(prog)s                                    # Run complete analysis with default settings
+  %(prog)s --verbose                          # Enable verbose logging
+  %(prog)s --coverage-data .coverage          # Specify coverage data file
+  %(prog)s --historical-dir ./trends          # Specify historical data directory
+  %(prog)s --output-dir ./reports             # Specify output directory
+  %(prog)s --thresholds ./custom-thresholds.json  # Use custom thresholds
+
+Analysis Features:
+  - Historical coverage data persistence and trend tracking
+  - Statistical regression detection with configurable sensitivity
+  - Performance benchmark correlation analysis
+  - Automated alerting for coverage degradation
+  - Confidence interval analysis and significance testing
+  - CI/CD integration with quality gate enforcement
+
+Quality Gates (TST-COV-004):
+  The script validates coverage against configurable thresholds and returns
+  appropriate exit codes for CI/CD integration:
+  - Exit code 0: All quality gates passed
+  - Exit code 1: Quality gate failures (blocks merge)
+  - Exit code 2: Analysis errors or system failures
+
+Requirements Implementation:
+  - Section 0.2.5: Coverage trend tracking over time
+  - TST-COV-004: Block merges when coverage drops below thresholds
+  - TST-PERF-001: Data loading SLA validation correlation
+  - Section 3.6.4: Quality metrics dashboard integration
         """
     )
     
     parser.add_argument(
-        '--collect-current',
-        action='store_true',
-        help='Collect and store current coverage metrics'
+        '--coverage-data',
+        help='Path to coverage data file (default: .coverage)',
+        default=None
     )
     
     parser.add_argument(
-        '--coverage-file',
-        type=str,
-        help='Path to coverage data file (XML, JSON, or .coverage)'
+        '--thresholds',
+        help='Path to coverage thresholds JSON file (default: tests/coverage/coverage-thresholds.json)',
+        default=None
     )
     
     parser.add_argument(
-        '--check-regression',
-        action='store_true',
-        help='Check for coverage regressions'
+        '--quality-gates',
+        help='Path to quality gates YAML file (default: tests/coverage/quality-gates.yml)',
+        default=None
     )
     
     parser.add_argument(
-        '--fail-on-regression',
-        action='store_true',
-        help='Exit with error code if regression detected (for CI)'
-    )
-    
-    parser.add_argument(
-        '--correlate-performance',
-        action='store_true',
-        help='Analyze correlation between coverage and performance'
-    )
-    
-    parser.add_argument(
-        '--performance-data',
-        type=str,
-        help='Path to performance data file (JSON)'
-    )
-    
-    parser.add_argument(
-        '--report',
-        action='store_true',
-        help='Generate comprehensive trend analysis report'
+        '--historical-dir',
+        help='Directory for historical trend data (default: tests/coverage/historical)',
+        default=None
     )
     
     parser.add_argument(
         '--output-dir',
-        type=str,
-        default='tests/coverage/reports',
-        help='Output directory for reports and visualizations'
+        help='Output directory for trend reports (default: tests/coverage/trends)',
+        default=None
     )
     
     parser.add_argument(
-        '--config',
-        type=str,
-        help='Path to configuration file'
-    )
-    
-    parser.add_argument(
-        '--data-dir',
-        type=str,
-        default='tests/coverage/data',
-        help='Directory for historical data storage'
-    )
-    
-    parser.add_argument(
-        '--verbose',
+        '--verbose', '-v',
         action='store_true',
-        help='Enable verbose logging'
+        help='Enable verbose logging output'
     )
     
+    parser.add_argument(
+        '--version',
+        action='version',
+        version='FlyrigLoader Coverage Trend Analyzer 1.0.0'
+    )
+
     args = parser.parse_args()
-    
-    # Configure logging level
-    if args.verbose:
-        logging.getLogger().setLevel(logging.DEBUG)
-        logger.setLevel(logging.DEBUG)
-    
+
+    # Initialize and run the coverage trend analyzer
     try:
-        # Initialize analyzer
         analyzer = CoverageTrendAnalyzer(
-            data_dir=args.data_dir,
-            config_path=args.config
+            coverage_data_file=args.coverage_data,
+            thresholds_file=args.thresholds,
+            quality_gates_file=args.quality_gates,
+            historical_data_dir=args.historical_dir,
+            output_dir=args.output_dir,
+            verbose=args.verbose
         )
         
-        exit_code = 0
+        return analyzer.run_complete_analysis()
         
-        # Collect current coverage if requested
-        if args.collect_current or args.check_regression or args.report:
-            logger.info("Collecting current coverage metrics")
-            current_coverage = analyzer.collect_current_coverage(args.coverage_file)
-            analyzer.store_coverage_metrics(current_coverage)
-            
-            print(f"✓ Current Coverage: {current_coverage.overall_coverage:.1f}% overall, "
-                  f"{current_coverage.branch_coverage:.1f}% branch")
-        
-        # Check for regressions
-        if args.check_regression:
-            logger.info("Performing regression analysis")
-            regression_result = analyzer.detect_coverage_regression(current_coverage)
-            
-            if regression_result.has_regression:
-                print(f"⚠️  Coverage regression detected (confidence: {regression_result.confidence_level:.2f})")
-                print(f"   Affected modules: {', '.join(regression_result.affected_modules)}")
-                
-                if args.fail_on_regression:
-                    exit_code = 1
-            else:
-                print("✓ No significant coverage regression detected")
-        
-        # Performance correlation analysis
-        if args.correlate_performance:
-            logger.info("Analyzing coverage-performance correlation")
-            performance_data = analyzer.collect_performance_metrics(args.performance_data)
-            
-            if performance_data:
-                analyzer.store_performance_metrics(performance_data)
-                
-                historical_coverage = analyzer.get_historical_coverage()
-                historical_performance = analyzer._get_historical_performance()
-                
-                correlation_analysis = analyzer.correlate_coverage_with_performance(
-                    historical_coverage, historical_performance
-                )
-                
-                if correlation_analysis.get('correlation_available'):
-                    strong_correls = correlation_analysis.get('analysis', {}).get('strong_correlations', [])
-                    if strong_correls:
-                        print("📊 Strong correlations detected:")
-                        for correl in strong_correls:
-                            print(f"   {correl['metric']}: {correl['correlation']:.3f} ({correl['strength']})")
-                    else:
-                        print("✓ No strong correlations between coverage and performance")
-                else:
-                    print("⚠️  Insufficient data for correlation analysis")
-            else:
-                print("⚠️  No performance data available for correlation analysis")
-        
-        # Generate comprehensive report
-        if args.report:
-            logger.info("Generating comprehensive trend analysis report")
-            report_data = analyzer.generate_trend_report(
-                output_dir=args.output_dir,
-                include_visualizations=True
-            )
-            
-            print(f"📄 Report generated: {report_data.get('html_report', 'N/A')}")
-            print(f"   Quality Score: {report_data['quality_assessment']['quality_score']:.0f}/100")
-            print(f"   Recommendations: {len(report_data['recommendations'])}")
-            
-            if report_data.get('visualizations'):
-                print(f"   Visualizations: {len(report_data['visualizations'])}")
-        
-        # If no specific action requested, show help
-        if not any([args.collect_current, args.check_regression, args.correlate_performance, args.report]):
-            parser.print_help()
-            
-        return exit_code
-        
+    except KeyboardInterrupt:
+        print("\nCoverage trend analysis interrupted by user")
+        return 2
     except Exception as e:
-        logger.error(f"Analysis failed: {e}")
-        if args.verbose:
-            import traceback
-            traceback.print_exc()
-        return 1
+        print(f"Fatal error: {e}")
+        return 2
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     sys.exit(main())
