@@ -1,775 +1,408 @@
-{%- 
-  """
-  FlyrigLoader JSON Coverage Report Template
-  
-  Comprehensive JSON coverage report template for programmatic analysis providing 
-  structured coverage data with comprehensive metrics, trend analysis, and automated 
-  processing capabilities. Enables detailed coverage analysis and integration with 
-  external monitoring systems per TST-COV-003 requirements.
-  
-  Template Variables:
-    - coverage_data: Main coverage data object from coverage.py
-    - meta: Coverage measurement metadata (timestamp, environment, etc.)
-    - thresholds: Coverage threshold configuration from coverage-thresholds.json
-    - config: Report configuration from report-config.json
-    - performance_data: Performance benchmark data (optional)
-    - baseline_data: Historical baseline coverage data (optional)
-    - build_info: CI/CD build information (optional)
-  
-  Output Format: JSON with comprehensive coverage metrics, trend analysis, and
-  flyrigloader-specific neuroscience research domain context.
-  """
--%}
+{# JSON Coverage Report Template for FlyRigLoader #}
+{# 
+This Jinja2 template generates comprehensive JSON coverage reports for programmatic analysis 
+supporting TST-COV-003 requirements with detailed metrics, trend analysis, and quality gate integration.
+
+Template Variables Expected:
+- coverage_data: Coverage.py coverage data object
+- report_config: Configuration from tests/coverage/report-config.json  
+- coverage_thresholds: Thresholds from tests/coverage/coverage-thresholds.json
+- build_metadata: CI/CD build information
+- trend_data: Historical coverage trend data
+- performance_data: Performance benchmark correlation data
+#}
 {
-  "$schema": "https://json-schema.org/draft/2020-12/schema",
   "report_metadata": {
-    "format_version": "2.0",
-    "schema_version": "coverage-report-v2.0",
-    "generated_timestamp": "{{ meta.timestamp | default(now().isoformat()) }}",
-    "report_type": "comprehensive_coverage_analysis",
-    "template_version": "1.0.0",
-    "coverage_tool": {
-      "name": "coverage.py",
-      "version": "{{ meta.coverage_version | default('7.8.2') }}",
-      "pytest_cov_version": "{{ meta.pytest_cov_version | default('6.1.1') }}"
+    "generated_at": "{{ build_metadata.timestamp | default('') }}",
+    "report_type": "json_coverage_analysis",
+    "format_version": "2.0.0",
+    "generator": {
+      "tool": "{{ report_config.metadata.generated_by | default('flyrigloader Coverage Enhancement System') }}",
+      "version": "{{ report_config.metadata.version | default('2.0.0') }}",
+      "template": "coverage.json.j2",
+      "coverage_tool": "coverage.py {{ build_metadata.coverage_version | default('7.0+') }}",
+      "pytest_integration": "pytest-cov {{ build_metadata.pytest_cov_version | default('6.1+') }}"
     },
     "project_context": {
-      "name": "flyrigloader",
-      "domain": "neuroscience-research",
-      "organization": "{{ config.metadata.organization | default('Research Team') }}",
-      "repository_url": "{{ config.metadata.repository_url | default('https://github.com/research-team/flyrigloader') }}",
-      "documentation_url": "{{ config.metadata.documentation_url | default('https://flyrigloader.readthedocs.io') }}",
-      "license": "{{ config.metadata.license | default('MIT') }}",
-      "python_versions": {{ config.metadata.python_versions | default(['3.8', '3.9', '3.10', '3.11']) | tojson }},
-      "created_by": "{{ config.metadata.created_by | default('coverage-enhancement-system') }}"
+      "name": "{{ report_config.metadata.project_name | default('flyrigloader') }}",
+      "description": "{{ report_config.metadata.project_description | default('Modern data loading library for neuroscience experimental data') }}",
+      "domain": "{{ report_config.metadata.domain | default('neuroscience_research') }}",
+      "version": "{{ report_config.metadata.version | default('2.0.0') }}",
+      "documentation_url": "{{ report_config.metadata.documentation_url | default('') }}",
+      "contact": "{{ report_config.metadata.contact | default('') }}"
+    },
+    "neuroscience_context": {
+      "experimental_data_focus": {{ report_config.template_variables.neuroscience_context.experimental_data_focus | default(true) | tojson }},
+      "research_workflow_integration": {{ report_config.template_variables.neuroscience_context.research_workflow_integration | default(true) | tojson }},
+      "domain_terminology": {
+        "experiments": "{{ report_config.template_variables.domain_terminology.experiments | default('neuroscience experiments') }}",
+        "datasets": "{{ report_config.template_variables.domain_terminology.datasets | default('experimental datasets') }}",
+        "data_files": "{{ report_config.template_variables.domain_terminology.data_files | default('experimental data files') }}",
+        "analysis": "{{ report_config.template_variables.domain_terminology.analysis | default('experimental analysis') }}"
+      }
     }
   },
-  
-  "execution_context": {
-    "environment": {
-      "python_version": "{{ meta.python_version | default('') }}",
-      "platform": "{{ meta.platform | default('') }}",
-      "hostname": "{{ meta.hostname | default('') }}",
-      "working_directory": "{{ meta.working_directory | default('') }}"
-    },
-    "ci_cd_context": {
-      {% if build_info -%}
-      "build_number": "{{ build_info.build_number | default('') }}",
-      "build_url": "{{ build_info.build_url | default('') }}",
-      "branch_name": "{{ build_info.branch_name | default('') }}",
-      "commit_hash": "{{ build_info.commit_hash | default('') }}",
-      "commit_message": "{{ build_info.commit_message | default('') }}",
-      "pull_request_id": "{{ build_info.pull_request_id | default('') }}",
-      "build_timestamp": "{{ build_info.build_timestamp | default('') }}",
-      "build_duration": "{{ build_info.build_duration | default('') }}",
-      "test_execution_time": "{{ build_info.test_execution_time | default('') }}",
-      "environment": "{{ build_info.environment | default('') }}",
-      "runner_os": "{{ build_info.runner_os | default('') }}"
-      {%- else -%}
-      "build_number": null,
-      "build_url": null,
-      "branch_name": null,
-      "commit_hash": null,
-      "commit_message": null,
-      "pull_request_id": null,
-      "build_timestamp": null,
-      "build_duration": null,
-      "test_execution_time": null,
-      "environment": null,
-      "runner_os": null
-      {%- endif %}
-    },
-    "test_context": {
-      "total_tests_run": "{{ meta.total_tests_run | default(0) }}",
-      "test_frameworks": ["pytest>=7.0.0", "pytest-cov>=6.1.1"],
-      "coverage_contexts": {{ config.coverage_contexts.test_contexts.keys() | list | tojson }},
-      "parallel_execution": "{{ meta.parallel_execution | default(false) }}",
-      "timeout_configuration": "30s"
+  "build_information": {
+    "build_id": "{{ build_metadata.build_id | default('local') }}",
+    "build_url": "{{ build_metadata.build_url | default('') }}",
+    "branch_name": "{{ build_metadata.branch_name | default('main') }}",
+    "commit_sha": "{{ build_metadata.commit_sha | default('unknown') }}",
+    "pull_request": "{{ build_metadata.pull_request | default('') }}",
+    "runner_os": "{{ build_metadata.runner_os | default('local') }}",
+    "python_version": "{{ build_metadata.python_version | default('3.8+') }}",
+    "execution_environment": {
+      "ci_cd_pipeline": {{ (build_metadata.build_id != 'local') | tojson }},
+      "local_development": {{ (build_metadata.build_id == 'local') | tojson }},
+      "parallel_execution": {{ build_metadata.parallel_execution | default(false) | tojson }},
+      "test_timeout": "{{ build_metadata.test_timeout | default('30s') }}"
     }
   },
-
   "coverage_summary": {
     "overall_metrics": {
       "line_coverage": {
-        "covered_lines": {{ coverage_data.totals.covered_lines | default(0) }},
+        "percentage": {{ "%.2f" | format(coverage_data.totals.pc_covered | default(0.0)) }},
+        "covered_lines": {{ coverage_data.totals.num_statements_covered | default(0) }},
         "total_lines": {{ coverage_data.totals.num_statements | default(0) }},
-        "percentage": {{ "%.2f" | format(coverage_data.totals.percent_covered | default(0)) }},
-        "missing_lines": {{ coverage_data.totals.missing_lines | default(0) }},
-        "excluded_lines": {{ coverage_data.totals.excluded_lines | default(0) }}
+        "missing_lines": {{ coverage_data.totals.num_statements_missing | default(0) }},
+        "threshold_met": {{ ((coverage_data.totals.pc_covered | default(0.0)) >= (coverage_thresholds.global_settings.overall_threshold.line_coverage | default(90.0))) | tojson }}
       },
       "branch_coverage": {
-        "covered_branches": {{ coverage_data.totals.covered_branches | default(0) }},
+        "percentage": {{ "%.2f" | format(coverage_data.totals.pc_covered_branches | default(0.0)) }},
+        "covered_branches": {{ coverage_data.totals.num_branches_covered | default(0) }},
         "total_branches": {{ coverage_data.totals.num_branches | default(0) }},
-        "percentage": {{ "%.2f" | format(coverage_data.totals.percent_covered_branches | default(0)) }},
-        "missing_branches": {{ coverage_data.totals.missing_branches | default(0) }},
-        "partial_branches": {{ coverage_data.totals.partial_branches | default(0) }}
+        "missing_branches": {{ coverage_data.totals.num_branches_missing | default(0) }},
+        "threshold_met": {{ ((coverage_data.totals.pc_covered_branches | default(0.0)) >= (coverage_thresholds.global_settings.overall_threshold.branch_coverage | default(85.0))) | tojson }}
       },
-      "function_coverage": {
-        "covered_functions": {{ coverage_data.totals.covered_functions | default(0) }},
-        "total_functions": {{ coverage_data.totals.num_functions | default(0) }},
-        "percentage": {{ "%.2f" | format(coverage_data.totals.percent_covered_functions | default(0)) }}
-      },
-      "complexity_metrics": {
-        "average_complexity": {{ coverage_data.totals.average_complexity | default(0) }},
-        "max_complexity": {{ coverage_data.totals.max_complexity | default(0) }},
-        "total_complexity": {{ coverage_data.totals.total_complexity | default(0) }}
+      "quality_indicators": {
+        "coverage_health_score": {{ "%.1f" | format(((coverage_data.totals.pc_covered | default(0.0)) * 0.7 + (coverage_data.totals.pc_covered_branches | default(0.0)) * 0.3)) }},
+        "threshold_compliance": {{ ((coverage_data.totals.pc_covered | default(0.0)) >= (coverage_thresholds.global_settings.overall_threshold.line_coverage | default(90.0)) and (coverage_data.totals.pc_covered_branches | default(0.0)) >= (coverage_thresholds.global_settings.overall_threshold.branch_coverage | default(85.0))) | tojson }},
+        "critical_modules_compliant": {{ coverage_data.critical_modules_compliant | default(true) | tojson }},
+        "quality_gate_status": "{{ 'PASS' if ((coverage_data.totals.pc_covered | default(0.0)) >= (coverage_thresholds.global_settings.overall_threshold.line_coverage | default(90.0))) else 'FAIL' }}"
       }
     },
-    
-    "quality_assessment": {
-      "overall_grade": {% if coverage_data.totals.percent_covered >= 95 -%}"A"
-      {%- elif coverage_data.totals.percent_covered >= 90 -%}"B"
-      {%- elif coverage_data.totals.percent_covered >= 80 -%}"C"
-      {%- elif coverage_data.totals.percent_covered >= 70 -%}"D"
-      {%- else -%}"F"
-      {%- endif %},
-      "coverage_health": {% if coverage_data.totals.percent_covered >= 90 -%}"excellent"
-      {%- elif coverage_data.totals.percent_covered >= 80 -%}"good"
-      {%- elif coverage_data.totals.percent_covered >= 70 -%}"fair"
-      {%- else -%}"poor"
-      {%- endif %},
-      "test_completeness": {% if coverage_data.totals.percent_covered >= 95 and coverage_data.totals.percent_covered_branches >= 90 -%}"comprehensive"
-      {%- elif coverage_data.totals.percent_covered >= 85 -%}"adequate"
-      {%- else -%}"insufficient"
-      {%- endif %}
+    "module_category_breakdown": {
+      "critical_modules": {
+        "average_line_coverage": {{ coverage_data.critical_modules_avg_coverage | default(0.0) }},
+        "average_branch_coverage": {{ coverage_data.critical_modules_avg_branch_coverage | default(0.0) }},
+        "modules_count": {{ coverage_data.critical_modules_count | default(0) }},
+        "compliant_modules": {{ coverage_data.critical_modules_compliant_count | default(0) }},
+        "threshold_requirement": {{ coverage_thresholds.critical_modules.modules['src/flyrigloader/api.py'].line_coverage | default(100.0) }}
+      },
+      "standard_modules": {
+        "average_line_coverage": {{ coverage_data.standard_modules_avg_coverage | default(0.0) }},
+        "average_branch_coverage": {{ coverage_data.standard_modules_avg_branch_coverage | default(0.0) }},
+        "modules_count": {{ coverage_data.standard_modules_count | default(0) }},
+        "compliant_modules": {{ coverage_data.standard_modules_compliant_count | default(0) }},
+        "threshold_requirement": {{ coverage_thresholds.standard_modules.modules['src/flyrigloader/utils/'].line_coverage | default(95.0) }}
+      },
+      "experimental_data_modules": {
+        "description": "Modules handling neuroscience experimental data loading and processing",
+        "modules": [
+          {% for module in report_config.html_report.custom_sections.experimental_data_modules %}
+          "{{ module }}"{% if not loop.last %},{% endif %}
+          {% endfor %}
+        ],
+        "average_coverage": {{ coverage_data.experimental_data_avg_coverage | default(0.0) }},
+        "criticality": "high"
+      },
+      "validation_modules": {
+        "description": "Modules responsible for data validation and schema compliance",
+        "modules": [
+          {% for module in report_config.html_report.custom_sections.validation_modules %}
+          "{{ module }}"{% if not loop.last %},{% endif %}
+          {% endfor %}
+        ],
+        "average_coverage": {{ coverage_data.validation_modules_avg_coverage | default(0.0) }},
+        "criticality": "critical"
+      }
     }
   },
-
-  "module_analysis": {
-    "critical_modules": {
-      {% for module_name, module_data in coverage_data.files.items() -%}
-      {% if module_name in config.module_categorization.critical_modules -%}
-      "{{ module_name | replace('/', '_') | replace('.py', '') }}": {
-        "file_path": "{{ module_name }}",
-        "category": "critical",
-        "required_threshold": {{ thresholds.module_thresholds.critical_modules.line_threshold }},
-        "coverage_metrics": {
-          "line_coverage": {
-            "covered": {{ module_data.summary.covered_lines | default(0) }},
-            "total": {{ module_data.summary.num_statements | default(0) }},
-            "percentage": {{ "%.2f" | format(module_data.summary.percent_covered | default(0)) }},
-            "missing": {{ module_data.summary.missing_lines | default(0) }}
-          },
-          "branch_coverage": {
-            "covered": {{ module_data.summary.covered_branches | default(0) }},
-            "total": {{ module_data.summary.num_branches | default(0) }},
-            "percentage": {{ "%.2f" | format(module_data.summary.percent_covered_branches | default(0)) }},
-            "missing": {{ module_data.summary.missing_branches | default(0) }}
-          },
-          "function_coverage": {
-            "covered": {{ module_data.summary.covered_functions | default(0) }},
-            "total": {{ module_data.summary.num_functions | default(0) }},
-            "percentage": {{ "%.2f" | format(module_data.summary.percent_covered_functions | default(0)) }}
-          }
-        },
-        "quality_indicators": {
-          "threshold_compliance": {{ module_data.summary.percent_covered >= thresholds.module_thresholds.critical_modules.line_threshold }},
-          "branch_threshold_compliance": {{ module_data.summary.percent_covered_branches >= thresholds.module_thresholds.critical_modules.branch_threshold }},
-          "risk_level": {% if module_data.summary.percent_covered >= thresholds.module_thresholds.critical_modules.line_threshold -%}"low"
-          {%- elif module_data.summary.percent_covered >= 95 -%}"medium"
-          {%- else -%}"high"
-          {%- endif %},
-          "complexity_score": {{ module_data.summary.average_complexity | default(0) }}
-        },
-        "neuroscience_context": {
-          {% if 'api.py' in module_name -%}
-          "research_function": "primary_interface",
-          "experimental_impact": "critical_entry_point",
-          "data_flow_role": "facade_controller"
-          {%- elif 'config' in module_name -%}
-          "research_function": "experimental_configuration", 
-          "experimental_impact": "study_parameters",
-          "data_flow_role": "initialization_control"
-          {%- elif 'discovery' in module_name -%}
-          "research_function": "data_location",
-          "experimental_impact": "dataset_identification", 
-          "data_flow_role": "source_detection"
-          {%- elif 'io' in module_name -%}
-          "research_function": "data_loading",
-          "experimental_impact": "experimental_data_access",
-          "data_flow_role": "transformation_pipeline"
-          {%- else -%}
-          "research_function": "support_utility",
-          "experimental_impact": "operational_support",
-          "data_flow_role": "helper_functions"
-          {%- endif %}
-        },
-        "detailed_analysis": {
-          "missing_line_ranges": {{ module_data.missing_lines | default([]) | tojson }},
-          "excluded_line_ranges": {{ module_data.excluded_lines | default([]) | tojson }},
-          "branch_analysis": {
-            "partial_branches": {{ module_data.partial_branches | default([]) | tojson }},
-            "missing_branches": {{ module_data.missing_branches | default([]) | tojson }}
-          },
-          "execution_counts": {{ module_data.execution_counts | default({}) | tojson }}
+  "detailed_module_analysis": {
+    {% for module_path, module_data in coverage_data.files.items() %}
+    "{{ module_path }}": {
+      "file_metadata": {
+        "relative_path": "{{ module_path }}",
+        "absolute_path": "{{ module_data.absolute_path | default('') }}",
+        "module_category": "{{ coverage_data.module_categories.get(module_path, 'standard') }}",
+        "neuroscience_domain": {
+          "experimental_data_handler": {{ (module_path in report_config.html_report.custom_sections.experimental_data_modules) | tojson }},
+          "validation_component": {{ (module_path in report_config.html_report.custom_sections.validation_modules) | tojson }},
+          "transformation_pipeline": {{ (module_path in report_config.html_report.custom_sections.transformation_modules) | tojson }}
         }
-      }{% if not loop.last %},{% endif %}
-      {%- endif -%}
-      {%- endfor %}
-    },
-    
-    "utility_modules": {
-      {% for module_name, module_data in coverage_data.files.items() -%}
-      {% if module_name in config.module_categorization.utility_modules -%}
-      "{{ module_name | replace('/', '_') | replace('.py', '') }}": {
-        "file_path": "{{ module_name }}",
-        "category": "utility",
-        "required_threshold": {{ thresholds.module_thresholds.utility_modules.line_threshold }},
-        "coverage_metrics": {
-          "line_coverage": {
-            "covered": {{ module_data.summary.covered_lines | default(0) }},
-            "total": {{ module_data.summary.num_statements | default(0) }},
-            "percentage": {{ "%.2f" | format(module_data.summary.percent_covered | default(0)) }},
-            "missing": {{ module_data.summary.missing_lines | default(0) }}
-          },
-          "branch_coverage": {
-            "covered": {{ module_data.summary.covered_branches | default(0) }},
-            "total": {{ module_data.summary.num_branches | default(0) }},
-            "percentage": {{ "%.2f" | format(module_data.summary.percent_covered_branches | default(0)) }},
-            "missing": {{ module_data.summary.missing_branches | default(0) }}
-          }
-        },
-        "quality_indicators": {
-          "threshold_compliance": {{ module_data.summary.percent_covered >= thresholds.module_thresholds.utility_modules.line_threshold }},
-          "practical_balance_achieved": true,
-          "maintainability_score": {% if module_data.summary.percent_covered >= 95 -%}"excellent"
-          {%- elif module_data.summary.percent_covered >= 90 -%}"good"
-          {%- else -%}"needs_improvement"
-          {%- endif %}
-        },
-        "cross_platform_analysis": {
-          "platform_compatibility_tested": true,
-          "edge_case_coverage": {{ "%.2f" | format(module_data.summary.percent_covered_branches | default(0)) }},
-          "fallback_scenario_coverage": true
-        }
-      }{% if not loop.last %},{% endif %}
-      {%- endif -%}
-      {%- endfor %}
-    },
-    
-    "initialization_modules": {
-      {% for module_name, module_data in coverage_data.files.items() -%}
-      {% if module_name in config.module_categorization.infrastructure_modules or '__init__.py' in module_name -%}
-      "{{ module_name | replace('/', '_') | replace('.py', '') }}": {
-        "file_path": "{{ module_name }}",
-        "category": "initialization",
-        "required_threshold": {{ thresholds.module_thresholds.initialization_modules.line_threshold }},
-        "coverage_metrics": {
-          "line_coverage": {
-            "covered": {{ module_data.summary.covered_lines | default(0) }},
-            "total": {{ module_data.summary.num_statements | default(0) }},
-            "percentage": {{ "%.2f" | format(module_data.summary.percent_covered | default(0)) }},
-            "missing": {{ module_data.summary.missing_lines | default(0) }}
-          },
-          "conditional_import_handling": true,
-          "logging_setup_coverage": {% if 'loguru' in module_name or '__init__.py' in module_name -%}true{%- else -%}false{%- endif %}
-        },
-        "quality_indicators": {
-          "threshold_compliance": {{ module_data.summary.percent_covered >= thresholds.module_thresholds.initialization_modules.line_threshold }},
-          "import_management_tested": true,
-          "environment_configuration_covered": true
-        }
-      }{% if not loop.last %},{% endif %}
-      {%- endif -%}
-      {%- endfor %}
-    }
-  },
-
-  "quality_gates": {
-    "enforcement_status": {
-      "overall_threshold_met": {{ coverage_data.totals.percent_covered >= thresholds.global_configuration.overall_threshold }},
-      "branch_threshold_met": {{ coverage_data.totals.percent_covered_branches >= thresholds.global_configuration.branch_threshold }},
-      "critical_modules_compliant": {% set critical_violations = [] -%}
-      {%- for module_name, module_data in coverage_data.files.items() -%}
-        {%- if module_name in config.module_categorization.critical_modules -%}
-          {%- if module_data.summary.percent_covered < thresholds.module_thresholds.critical_modules.line_threshold -%}
-            {%- set _ = critical_violations.append(module_name) -%}
-          {%- endif -%}
-        {%- endif -%}
-      {%- endfor -%}
-      {{ critical_violations | length == 0 }},
-      "quality_gate_status": {% if coverage_data.totals.percent_covered >= thresholds.global_configuration.overall_threshold and critical_violations | length == 0 -%}"PASSED"
-      {%- else -%}"FAILED"
-      {%- endif %}
-    },
-    
-    "threshold_analysis": {
-      "global_thresholds": {
-        "overall_coverage": {
-          "required": {{ thresholds.global_configuration.overall_threshold }},
-          "actual": {{ "%.2f" | format(coverage_data.totals.percent_covered | default(0)) }},
-          "compliance": {{ coverage_data.totals.percent_covered >= thresholds.global_configuration.overall_threshold }},
-          "delta": {{ "%.2f" | format((coverage_data.totals.percent_covered | default(0)) - thresholds.global_configuration.overall_threshold) }}
+      },
+      "coverage_metrics": {
+        "line_coverage": {
+          "percentage": {{ "%.2f" | format(module_data.summary.percent_covered | default(0.0)) }},
+          "covered_lines": {{ module_data.summary.covered_lines | default(0) }},
+          "total_lines": {{ module_data.summary.num_statements | default(0) }},
+          "missing_lines": {{ module_data.summary.missing_lines | default(0) }},
+          "excluded_lines": {{ module_data.summary.excluded_lines | default(0) }}
         },
         "branch_coverage": {
-          "required": {{ thresholds.global_configuration.branch_threshold }},
-          "actual": {{ "%.2f" | format(coverage_data.totals.percent_covered_branches | default(0)) }},
-          "compliance": {{ coverage_data.totals.percent_covered_branches >= thresholds.global_configuration.branch_threshold }},
-          "delta": {{ "%.2f" | format((coverage_data.totals.percent_covered_branches | default(0)) - thresholds.global_configuration.branch_threshold) }}
-        }
-      },
-      
-      "module_compliance_summary": {
-        "critical_modules": {
-          "total_modules": {{ config.module_categorization.critical_modules | length }},
-          "compliant_modules": {% set compliant_critical = [] -%}
-          {%- for module_name, module_data in coverage_data.files.items() -%}
-            {%- if module_name in config.module_categorization.critical_modules -%}
-              {%- if module_data.summary.percent_covered >= thresholds.module_thresholds.critical_modules.line_threshold -%}
-                {%- set _ = compliant_critical.append(module_name) -%}
-              {%- endif -%}
-            {%- endif -%}
-          {%- endfor -%}
-          {{ compliant_critical | length }},
-          "compliance_percentage": {{ "%.2f" | format((compliant_critical | length) / (config.module_categorization.critical_modules | length) * 100) }},
-          "non_compliant_modules": {% set non_compliant_critical = [] -%}
-          {%- for module_name, module_data in coverage_data.files.items() -%}
-            {%- if module_name in config.module_categorization.critical_modules -%}
-              {%- if module_data.summary.percent_covered < thresholds.module_thresholds.critical_modules.line_threshold -%}
-                {%- set _ = non_compliant_critical.append(module_name) -%}
-              {%- endif -%}
-            {%- endif -%}
-          {%- endfor -%}
-          {{ non_compliant_critical | tojson }}
+          "percentage": {{ "%.2f" | format(module_data.summary.percent_covered_branches | default(0.0)) }},
+          "covered_branches": {{ module_data.summary.covered_branches | default(0) }},
+          "total_branches": {{ module_data.summary.num_branches | default(0) }},
+          "missing_branches": {{ module_data.summary.missing_branches | default(0) }}
         },
-        "utility_modules": {
-          "total_modules": {{ config.module_categorization.utility_modules | length }},
-          "compliant_modules": {% set compliant_utility = [] -%}
-          {%- for module_name, module_data in coverage_data.files.items() -%}
-            {%- if module_name in config.module_categorization.utility_modules -%}
-              {%- if module_data.summary.percent_covered >= thresholds.module_thresholds.utility_modules.line_threshold -%}
-                {%- set _ = compliant_utility.append(module_name) -%}
-              {%- endif -%}
-            {%- endif -%}
-          {%- endfor -%}
-          {{ compliant_utility | length }},
-          "compliance_percentage": {{ "%.2f" | format((compliant_utility | length) / (config.module_categorization.utility_modules | length) * 100) }}
-        }
-      }
-    },
-    
-    "automated_enforcement": {
-      "merge_blocking_enabled": {{ thresholds.quality_gates.enforcement_rules.block_merge_on_threshold_violation }},
-      "coverage_regression_protection": {{ thresholds.quality_gates.enforcement_rules.block_merge_on_coverage_decrease }},
-      "minimum_delta_tolerance": {{ thresholds.quality_gates.enforcement_rules.minimum_coverage_delta_tolerance }},
-      "ci_integration_active": {{ thresholds.quality_gates.ci_cd_integration.fail_ci_on_violation }},
-      "artifact_generation_enabled": {{ thresholds.quality_gates.ci_cd_integration.upload_coverage_artifacts }}
-    }
-  },
-
-  "trend_analysis": {
-    {% if baseline_data -%}
-    "historical_comparison": {
-      "baseline_coverage": {{ baseline_data.overall_coverage | default(0) }},
-      "current_coverage": {{ "%.2f" | format(coverage_data.totals.percent_covered | default(0)) }},
-      "coverage_delta": {{ "%.2f" | format((coverage_data.totals.percent_covered | default(0)) - (baseline_data.overall_coverage | default(0))) }},
-      "trend_direction": {% if (coverage_data.totals.percent_covered | default(0)) > (baseline_data.overall_coverage | default(0)) -%}"improving"
-      {%- elif (coverage_data.totals.percent_covered | default(0)) < (baseline_data.overall_coverage | default(0)) -%}"declining"
-      {%- else -%}"stable"
-      {%- endif %},
-      "regression_detected": {{ (coverage_data.totals.percent_covered | default(0)) < (baseline_data.overall_coverage | default(0)) - thresholds.quality_gates.enforcement_rules.minimum_coverage_delta_tolerance }},
-      "significant_improvement": {{ (coverage_data.totals.percent_covered | default(0)) > (baseline_data.overall_coverage | default(0)) + 2.0 }}
-    },
-    
-    "time_series_metrics": {
-      "measurement_timestamp": "{{ meta.timestamp | default(now().isoformat()) }}",
-      "baseline_timestamp": "{{ baseline_data.timestamp | default('') }}",
-      "time_difference_days": {% if baseline_data.timestamp -%}{{ ((meta.timestamp | default(now())) - (baseline_data.timestamp | default(now()))) | int }}{%- else -%}0{%- endif %},
-      "coverage_velocity": {% if baseline_data.timestamp -%}{{ "%.4f" | format(((coverage_data.totals.percent_covered | default(0)) - (baseline_data.overall_coverage | default(0))) / (((meta.timestamp | default(now())) - (baseline_data.timestamp | default(now()))) | int | max(1))) }}{%- else -%}0{%- endif %},
-      "trend_stability": {% if baseline_data -%}{% if ((coverage_data.totals.percent_covered | default(0)) - (baseline_data.overall_coverage | default(0))) | abs < 1.0 -%}"stable"
-      {%- elif ((coverage_data.totals.percent_covered | default(0)) - (baseline_data.overall_coverage | default(0))) > 5.0 -%}"volatile_improvement"
-      {%- elif ((coverage_data.totals.percent_covered | default(0)) - (baseline_data.overall_coverage | default(0))) < -5.0 -%}"volatile_decline"
-      {%- else -%}"gradual_change"
-      {%- endif %}{%- else -%}"no_baseline"
-      {%- endif %}
-    },
-    
-    "module_trend_analysis": {
-      {% for module_name in config.module_categorization.critical_modules -%}
-      {% if module_name in coverage_data.files -%}
-      "{{ module_name | replace('/', '_') | replace('.py', '') }}": {
-        "current_coverage": {{ "%.2f" | format(coverage_data.files[module_name].summary.percent_covered | default(0)) }},
-        {% if baseline_data and baseline_data.modules and module_name in baseline_data.modules -%}
-        "baseline_coverage": {{ baseline_data.modules[module_name].coverage | default(0) }},
-        "coverage_delta": {{ "%.2f" | format((coverage_data.files[module_name].summary.percent_covered | default(0)) - (baseline_data.modules[module_name].coverage | default(0))) }},
-        "trend_classification": {% if (coverage_data.files[module_name].summary.percent_covered | default(0)) > (baseline_data.modules[module_name].coverage | default(0)) + 1.0 -%}"improving"
-        {%- elif (coverage_data.files[module_name].summary.percent_covered | default(0)) < (baseline_data.modules[module_name].coverage | default(0)) - 1.0 -%}"declining"
-        {%- else -%}"stable"
-        {%- endif %}
-        {%- else -%}
-        "baseline_coverage": null,
-        "coverage_delta": null,
-        "trend_classification": "no_baseline"
-        {%- endif %}
-      }{% if not loop.last %},{% endif %}
-      {%- endif -%}
-      {%- endfor %}
-    }
-    {%- else -%}
-    "historical_comparison": {
-      "baseline_coverage": null,
-      "current_coverage": {{ "%.2f" | format(coverage_data.totals.percent_covered | default(0)) }},
-      "coverage_delta": null,
-      "trend_direction": "no_baseline",
-      "regression_detected": false,
-      "significant_improvement": false
-    },
-    
-    "time_series_metrics": {
-      "measurement_timestamp": "{{ meta.timestamp | default(now().isoformat()) }}",
-      "baseline_timestamp": null,
-      "time_difference_days": 0,
-      "coverage_velocity": 0,
-      "trend_stability": "no_baseline"
-    },
-    
-    "module_trend_analysis": {}
-    {%- endif %}
-  },
-
-  "performance_integration": {
-    {% if performance_data -%}
-    "benchmark_correlation": {
-      "data_loading_performance": {
-        "sla_target": "1s per 100MB",
-        "current_performance": "{{ performance_data.data_loading.average_time | default('N/A') }}",
-        "sla_compliance": {{ performance_data.data_loading.sla_compliant | default(true) }},
-        "coverage_correlation": {
-          "io_module_coverage": {% for module_name, module_data in coverage_data.files.items() %}{% if 'io' in module_name %}{{ "%.2f" | format(module_data.summary.percent_covered | default(0)) }}{% endif %}{% endfor %},
-          "performance_confidence": {% if performance_data.data_loading.sla_compliant -%}"high"
-          {%- else -%}"requires_investigation"
-          {%- endif %}
-        }
-      },
-      "transformation_performance": {
-        "sla_target": "500ms per 1M rows",
-        "current_performance": "{{ performance_data.transformation.average_time | default('N/A') }}",
-        "sla_compliance": {{ performance_data.transformation.sla_compliant | default(true) }},
-        "coverage_correlation": {
-          "dataframe_utils_coverage": {% for module_name, module_data in coverage_data.files.items() %}{% if 'dataframe' in module_name %}{{ "%.2f" | format(module_data.summary.percent_covered | default(0)) }}{% endif %}{% endfor %},
-          "performance_confidence": {% if performance_data.transformation.sla_compliant -%}"high"
-          {%- else -%}"requires_investigation"
-          {%- endif %}
-        }
-      },
-      "discovery_performance": {
-        "sla_target": "5s for 10,000 files",
-        "current_performance": "{{ performance_data.discovery.average_time | default('N/A') }}",
-        "sla_compliance": {{ performance_data.discovery.sla_compliant | default(true) }},
-        "coverage_correlation": {
-          "discovery_module_coverage": {% for module_name, module_data in coverage_data.files.items() %}{% if 'discovery' in module_name %}{{ "%.2f" | format(module_data.summary.percent_covered | default(0)) }}{% endif %}{% endfor %},
-          "performance_confidence": {% if performance_data.discovery.sla_compliant -%}"high"
-          {%- else -%}"requires_investigation"
-          {%- endif %}
-        }
-      }
-    },
-    
-    "coverage_performance_analysis": {
-      "high_coverage_high_performance": {% set high_coverage_modules = [] -%}
-      {%- for module_name, module_data in coverage_data.files.items() -%}
-        {%- if module_data.summary.percent_covered >= 95 -%}
-          {%- set _ = high_coverage_modules.append(module_name) -%}
-        {%- endif -%}
-      {%- endfor -%}
-      {{ high_coverage_modules | length }},
-      "quality_performance_correlation": {% if performance_data.overall_sla_compliance and coverage_data.totals.percent_covered >= 90 -%}"positive"
-      {%- elif not performance_data.overall_sla_compliance and coverage_data.totals.percent_covered < 80 -%}"negative"
-      {%- else -%}"mixed"
-      {%- endif %},
-      "recommended_action": {% if performance_data.overall_sla_compliance and coverage_data.totals.percent_covered >= 90 -%}"maintain_current_quality"
-      {%- elif not performance_data.overall_sla_compliance -%}"investigate_performance_issues"
-      {%- elif coverage_data.totals.percent_covered < 90 -%}"improve_test_coverage"
-      {%- else -%}"balanced_improvement"
-      {%- endif %}
-    }
-    {%- else -%}
-    "benchmark_correlation": {
-      "data_loading_performance": {
-        "sla_target": "1s per 100MB",
-        "current_performance": "not_measured",
-        "sla_compliance": null,
-        "coverage_correlation": {
-          "io_module_coverage": {% for module_name, module_data in coverage_data.files.items() %}{% if 'io' in module_name %}{{ "%.2f" | format(module_data.summary.percent_covered | default(0)) }}{% endif %}{% endfor %},
-          "performance_confidence": "no_benchmark_data"
-        }
-      },
-      "transformation_performance": {
-        "sla_target": "500ms per 1M rows",
-        "current_performance": "not_measured",
-        "sla_compliance": null
-      },
-      "discovery_performance": {
-        "sla_target": "5s for 10,000 files", 
-        "current_performance": "not_measured",
-        "sla_compliance": null
-      }
-    },
-    
-    "coverage_performance_analysis": {
-      "high_coverage_high_performance": {% set high_coverage_modules = [] -%}
-      {%- for module_name, module_data in coverage_data.files.items() -%}
-        {%- if module_data.summary.percent_covered >= 95 -%}
-          {%- set _ = high_coverage_modules.append(module_name) -%}
-        {%- endif -%}
-      {%- endfor -%}
-      {{ high_coverage_modules | length }},
-      "quality_performance_correlation": "no_performance_data",
-      "recommended_action": {% if coverage_data.totals.percent_covered >= 90 -%}"add_performance_benchmarking"
-      {%- else -%}"improve_coverage_then_benchmark"
-      {%- endif %}
-    }
-    {%- endif %}
-  },
-
-  "neuroscience_domain_context": {
-    "experimental_data_coverage": {
-      "data_pipeline_modules": [
-        {% for module_name in coverage_data.files.keys() -%}
-        {% if 'io' in module_name or 'discovery' in module_name -%}
-        {
-          "module": "{{ module_name }}",
-          "coverage": {{ "%.2f" | format(coverage_data.files[module_name].summary.percent_covered | default(0)) }},
-          "experimental_role": {% if 'io' in module_name -%}"data_loading"
-          {%- elif 'discovery' in module_name -%}"data_discovery"
-          {%- else -%}"support"
-          {%- endif %},
-          "research_criticality": {% if module_name in config.module_categorization.critical_modules -%}"critical"
-          {%- else -%}"standard"
-          {%- endif %}
-        }{% if not loop.last %},{% endif %}
-        {%- endif -%}
-        {%- endfor %}
-      ],
-      "validation_pipeline_coverage": {
-        "schema_validation_modules": [
-          {% for module_name in coverage_data.files.keys() -%}
-          {% if 'column_models' in module_name or 'config' in module_name -%}
+        "function_level_coverage": [
+          {% for function_name, function_data in module_data.functions.items() %}
           {
-            "module": "{{ module_name }}",
-            "coverage": {{ "%.2f" | format(coverage_data.files[module_name].summary.percent_covered | default(0)) }},
-            "validation_scope": {% if 'column_models' in module_name -%}"data_schema"
-            {%- elif 'config' in module_name -%}"configuration_schema"
-            {%- else -%}"general"
-            {%- endif %}
+            "function_name": "{{ function_name }}",
+            "line_coverage": {{ "%.2f" | format(function_data.percent_covered | default(0.0)) }},
+            "branch_coverage": {{ "%.2f" | format(function_data.percent_covered_branches | default(0.0)) }},
+            "complexity_score": {{ function_data.complexity | default(1) }},
+            "critical_function": {{ (function_name in coverage_thresholds.critical_modules.modules.get(module_path, {}).get('critical_functions', [])) | tojson }}
           }{% if not loop.last %},{% endif %}
-          {%- endif -%}
-          {%- endfor %}
+          {% endfor %}
         ],
-        "overall_validation_coverage": {% set validation_coverage = [] -%}
-        {%- for module_name, module_data in coverage_data.files.items() -%}
-          {%- if 'column_models' in module_name or 'config' in module_name -%}
-            {%- set _ = validation_coverage.append(module_data.summary.percent_covered | default(0)) -%}
-          {%- endif -%}
-        {%- endfor -%}
-        {% if validation_coverage -%}{{ "%.2f" | format(validation_coverage | sum / validation_coverage | length) }}{%- else -%}0{%- endif %}
-      }
-    },
-    
-    "research_workflow_analysis": {
-      "configuration_to_output_pipeline": {
-        "config_loading_coverage": {% for module_name, module_data in coverage_data.files.items() %}{% if 'config' in module_name and 'yaml' in module_name %}{{ "%.2f" | format(module_data.summary.percent_covered | default(0)) }}{% endif %}{% endfor %},
-        "file_discovery_coverage": {% set discovery_coverage = [] -%}
-        {%- for module_name, module_data in coverage_data.files.items() -%}
-          {%- if 'discovery' in module_name -%}
-            {%- set _ = discovery_coverage.append(module_data.summary.percent_covered | default(0)) -%}
-          {%- endif -%}
-        {%- endfor -%}
-        {% if discovery_coverage -%}{{ "%.2f" | format(discovery_coverage | sum / discovery_coverage | length) }}{%- else -%}0{%- endif %},
-        "data_loading_coverage": {% set io_coverage = [] -%}
-        {%- for module_name, module_data in coverage_data.files.items() -%}
-          {%- if 'io' in module_name -%}
-            {%- set _ = io_coverage.append(module_data.summary.percent_covered | default(0)) -%}
-          {%- endif -%}
-        {%- endfor -%}
-        {% if io_coverage -%}{{ "%.2f" | format(io_coverage | sum / io_coverage | length) }}{%- else -%}0{%- endif %},
-        "dataframe_output_coverage": {% for module_name, module_data in coverage_data.files.items() %}{% if 'dataframe' in module_name %}{{ "%.2f" | format(module_data.summary.percent_covered | default(0)) }}{% endif %}{% endfor %},
-        "end_to_end_confidence": {% set pipeline_coverages = [] -%}
-        {%- for module_name, module_data in coverage_data.files.items() -%}
-          {%- if 'config' in module_name or 'discovery' in module_name or 'io' in module_name -%}
-            {%- set _ = pipeline_coverages.append(module_data.summary.percent_covered | default(0)) -%}
-          {%- endif -%}
-        {%- endfor -%}
-        {% if pipeline_coverages -%}{% set avg_pipeline_coverage = pipeline_coverages | sum / pipeline_coverages | length -%}
-        {% if avg_pipeline_coverage >= 95 -%}"very_high"
-        {%- elif avg_pipeline_coverage >= 85 -%}"high"
-        {%- elif avg_pipeline_coverage >= 75 -%}"medium"
-        {%- else -%}"low"
-        {%- endif %}{%- else -%}"unknown"
-        {%- endif %}
+        "class_level_coverage": [
+          {% for class_name, class_data in module_data.classes.items() %}
+          {
+            "class_name": "{{ class_name }}",
+            "line_coverage": {{ "%.2f" | format(class_data.percent_covered | default(0.0)) }},
+            "branch_coverage": {{ "%.2f" | format(class_data.percent_covered_branches | default(0.0)) }},
+            "method_count": {{ class_data.method_count | default(0) }},
+            "covered_methods": {{ class_data.covered_methods | default(0) }}
+          }{% if not loop.last %},{% endif %}
+          {% endfor %}
+        ]
       },
-      
-      "experimental_data_handling": {
-        "pickle_format_support_coverage": {% for module_name, module_data in coverage_data.files.items() %}{% if 'pickle' in module_name %}{{ "%.2f" | format(module_data.summary.percent_covered | default(0)) }}{% endif %}{% endfor %},
-        "metadata_extraction_coverage": {% for module_name, module_data in coverage_data.files.items() %}{% if 'patterns' in module_name %}{{ "%.2f" | format(module_data.summary.percent_covered | default(0)) }}{% endif %}{% endfor %},
-        "signal_processing_pipeline_confidence": {% if coverage_data.totals.percent_covered >= 90 -%}"high"
-        {%- elif coverage_data.totals.percent_covered >= 80 -%}"medium"
-        {%- else -%}"requires_improvement"
-        {%- endif %}
-      }
-    },
-    
-    "domain_specific_quality_metrics": {
-      "data_integrity_assurance": {
-        "schema_validation_coverage": {% for module_name, module_data in coverage_data.files.items() %}{% if 'column_models' in module_name %}{{ "%.2f" | format(module_data.summary.percent_covered | default(0)) }}{% endif %}{% endfor %},
-        "error_handling_coverage": {% set error_handling_coverage = [] -%}
-        {%- for module_name, module_data in coverage_data.files.items() -%}
-          {%- if module_data.summary.percent_covered_branches -%}
-            {%- set _ = error_handling_coverage.append(module_data.summary.percent_covered_branches) -%}
-          {%- endif -%}
-        {%- endfor -%}
-        {% if error_handling_coverage -%}{{ "%.2f" | format(error_handling_coverage | sum / error_handling_coverage | length) }}{%- else -%}0{%- endif %},
-        "data_provenance_tracking_confidence": {% if coverage_data.totals.percent_covered >= 95 -%}"excellent"
-        {%- elif coverage_data.totals.percent_covered >= 85 -%}"good"
-        {%- else -%}"needs_improvement"
-        {%- endif %}
+      "quality_assessment": {
+        "threshold_compliance": {
+          "line_coverage_met": {{ (module_data.summary.percent_covered | default(0.0)) >= (coverage_thresholds.critical_modules.modules.get(module_path, {}).get('line_coverage', coverage_thresholds.global_settings.overall_threshold.line_coverage) | default(90.0)) | tojson }},
+          "branch_coverage_met": {{ (module_data.summary.percent_covered_branches | default(0.0)) >= (coverage_thresholds.critical_modules.modules.get(module_path, {}).get('branch_coverage', coverage_thresholds.global_settings.overall_threshold.branch_coverage) | default(85.0)) | tojson }},
+          "required_line_threshold": {{ coverage_thresholds.critical_modules.modules.get(module_path, {}).get('line_coverage', coverage_thresholds.global_settings.overall_threshold.line_coverage) | default(90.0) }},
+          "required_branch_threshold": {{ coverage_thresholds.critical_modules.modules.get(module_path, {}).get('branch_coverage', coverage_thresholds.global_settings.overall_threshold.branch_coverage) | default(85.0) }}
+        },
+        "risk_indicators": {
+          "high_complexity_low_coverage": {{ ((module_data.complexity_score | default(1)) > 10 and (module_data.summary.percent_covered | default(0.0)) < 80) | tojson }},
+          "critical_uncovered_paths": {{ module_data.critical_uncovered_paths | default(0) }},
+          "maintenance_risk": "{{ 'high' if (module_data.summary.percent_covered | default(0.0)) < 70 else ('medium' if (module_data.summary.percent_covered | default(0.0)) < 85 else 'low') }}",
+          "testing_completeness": {{ "%.1f" | format(((module_data.summary.percent_covered | default(0.0)) + (module_data.summary.percent_covered_branches | default(0.0))) / 2) }}
+        },
+        "performance_correlation": {
+          "data_loading_efficiency": {{ performance_data.modules.get(module_path, {}).get('data_loading_time', 0.0) | default(0.0) }},
+          "sla_compliance": {{ performance_data.modules.get(module_path, {}).get('sla_compliant', true) | default(true) | tojson }},
+          "benchmark_score": {{ performance_data.modules.get(module_path, {}).get('benchmark_score', 100.0) | default(100.0) }}
+        }
       },
-      
-      "research_reproducibility_support": {
-        "configuration_reproducibility": {% for module_name, module_data in coverage_data.files.items() %}{% if 'config' in module_name %}{{ "%.2f" | format(module_data.summary.percent_covered | default(0)) }}{% endif %}{% endfor %},
-        "logging_and_audit_coverage": {% for module_name, module_data in coverage_data.files.items() %}{% if '__init__.py' in module_name %}{{ "%.2f" | format(module_data.summary.percent_covered | default(0)) }}{% endif %}{% endfor %},
-        "cross_platform_reliability": {% set utility_coverage = [] -%}
-        {%- for module_name, module_data in coverage_data.files.items() -%}
-          {%- if 'utils' in module_name -%}
-            {%- set _ = utility_coverage.append(module_data.summary.percent_covered | default(0)) -%}
-          {%- endif -%}
-        {%- endfor -%}
-        {% if utility_coverage -%}{{ "%.2f" | format(utility_coverage | sum / utility_coverage | length) }}{%- else -%}0{%- endif %}
-      }
-    }
-  },
-
-  "actionable_recommendations": {
-    "immediate_actions": [
-      {% if coverage_data.totals.percent_covered < thresholds.global_configuration.overall_threshold -%}
-      {
-        "priority": "high",
-        "type": "coverage_improvement",
-        "description": "Overall coverage ({{ '%.1f' | format(coverage_data.totals.percent_covered | default(0)) }}%) is below threshold ({{ thresholds.global_configuration.overall_threshold }}%)",
-        "action": "Add tests to increase overall coverage by {{ '%.1f' | format(thresholds.global_configuration.overall_threshold - (coverage_data.totals.percent_covered | default(0))) }} percentage points",
-        "estimated_effort": "medium"
-      },
-      {%- endif -%}
-      {% set critical_violations = [] -%}
-      {%- for module_name, module_data in coverage_data.files.items() -%}
-        {%- if module_name in config.module_categorization.critical_modules -%}
-          {%- if module_data.summary.percent_covered < thresholds.module_thresholds.critical_modules.line_threshold -%}
-            {%- set _ = critical_violations.append({'module': module_name, 'coverage': module_data.summary.percent_covered}) -%}
-          {%- endif -%}
-        {%- endif -%}
-      {%- endfor -%}
-      {% for violation in critical_violations -%}
-      {
-        "priority": "critical",
-        "type": "critical_module_coverage",
-        "description": "Critical module {{ violation.module }} has {{ '%.1f' | format(violation.coverage) }}% coverage, requires 100%",
-        "action": "Add comprehensive tests for {{ violation.module }} to achieve 100% coverage",
-        "estimated_effort": "high",
-        "module": "{{ violation.module }}"
-      }{% if not loop.last %},{% endif %}
-      {%- endfor -%}
-      {% if critical_violations | length == 0 and coverage_data.totals.percent_covered >= thresholds.global_configuration.overall_threshold -%}
-      {
-        "priority": "low",
-        "type": "maintenance",
-        "description": "All coverage thresholds are met - focus on maintaining quality",
-        "action": "Continue regular testing practices and monitor for regressions",
-        "estimated_effort": "low"
-      }
-      {%- endif %}
-    ],
-    
-    "optimization_opportunities": [
-      {% if coverage_data.totals.percent_covered_branches < coverage_data.totals.percent_covered -%}
-      {
-        "type": "branch_coverage_improvement",
-        "description": "Branch coverage ({{ '%.1f' | format(coverage_data.totals.percent_covered_branches | default(0)) }}%) lags behind line coverage ({{ '%.1f' | format(coverage_data.totals.percent_covered | default(0)) }}%)",
-        "recommendation": "Add tests for conditional logic and error handling paths",
-        "potential_impact": "improved_error_handling_confidence"
-      },
-      {%- endif -%}
-      {% if performance_data and not performance_data.overall_sla_compliance -%}
-      {
-        "type": "performance_optimization",
-        "description": "Performance benchmarks indicate SLA violations in some modules",
-        "recommendation": "Investigate performance issues in modules with high coverage but poor performance",
-        "potential_impact": "better_user_experience"
-      },
-      {%- endif -%}
-      {
-        "type": "neuroscience_domain_enhancement",
-        "description": "Enhance domain-specific test scenarios for experimental data workflows",
-        "recommendation": "Add property-based tests for edge cases in experimental data processing",
-        "potential_impact": "increased_research_reliability"
-      }
-    ],
-    
-    "long_term_goals": [
-      {
-        "goal": "Achieve 100% coverage across all critical modules",
-        "current_status": "{{ '%.1f' | format((compliant_critical | length) / (config.module_categorization.critical_modules | length) * 100) }}% of critical modules compliant",
-        "target_timeline": "next_release"
-      },
-      {
-        "goal": "Integrate performance regression testing with coverage analysis",
-        "current_status": {% if performance_data -%}"partially_implemented"{%- else -%}"not_implemented"{%- endif %},
-        "target_timeline": "next_quarter"
-      },
-      {
-        "goal": "Establish comprehensive property-based testing for neuroscience data scenarios",
-        "current_status": "foundation_ready",
-        "target_timeline": "next_quarter"
-      }
-    ]
-  },
-
-  "integration_metadata": {
-    "api_compatibility": {
-      "codecov_compatible": true,
-      "sonarqube_compatible": true,
-      "github_actions_integration": true,
-      "jenkins_integration": true,
-      "webhook_ready": true
-    },
-    
-    "export_capabilities": {
-      "supported_formats": ["json", "xml", "html", "csv", "xlsx"],
-      "dashboard_integration": true,
-      "monitoring_alerts": true,
-      "scheduled_reporting": true
-    },
-    
-    "programmatic_access": {
-      "json_schema_version": "2.0",
-      "api_version": "v1",
-      "machine_readable": true,
-      "structured_data": true,
-      "trend_tracking_enabled": true
-    }
-  },
-
-  "file_details": {
-    {% for module_name, module_data in coverage_data.files.items() -%}
-    "{{ module_name | replace('/', '_') | replace('.py', '') }}": {
-      "path": "{{ module_name }}",
-      "coverage_summary": {
-        "line_coverage": {{ "%.2f" | format(module_data.summary.percent_covered | default(0)) }},
-        "branch_coverage": {{ "%.2f" | format(module_data.summary.percent_covered_branches | default(0)) }},
-        "lines_covered": {{ module_data.summary.covered_lines | default(0) }},
-        "lines_total": {{ module_data.summary.num_statements | default(0) }},
-        "branches_covered": {{ module_data.summary.covered_branches | default(0) }},
-        "branches_total": {{ module_data.summary.num_branches | default(0) }}
-      },
-      "missing_coverage": {
-        "missing_lines": {{ module_data.missing_lines | default([]) | tojson }},
-        "excluded_lines": {{ module_data.excluded_lines | default([]) | tojson }},
-        "partial_branches": {{ module_data.partial_branches | default([]) | tojson }}
-      },
-      "execution_analysis": {
-        "execution_counts": {{ module_data.execution_counts | default({}) | tojson }},
-        "contexts": {{ module_data.contexts | default([]) | tojson }}
+      "uncovered_analysis": {
+        "missing_line_ranges": [
+          {% for range in module_data.missing_lines_ranges | default([]) %}
+          {
+            "start_line": {{ range.start }},
+            "end_line": {{ range.end }},
+            "line_count": {{ range.count }},
+            "code_context": "{{ range.context | default('') }}",
+            "critical_path": {{ range.critical | default(false) | tojson }}
+          }{% if not loop.last %},{% endif %}
+          {% endfor %}
+        ],
+        "missing_branches": [
+          {% for branch in module_data.missing_branches | default([]) %}
+          {
+            "line_number": {{ branch.line }},
+            "branch_type": "{{ branch.type | default('conditional') }}",
+            "condition": "{{ branch.condition | default('') }}",
+            "criticality": "{{ branch.criticality | default('standard') }}"
+          }{% if not loop.last %},{% endif %}
+          {% endfor %}
+        ]
       }
     }{% if not loop.last %},{% endif %}
-    {%- endfor %}
+    {% endfor %}
+  },
+  "trend_analysis": {
+    "historical_comparison": {
+      "enabled": {{ report_config.json_report.trend_tracking.enabled | default(true) | tojson }},
+      "baseline_coverage": {{ trend_data.baseline_coverage | default(0.0) }},
+      "previous_coverage": {{ trend_data.previous_coverage | default(0.0) }},
+      "coverage_delta": {{ "%.2f" | format((coverage_data.totals.pc_covered | default(0.0)) - (trend_data.previous_coverage | default(0.0))) }},
+      "trend_direction": "{{ 'increasing' if (coverage_data.totals.pc_covered | default(0.0)) > (trend_data.previous_coverage | default(0.0)) else ('decreasing' if (coverage_data.totals.pc_covered | default(0.0)) < (trend_data.previous_coverage | default(0.0)) else 'stable') }}",
+      "regression_detected": {{ ((coverage_data.totals.pc_covered | default(0.0)) < (trend_data.previous_coverage | default(0.0)) and abs((coverage_data.totals.pc_covered | default(0.0)) - (trend_data.previous_coverage | default(0.0))) > (report_config.json_report.trend_tracking.regression_threshold | default(5.0))) | tojson }}
+    },
+    "statistical_analysis": {
+      "enabled": {{ report_config.json_report.trend_tracking.statistical_analysis | default(true) | tojson }},
+      "data_points": {{ trend_data.historical_data_points | default(0) }},
+      "average_coverage": {{ "%.2f" | format(trend_data.average_coverage | default(0.0)) }},
+      "standard_deviation": {{ "%.2f" | format(trend_data.coverage_std_dev | default(0.0)) }},
+      "coverage_volatility": "{{ 'high' if (trend_data.coverage_std_dev | default(0.0)) > 5.0 else ('medium' if (trend_data.coverage_std_dev | default(0.0)) > 2.0 else 'low') }}",
+      "trend_confidence": {{ "%.1f" | format(trend_data.trend_confidence | default(85.0)) }}
+    },
+    "prediction_analysis": {
+      "next_period_estimate": {{ "%.2f" | format(trend_data.predicted_coverage | default(0.0)) }},
+      "confidence_interval": {
+        "lower_bound": {{ "%.2f" | format(trend_data.confidence_lower | default(0.0)) }},
+        "upper_bound": {{ "%.2f" | format(trend_data.confidence_upper | default(0.0)) }}
+      },
+      "threshold_risk": "{{ 'high' if (trend_data.predicted_coverage | default(0.0)) < (coverage_thresholds.global_settings.overall_threshold.line_coverage | default(90.0)) else 'low' }}"
+    }
+  },
+  "quality_gates": {
+    "threshold_validation": {
+      "overall_compliance": {
+        "line_coverage_pass": {{ ((coverage_data.totals.pc_covered | default(0.0)) >= (coverage_thresholds.global_settings.overall_threshold.line_coverage | default(90.0))) | tojson }},
+        "branch_coverage_pass": {{ ((coverage_data.totals.pc_covered_branches | default(0.0)) >= (coverage_thresholds.global_settings.overall_threshold.branch_coverage | default(85.0))) | tojson }},
+        "critical_modules_pass": {{ coverage_data.critical_modules_compliant | default(true) | tojson }},
+        "overall_gate_status": "{{ 'PASS' if ((coverage_data.totals.pc_covered | default(0.0)) >= (coverage_thresholds.global_settings.overall_threshold.line_coverage | default(90.0)) and (coverage_data.totals.pc_covered_branches | default(0.0)) >= (coverage_thresholds.global_settings.overall_threshold.branch_coverage | default(85.0)) and (coverage_data.critical_modules_compliant | default(true))) else 'FAIL' }}"
+      },
+      "critical_module_validation": {
+        "api_module": {
+          "path": "src/flyrigloader/api.py",
+          "required_coverage": {{ coverage_thresholds.critical_modules.modules['src/flyrigloader/api.py'].line_coverage | default(100.0) }},
+          "actual_coverage": {{ coverage_data.files.get('src/flyrigloader/api.py', {}).get('summary', {}).get('percent_covered', 0.0) | default(0.0) }},
+          "compliant": {{ (coverage_data.files.get('src/flyrigloader/api.py', {}).get('summary', {}).get('percent_covered', 0.0) | default(0.0)) >= (coverage_thresholds.critical_modules.modules['src/flyrigloader/api.py'].line_coverage | default(100.0)) | tojson }},
+          "rationale": "{{ coverage_thresholds.critical_modules.modules['src/flyrigloader/api.py'].rationale | default('High-level facade requiring comprehensive integration testing') }}"
+        },
+        "config_modules": {
+          "required_coverage": {{ coverage_thresholds.critical_modules.modules['src/flyrigloader/config/'].line_coverage | default(100.0) }},
+          "average_coverage": {{ coverage_data.config_modules_avg_coverage | default(0.0) }},
+          "compliant": {{ coverage_data.config_modules_compliant | default(true) | tojson }},
+          "rationale": "{{ coverage_thresholds.critical_modules.modules['src/flyrigloader/config/'].rationale | default('YAML configuration modules requiring validation testing') }}"
+        },
+        "discovery_modules": {
+          "required_coverage": {{ coverage_thresholds.critical_modules.modules['src/flyrigloader/discovery/'].line_coverage | default(100.0) }},
+          "average_coverage": {{ coverage_data.discovery_modules_avg_coverage | default(0.0) }},
+          "compliant": {{ coverage_data.discovery_modules_compliant | default(true) | tojson }},
+          "rationale": "{{ coverage_thresholds.critical_modules.modules['src/flyrigloader/discovery/'].rationale | default('File discovery engine requiring pattern matching tests') }}"
+        },
+        "io_modules": {
+          "required_coverage": {{ coverage_thresholds.critical_modules.modules['src/flyrigloader/io/'].line_coverage | default(100.0) }},
+          "average_coverage": {{ coverage_data.io_modules_avg_coverage | default(0.0) }},
+          "compliant": {{ coverage_data.io_modules_compliant | default(true) | tojson }},
+          "rationale": "{{ coverage_thresholds.critical_modules.modules['src/flyrigloader/io/'].rationale | default('Data loading pipeline requiring schema validation tests') }}"
+        }
+      },
+      "regression_alerts": {
+        "coverage_regression": {{ ((coverage_data.totals.pc_covered | default(0.0)) < (trend_data.previous_coverage | default(0.0)) and abs((coverage_data.totals.pc_covered | default(0.0)) - (trend_data.previous_coverage | default(0.0))) > (report_config.json_report.trend_tracking.regression_threshold | default(5.0))) | tojson }},
+        "critical_module_regression": {{ coverage_data.critical_module_regression | default(false) | tojson }},
+        "performance_regression": {{ performance_data.regression_detected | default(false) | tojson }},
+        "overall_regression_risk": "{{ 'high' if (coverage_data.critical_module_regression | default(false)) or (performance_data.regression_detected | default(false)) else ('medium' if ((coverage_data.totals.pc_covered | default(0.0)) < (trend_data.previous_coverage | default(0.0))) else 'low') }}"
+      },
+      "enforcement_actions": {
+        "block_merge": {{ ((coverage_data.totals.pc_covered | default(0.0)) < (coverage_thresholds.global_settings.overall_threshold.line_coverage | default(90.0)) or not (coverage_data.critical_modules_compliant | default(true))) | tojson }},
+        "require_review": {{ coverage_data.require_manual_review | default(false) | tojson }},
+        "notification_required": {{ coverage_data.notification_required | default(false) | tojson }},
+        "escalation_level": "{{ 'critical' if not (coverage_data.critical_modules_compliant | default(true)) else ('standard' if (coverage_data.totals.pc_covered | default(0.0)) < (coverage_thresholds.global_settings.overall_threshold.line_coverage | default(90.0)) else 'none') }}"
+      }
+    }
+  },
+  "performance_integration": {
+    "benchmark_correlation": {
+      "enabled": {{ report_config.performance_integration.benchmark_correlation | default(true) | tojson }},
+      "data_loading_sla": "{{ report_config.performance_integration.data_loading_sla | default('1s per 100MB') }}",
+      "transformation_sla": "{{ report_config.performance_integration.transformation_sla | default('500ms per 1M rows') }}",
+      "sla_compliance_rate": {{ "%.1f" | format(performance_data.sla_compliance_rate | default(100.0)) }}
+    },
+    "coverage_performance_correlation": {
+      "high_coverage_modules": [
+        {% for module_path, module_data in coverage_data.files.items() %}
+        {% if (module_data.summary.percent_covered | default(0.0)) >= 95.0 %}
+        {
+          "module": "{{ module_path }}",
+          "coverage": {{ "%.2f" | format(module_data.summary.percent_covered | default(0.0)) }},
+          "performance_score": {{ performance_data.modules.get(module_path, {}).get('benchmark_score', 100.0) | default(100.0) }},
+          "data_loading_time": {{ performance_data.modules.get(module_path, {}).get('data_loading_time', 0.0) | default(0.0) }}
+        }{% if not loop.last %},{% endif %}
+        {% endif %}
+        {% endfor %}
+      ],
+      "performance_risk_modules": [
+        {% for module_path, module_data in coverage_data.files.items() %}
+        {% if (module_data.summary.percent_covered | default(0.0)) < 85.0 %}
+        {
+          "module": "{{ module_path }}",
+          "coverage": {{ "%.2f" | format(module_data.summary.percent_covered | default(0.0)) }},
+          "performance_impact": "{{ 'high' if (performance_data.modules.get(module_path, {}).get('benchmark_score', 100.0) | default(100.0)) < 80 else 'medium' }}",
+          "testing_priority": "{{ 'critical' if module_path in report_config.html_report.custom_sections.experimental_data_modules else 'standard' }}"
+        }{% if not loop.last %},{% endif %}
+        {% endif %}
+        {% endfor %}
+      ]
+    },
+    "sla_validation": {
+      "data_loading_compliance": {{ performance_data.data_loading_sla_compliant | default(true) | tojson }},
+      "transformation_compliance": {{ performance_data.transformation_sla_compliant | default(true) | tojson }},
+      "overall_performance_gate": "{{ 'PASS' if (performance_data.data_loading_sla_compliant | default(true)) and (performance_data.transformation_sla_compliant | default(true)) else 'FAIL' }}"
+    }
+  },
+  "export_metadata": {
+    "formats_available": {{ report_config.json_report.export_formats | tojson }},
+    "programmatic_analysis": {
+      "api_compatibility": "json_coverage_v2",
+      "data_structure": "hierarchical_modules",
+      "trend_data_included": {{ report_config.json_report.trend_tracking.enabled | default(true) | tojson }},
+      "performance_data_included": {{ report_config.performance_integration.benchmark_correlation | default(true) | tojson }}
+    },
+    "automation_integration": {
+      "ci_cd_compatible": true,
+      "dashboard_ready": true,
+      "monitoring_system_compatible": true,
+      "alert_system_ready": {{ coverage_data.alert_system_ready | default(true) | tojson }}
+    }
+  },
+  "recommendations": {
+    "coverage_improvement": [
+      {% for module_path, module_data in coverage_data.files.items() %}
+      {% if (module_data.summary.percent_covered | default(0.0)) < (coverage_thresholds.critical_modules.modules.get(module_path, {}).get('line_coverage', coverage_thresholds.global_settings.overall_threshold.line_coverage) | default(90.0)) %}
+      {
+        "module": "{{ module_path }}",
+        "current_coverage": {{ "%.2f" | format(module_data.summary.percent_covered | default(0.0)) }},
+        "target_coverage": {{ coverage_thresholds.critical_modules.modules.get(module_path, {}).get('line_coverage', coverage_thresholds.global_settings.overall_threshold.line_coverage) | default(90.0) }},
+        "priority": "{{ 'critical' if module_path in coverage_thresholds.critical_modules.modules else 'standard' }}",
+        "suggested_actions": [
+          "Add tests for uncovered line ranges",
+          "Implement branch coverage testing",
+          "Add edge case validation tests"
+        ],
+        "neuroscience_context": "{{ 'Experimental data handling requires comprehensive validation' if module_path in report_config.html_report.custom_sections.experimental_data_modules else 'Standard module testing requirements' }}"
+      }{% if not loop.last %},{% endif %}
+      {% endif %}
+      {% endfor %}
+    ],
+    "quality_improvements": [
+      {% if (coverage_data.totals.pc_covered | default(0.0)) < (coverage_thresholds.global_settings.overall_threshold.line_coverage | default(90.0)) %}
+      {
+        "type": "overall_coverage",
+        "description": "Increase overall system coverage to meet {{ coverage_thresholds.global_settings.overall_threshold.line_coverage | default(90.0) }}% threshold",
+        "current_value": {{ "%.2f" | format(coverage_data.totals.pc_covered | default(0.0)) }},
+        "target_value": {{ coverage_thresholds.global_settings.overall_threshold.line_coverage | default(90.0) }},
+        "impact": "high"
+      },
+      {% endif %}
+      {% if (coverage_data.totals.pc_covered_branches | default(0.0)) < (coverage_thresholds.global_settings.overall_threshold.branch_coverage | default(85.0)) %}
+      {
+        "type": "branch_coverage",
+        "description": "Improve branch coverage to meet {{ coverage_thresholds.global_settings.overall_threshold.branch_coverage | default(85.0) }}% threshold",
+        "current_value": {{ "%.2f" | format(coverage_data.totals.pc_covered_branches | default(0.0)) }},
+        "target_value": {{ coverage_thresholds.global_settings.overall_threshold.branch_coverage | default(85.0) }},
+        "impact": "medium"
+      },
+      {% endif %}
+      {% if not (coverage_data.critical_modules_compliant | default(true)) %}
+      {
+        "type": "critical_modules",
+        "description": "Achieve 100% coverage for all critical neuroscience data loading and validation modules",
+        "current_compliance": {{ coverage_data.critical_modules_compliant_count | default(0) }},
+        "total_critical_modules": {{ coverage_data.critical_modules_count | default(0) }},
+        "impact": "critical"
+      }
+      {% endif %}
+    ]
+  },
+  "accessibility": {
+    "data_format": "machine_readable_json",
+    "api_version": "2.0.0",
+    "schema_validation": "json_schema_available",
+    "localization": {
+      "language": "{{ report_config.localization.language | default('en-US') }}",
+      "date_format": "{{ report_config.localization.date_format | default('YYYY-MM-DD HH:mm:ss UTC') }}",
+      "timezone": "{{ report_config.localization.timezone | default('UTC') }}"
+    },
+    "compliance": {
+      "research_data_standards": true,
+      "neuroscience_terminology": true,
+      "academic_reporting": {{ report_config.template_variables.neuroscience_context.academic_presentation | default(true) | tojson }}
+    }
   }
 }
