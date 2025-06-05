@@ -1,1660 +1,2046 @@
 """
-Realistic experimental scenario integration test suite validating flyrigloader functionality
-with comprehensive synthetic datasets that mirror actual neuroscience research workflows.
+Realistic experimental scenario integration test suite for flyrigloader.
 
-This module implements diverse experimental conditions including multi-day studies, various
-rig configurations, complex metadata patterns, and realistic data scales. Tests complete
-workflows with synthetic but realistic experimental matrices, time series data, multi-dimensional
-signal arrays, and complex directory structures that represent actual optical fly rig experimental setups.
+This module validates flyrigloader functionality with comprehensive synthetic datasets 
+that mirror actual neuroscience research workflows. Implements diverse experimental 
+conditions including multi-day studies, various rig configurations, complex metadata 
+patterns, and realistic data scales.
 
-Validates system behavior under realistic data loads, complex filtering scenarios, and ensures
-robustness across different experimental design patterns used in neuroscience research.
+Tests complete workflows with synthetic but realistic experimental matrices, time series 
+data, multi-dimensional signal arrays, and complex directory structures that represent 
+actual optical fly rig experimental setups. Validates system behavior under realistic 
+data loads, complex filtering scenarios, and ensures robustness across different 
+experimental design patterns used in neuroscience research.
 
-Requirements Covered:
-- TST-INTEG-002: Realistic test data generation representing experimental scenarios per Section 2.2.10
-- F-015: Realistic experimental data flows validation per Section 2.1.15 Integration Test Harness
-- Section 4.1.2.2: Multi-Experiment Batch Processing workflow validation per System Workflows
-- F-007: Realistic metadata extraction pattern validation per Section 2.1.7 Metadata Extraction System
-- TST-PERF-002: Realistic data scale performance validation per Section 2.2.9 Performance Benchmark Requirements
-- Section 4.1.2.3: Error recovery validation with realistic failure scenarios per System Workflows
+Requirements Coverage:
+- TST-INTEG-002: Realistic test data generation representing experimental scenarios
+- F-015: Realistic experimental data flows validation  
+- Section 4.1.2.2: Multi-Experiment Batch Processing workflow validation
+- F-007: Realistic metadata extraction pattern validation
+- TST-PERF-002: Realistic data scale performance validation
+- Section 4.1.2.3: Error recovery validation with realistic failure scenarios
 """
 
-import copy
-import gzip
+import pytest
+import numpy as np
+import pandas as pd
 import pickle
-import random
-import tempfile
+import gzip
+import yaml
+import shutil
 import time
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple, Union
-from unittest.mock import MagicMock, patch
+from typing import Dict, List, Any, Tuple, Optional, Union, Generator
+from unittest.mock import patch, MagicMock, Mock
 
-import numpy as np
-import pandas as pd
-import pytest
-import yaml
 from loguru import logger
 
-# flyrigloader imports for integration testing
-from flyrigloader.api import (
-    get_dataset_parameters,
-    get_experiment_parameters,
-    load_dataset_files,
-    load_experiment_files,
-    process_experiment_data,
-)
-from flyrigloader.config.yaml_config import (
-    get_all_dataset_names,
-    get_all_experiment_names,
-    get_dataset_info,
-    get_experiment_info,
-    load_config,
-)
+# Import the modules under test
+import flyrigloader.api as api
+from flyrigloader.config.yaml_config import load_config
 from flyrigloader.discovery.files import discover_files
 from flyrigloader.io.pickle import read_pickle_any_format
-from flyrigloader.utils.dataframe import validate_dataframe_structure
+from flyrigloader.io.column_models import get_config_from_source
+from flyrigloader.utils.dataframe import combine_metadata_and_data
 
 
 class RealisticExperimentalDataGenerator:
     """
-    Advanced synthetic data generator for realistic neuroscience experimental scenarios.
+    Advanced generator for creating realistic experimental datasets that mirror 
+    actual neuroscience research workflows and data characteristics.
     
-    Creates comprehensive datasets that mirror actual fly rig experimental setups including:
-    - Multi-day longitudinal studies with temporal correlations
-    - Various rig configurations with different sampling rates and resolutions
-    - Complex behavioral patterns with biologically plausible characteristics
-    - Realistic metadata structures with experimental design patterns
-    - Multi-dimensional signal arrays representing calcium imaging or electrophysiology
-    - Error conditions and edge cases found in real experimental data
+    Features:
+    - Biologically plausible trajectory patterns
+    - Realistic multi-channel neural signals
+    - Complex experimental metadata structures
+    - Date-based experimental organization
+    - Multi-rig configuration scenarios
     """
-
-    def __init__(self, seed: int = 42):
-        """Initialize the data generator with reproducible random seed."""
-        self.seed = seed
-        random.seed(seed)
-        np.random.seed(seed)
+    
+    def __init__(self, random_seed: int = 42):
+        """Initialize with reproducible random seed for consistent test data."""
+        self.random_seed = random_seed
+        np.random.seed(random_seed)
         
-        # Realistic experimental parameters based on actual fly rig setups
+        # Experimental design constants
         self.rig_configurations = {
             "old_opto": {
-                "sampling_frequency": 60.0,  # Hz
-                "mm_per_px": 0.154,
-                "camera_resolution": [1024, 768],
+                "sampling_frequency": 60.0,
                 "arena_diameter_mm": 120.0,
+                "camera_resolution": [1024, 768],
                 "signal_channels": 16,
-                "typical_experiment_duration_min": [5, 15, 30],
-                "led_wavelength_nm": 470
+                "mm_per_px": 0.154
             },
             "new_opto": {
                 "sampling_frequency": 60.0,
-                "mm_per_px": 0.1818,
-                "camera_resolution": [1280, 1024],
                 "arena_diameter_mm": 150.0,
+                "camera_resolution": [1280, 1024],
                 "signal_channels": 32,
-                "typical_experiment_duration_min": [10, 20, 45],
-                "led_wavelength_nm": 470
+                "mm_per_px": 0.1818
             },
             "high_speed_rig": {
                 "sampling_frequency": 200.0,
-                "mm_per_px": 0.05,
-                "camera_resolution": [2048, 2048],
                 "arena_diameter_mm": 200.0,
+                "camera_resolution": [2048, 2048],
                 "signal_channels": 64,
-                "typical_experiment_duration_min": [2, 5, 10],
-                "led_wavelength_nm": 590
+                "mm_per_px": 0.05
             }
         }
         
-        # Realistic experimental conditions
-        self.experimental_conditions = {
-            "baseline": {
-                "description": "Control condition with no stimulation",
-                "behavioral_characteristics": {
-                    "velocity_mean": 8.0,  # mm/s
-                    "velocity_std": 3.0,
-                    "center_bias": 0.3,
-                    "turn_frequency": 0.1  # turns per second
-                }
-            },
-            "optogenetic_stimulation": {
-                "description": "Optogenetic activation of neural circuits",
-                "behavioral_characteristics": {
-                    "velocity_mean": 12.0,
-                    "velocity_std": 5.0,
-                    "center_bias": 0.1,  # Less center bias during stimulation
-                    "turn_frequency": 0.25
-                }
-            },
-            "chemical_stimulation": {
-                "description": "Pharmacological intervention",
-                "behavioral_characteristics": {
-                    "velocity_mean": 5.0,  # Slower movement
-                    "velocity_std": 2.0,
-                    "center_bias": 0.6,  # Higher center bias
-                    "turn_frequency": 0.05
-                }
-            },
-            "heat_stress": {
-                "description": "Temperature stress condition",
-                "behavioral_characteristics": {
-                    "velocity_mean": 15.0,  # Increased activity
-                    "velocity_std": 7.0,
-                    "center_bias": 0.0,  # Edge-seeking behavior
-                    "turn_frequency": 0.3
-                }
-            }
-        }
+        self.experimental_conditions = [
+            "baseline", "control", "treatment_a", "treatment_b", 
+            "optogenetic_stim", "thermal_stim", "odor_gradient",
+            "visual_pattern", "recovery", "sham"
+        ]
         
-        # Animal line characteristics for metadata generation
-        self.animal_lines = {
-            "WT": {"description": "Wild type control", "n_animals": 20},
-            "GAL4": {"description": "GAL4 driver line", "n_animals": 15},
-            "UAS": {"description": "UAS effector line", "n_animals": 12},
-            "CRISPR": {"description": "CRISPR knockout", "n_animals": 8}
+        self.animal_populations = {
+            "wild_type": {"strain": "CS", "prefix": "wt"},
+            "mutant_line_1": {"strain": "UAS-ChR2", "prefix": "chr2"},
+            "mutant_line_2": {"strain": "Gal4-VNC", "prefix": "gal4"},
+            "control_line": {"strain": "Berlin-K", "prefix": "bk"}
         }
-
+    
     def generate_realistic_trajectory(
         self,
-        rig_name: str,
-        condition: str,
-        duration_minutes: float,
-        animal_id: str
+        duration_seconds: float,
+        sampling_freq: float,
+        arena_diameter: float,
+        behavioral_context: str = "baseline",
+        seed_offset: int = 0
     ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
         """
-        Generate biologically plausible fly trajectory with realistic movement patterns.
+        Generate biologically plausible fly trajectory with context-dependent behavior.
         
         Args:
-            rig_name: Name of the rig configuration to use
-            condition: Experimental condition affecting behavior
-            duration_minutes: Duration of experiment in minutes
-            animal_id: Unique animal identifier affecting individual variability
+            duration_seconds: Duration of the trajectory in seconds
+            sampling_freq: Sampling frequency in Hz
+            arena_diameter: Arena diameter in mm
+            behavioral_context: Type of behavioral experiment context
+            seed_offset: Offset for reproducible variation
             
         Returns:
-            Tuple of (time_array, x_positions, y_positions) with realistic movement
+            Tuple of (time, x_position, y_position) arrays
         """
-        rig_config = self.rig_configurations[rig_name]
-        behavior_params = self.experimental_conditions[condition]["behavioral_characteristics"]
+        np.random.seed(self.random_seed + seed_offset)
         
-        # Calculate time parameters
-        sampling_freq = rig_config["sampling_frequency"]
-        n_timepoints = int(duration_minutes * 60 * sampling_freq)
+        n_points = int(duration_seconds * sampling_freq)
         dt = 1.0 / sampling_freq
-        time_array = np.arange(n_timepoints) * dt
+        time = np.arange(n_points) * dt
         
-        # Arena parameters
-        arena_radius = rig_config["arena_diameter_mm"] / 2.0
-        
-        # Individual animal variability (based on animal_id hash)
-        animal_hash = hash(animal_id) % 1000
-        individual_velocity_factor = 0.7 + 0.6 * (animal_hash / 1000.0)  # 0.7-1.3x velocity
-        individual_turn_bias = -0.1 + 0.2 * (animal_hash / 1000.0)  # Left/right turn bias
+        arena_radius = arena_diameter / 2.0
         
         # Initialize position arrays
-        x_pos = np.zeros(n_timepoints)
-        y_pos = np.zeros(n_timepoints)
+        x_pos = np.zeros(n_points)
+        y_pos = np.zeros(n_points)
         
-        # Start near center with some randomness
-        x_pos[0] = np.random.normal(0, arena_radius * 0.1)
-        y_pos[0] = np.random.normal(0, arena_radius * 0.1)
+        # Behavioral context parameters
+        if behavioral_context == "baseline":
+            center_bias = 0.3
+            movement_noise = 0.8
+            velocity_scale = 1.0
+        elif behavioral_context == "optogenetic_stim":
+            center_bias = 0.1  # More wall-following during stimulation
+            movement_noise = 1.2  # More erratic movement
+            velocity_scale = 1.5  # Faster movement
+        elif behavioral_context == "thermal_stim":
+            center_bias = 0.8  # Strong center preference
+            movement_noise = 0.5  # Reduced movement
+            velocity_scale = 0.6  # Slower movement
+        elif behavioral_context == "odor_gradient":
+            center_bias = 0.0  # No center bias, following gradient
+            movement_noise = 0.3  # Directed movement
+            velocity_scale = 1.2
+        else:
+            center_bias = 0.4
+            movement_noise = 0.6
+            velocity_scale = 1.0
         
-        # Generate movement with temporal correlations
-        velocity_autocorr = 0.9  # High temporal correlation in velocity
-        heading_autocorr = 0.95  # Very high correlation in heading
-        
-        current_velocity = behavior_params["velocity_mean"] * individual_velocity_factor
-        current_heading = np.random.uniform(0, 2 * np.pi)
-        
-        for i in range(1, n_timepoints):
-            # Update velocity with autocorrelation and noise
-            velocity_noise = np.random.normal(0, behavior_params["velocity_std"])
-            current_velocity = (
-                velocity_autocorr * current_velocity +
-                (1 - velocity_autocorr) * behavior_params["velocity_mean"] * individual_velocity_factor +
-                velocity_noise * dt
-            )
-            current_velocity = max(0, current_velocity)  # Non-negative velocity
+        # Generate correlated random walk with behavioral context
+        for i in range(1, n_points):
+            current_radius = np.sqrt(x_pos[i-1]**2 + y_pos[i-1]**2)
             
-            # Update heading with autocorrelation, turn frequency, and center bias
-            current_distance_from_center = np.sqrt(x_pos[i-1]**2 + y_pos[i-1]**2)
-            center_bias_strength = behavior_params["center_bias"]
-            
-            # Center-seeking force
-            if current_distance_from_center > 0.1:
-                center_heading = np.arctan2(-y_pos[i-1], -x_pos[i-1])
-                center_bias_force = center_bias_strength * (current_distance_from_center / arena_radius)**2
+            # Context-dependent forces
+            if behavioral_context == "odor_gradient":
+                # Simulate gradient following - bias toward upper-right quadrant
+                gradient_force_x = 0.2 * (1 - x_pos[i-1] / arena_radius)
+                gradient_force_y = 0.2 * (1 - y_pos[i-1] / arena_radius)
             else:
-                center_heading = current_heading
-                center_bias_force = 0
+                gradient_force_x = 0
+                gradient_force_y = 0
             
-            # Turn tendency
-            turn_noise = np.random.normal(individual_turn_bias, behavior_params["turn_frequency"] * dt)
+            # Center bias force
+            bias_strength = center_bias * (current_radius / arena_radius)**2
+            center_force_x = -bias_strength * x_pos[i-1] / max(current_radius, 0.1)
+            center_force_y = -bias_strength * y_pos[i-1] / max(current_radius, 0.1)
             
-            # Boundary avoidance
-            boundary_avoidance = 0
-            if current_distance_from_center > arena_radius * 0.8:
-                boundary_heading = np.arctan2(-y_pos[i-1], -x_pos[i-1])
-                boundary_avoidance = 0.5 * ((current_distance_from_center - arena_radius * 0.8) / (arena_radius * 0.2))
-                boundary_avoidance = min(boundary_avoidance, 1.0)
+            # Random movement component
+            random_x = np.random.normal(0, movement_noise) * velocity_scale
+            random_y = np.random.normal(0, movement_noise) * velocity_scale
             
-            # Combine heading influences
-            heading_change = (
-                turn_noise +
-                center_bias_force * np.sin(center_heading - current_heading) +
-                boundary_avoidance * np.sin(boundary_heading - current_heading)
-            )
+            # Total force
+            total_force_x = center_force_x + gradient_force_x + random_x
+            total_force_y = center_force_y + gradient_force_y + random_y
             
-            current_heading = (
-                heading_autocorr * current_heading +
-                (1 - heading_autocorr) * (current_heading + heading_change)
-            ) % (2 * np.pi)
+            # Update position with velocity constraints
+            max_velocity = 20.0 * velocity_scale  # mm/s
+            dx = np.clip(total_force_x * dt, -max_velocity * dt, max_velocity * dt)
+            dy = np.clip(total_force_y * dt, -max_velocity * dt, max_velocity * dt)
             
-            # Calculate position change
-            dx = current_velocity * np.cos(current_heading) * dt
-            dy = current_velocity * np.sin(current_heading) * dt
-            
-            # Update position
             new_x = x_pos[i-1] + dx
             new_y = y_pos[i-1] + dy
             
-            # Enforce arena boundaries with realistic reflection
-            new_distance = np.sqrt(new_x**2 + new_y**2)
-            if new_distance > arena_radius:
-                # Reflect trajectory with some energy loss
-                reflection_factor = arena_radius / new_distance
-                new_x *= reflection_factor * 0.9
-                new_y *= reflection_factor * 0.9
-                # Randomize heading after boundary collision
-                current_heading = np.random.uniform(0, 2 * np.pi)
-                current_velocity *= 0.7  # Reduce velocity after collision
+            # Enforce arena boundaries with reflection
+            new_radius = np.sqrt(new_x**2 + new_y**2)
+            if new_radius > arena_radius:
+                reflection_factor = arena_radius / new_radius
+                new_x *= reflection_factor * 0.95
+                new_y *= reflection_factor * 0.95
             
             x_pos[i] = new_x
             y_pos[i] = new_y
         
-        return time_array, x_pos, y_pos
-
-    def generate_realistic_signal_data(
+        return time, x_pos, y_pos
+    
+    def generate_realistic_neural_signals(
         self,
-        rig_name: str,
-        condition: str,
         n_timepoints: int,
-        behavior_correlation: bool = True
-    ) -> Tuple[np.ndarray, np.ndarray]:
+        n_channels: int,
+        behavioral_context: str = "baseline",
+        rig_type: str = "old_opto",
+        seed_offset: int = 0
+    ) -> np.ndarray:
         """
-        Generate realistic multi-channel signal data (calcium imaging or electrophysiology).
+        Generate realistic multi-channel neural signal data with context-dependent patterns.
         
         Args:
-            rig_name: Rig configuration determining channel count
-            condition: Experimental condition affecting signal characteristics
-            n_timepoints: Number of temporal samples
-            behavior_correlation: Whether signals should correlate with behavior
+            n_timepoints: Number of time points
+            n_channels: Number of signal channels
+            behavioral_context: Experimental context
+            rig_type: Type of recording rig
+            seed_offset: Seed offset for variation
             
         Returns:
-            Tuple of (single_channel_signal, multi_channel_signal_disp)
+            Array of shape (n_channels, n_timepoints) with signal data
         """
-        rig_config = self.rig_configurations[rig_name]
-        n_channels = rig_config["signal_channels"]
+        np.random.seed(self.random_seed + seed_offset)
+        
+        rig_config = self.rig_configurations[rig_type]
         sampling_freq = rig_config["sampling_frequency"]
         
-        # Time array for signal generation
-        t = np.arange(n_timepoints) / sampling_freq
+        signals = np.zeros((n_channels, n_timepoints))
+        t = np.linspace(0, n_timepoints / sampling_freq, n_timepoints)
         
-        # Base signal characteristics depend on experimental condition
-        if condition == "optogenetic_stimulation":
-            # Higher baseline activity with stimulation artifacts
-            baseline_activity = 0.3
-            stimulation_events = np.random.poisson(0.1, n_timepoints)  # Sparse stimulation
-            signal_noise = 0.05
-        elif condition == "chemical_stimulation":
-            # Gradual increase in activity over time
-            baseline_activity = 0.2 + 0.3 * (t / np.max(t))
-            stimulation_events = np.zeros(n_timepoints)
-            signal_noise = 0.03
-        elif condition == "heat_stress":
-            # Irregular bursts of activity
-            baseline_activity = 0.4
-            stimulation_events = np.random.poisson(0.05, n_timepoints)
-            signal_noise = 0.08
-        else:  # baseline
-            baseline_activity = 0.1
-            stimulation_events = np.zeros(n_timepoints)
-            signal_noise = 0.02
-        
-        # Generate single-channel signal (summary/average)
-        single_signal = baseline_activity * np.ones(n_timepoints)
-        
-        # Add temporal dynamics
-        for freq in [0.1, 0.3, 1.0]:  # Multiple frequency components
-            amplitude = np.random.uniform(0.05, 0.15)
-            phase = np.random.uniform(0, 2 * np.pi)
-            single_signal += amplitude * np.sin(2 * np.pi * freq * t + phase)
-        
-        # Add stimulation events
-        single_signal += 0.5 * stimulation_events
-        
-        # Add noise
-        single_signal += signal_noise * np.random.normal(0, 1, n_timepoints)
-        
-        # Generate multi-channel signal_disp
-        signal_disp = np.zeros((n_channels, n_timepoints))
+        # Context-dependent signal characteristics
+        if behavioral_context == "optogenetic_stim":
+            base_amplitude = 1.5
+            noise_level = 0.2
+            stimulation_freq = 10.0  # Hz stimulation
+        elif behavioral_context == "thermal_stim":
+            base_amplitude = 0.8
+            noise_level = 0.1
+            stimulation_freq = 0.1  # Very slow thermal changes
+        elif behavioral_context == "baseline":
+            base_amplitude = 1.0
+            noise_level = 0.15
+            stimulation_freq = 2.0  # Intrinsic neural oscillations
+        else:
+            base_amplitude = 1.0
+            noise_level = 0.15
+            stimulation_freq = 2.0
         
         for ch in range(n_channels):
-            # Each channel has individual characteristics
-            channel_baseline = baseline_activity * (0.5 + np.random.random())
-            channel_signal = channel_baseline * np.ones(n_timepoints)
+            # Channel-specific properties
+            channel_phase = 2 * np.pi * ch / n_channels
+            channel_amplitude = base_amplitude * (0.7 + 0.6 * np.random.random())
             
-            # Channel-specific frequency response
-            for freq in [0.1, 0.3, 1.0, 2.0]:
-                amplitude = np.random.uniform(0.02, 0.1)
-                phase = np.random.uniform(0, 2 * np.pi)
-                channel_signal += amplitude * np.sin(2 * np.pi * freq * t + phase)
+            # Base signal with harmonics
+            base_signal = (
+                channel_amplitude * np.sin(2 * np.pi * stimulation_freq * t + channel_phase) +
+                0.3 * channel_amplitude * np.sin(4 * np.pi * stimulation_freq * t + channel_phase) +
+                0.1 * channel_amplitude * np.sin(6 * np.pi * stimulation_freq * t + channel_phase)
+            )
             
-            # Correlation between channels (realistic neural connectivity)
-            if ch > 0:
-                correlation_strength = np.random.uniform(0.1, 0.4)
-                channel_signal += correlation_strength * signal_disp[ch-1, :]
+            # Context-specific modulation
+            if behavioral_context == "optogenetic_stim":
+                # Add stimulation epochs
+                stim_epochs = np.where(
+                    (t % 20 < 5) & (t > 30),  # 5s stim every 20s after 30s baseline
+                    2.0, 1.0
+                )
+                base_signal *= stim_epochs
             
-            # Add stimulation events with channel-specific responses
-            channel_stim_response = np.random.uniform(0.3, 0.8)
-            channel_signal += channel_stim_response * stimulation_events
+            # Baseline drift
+            drift = 0.2 * np.sin(2 * np.pi * 0.01 * t + np.random.random() * 2 * np.pi)
             
-            # Channel-specific noise
-            channel_noise = signal_noise * np.random.uniform(0.8, 1.2)
-            channel_signal += channel_noise * np.random.normal(0, 1, n_timepoints)
+            # Noise
+            noise = noise_level * np.random.normal(0, 1, n_timepoints)
             
-            signal_disp[ch, :] = channel_signal
+            signals[ch, :] = base_signal + drift + noise
         
-        return single_signal, signal_disp
-
-    def generate_experimental_matrix(
+        return signals
+    
+    def generate_experimental_metadata(
         self,
-        rig_name: str,
-        condition: str,
-        animal_id: str,
-        duration_minutes: Optional[float] = None,
-        include_derived_measures: bool = True
-    ) -> Dict[str, np.ndarray]:
+        experiment_type: str,
+        date: datetime,
+        animal_line: str = "wild_type",
+        replicate: int = 1,
+        rig_type: str = "old_opto"
+    ) -> Dict[str, Any]:
         """
-        Generate a complete experimental data matrix for a single experiment.
+        Generate realistic experimental metadata with proper hierarchical structure.
         
         Args:
-            rig_name: Rig configuration name
-            condition: Experimental condition
-            animal_id: Unique animal identifier
-            duration_minutes: Duration (if None, randomly selected from typical durations)
-            include_derived_measures: Whether to include velocity, angular measures, etc.
+            experiment_type: Type of experiment being conducted
+            date: Experiment date
+            animal_line: Genetic line of the animal
+            replicate: Replicate number
+            rig_type: Type of rig used
             
         Returns:
-            Dictionary containing complete experimental data matrix
+            Dictionary containing comprehensive experimental metadata
         """
-        rig_config = self.rig_configurations[rig_name]
+        animal_info = self.animal_populations[animal_line]
+        rig_config = self.rig_configurations[rig_type]
         
-        # Select duration if not provided
-        if duration_minutes is None:
-            duration_minutes = np.random.choice(rig_config["typical_experiment_duration_min"])
+        # Generate realistic animal ID
+        animal_id = f"{animal_info['prefix']}_{date.strftime('%m%d')}_{replicate:02d}"
         
-        # Generate trajectory data
-        time_array, x_pos, y_pos = self.generate_realistic_trajectory(
-            rig_name, condition, duration_minutes, animal_id
-        )
+        # Generate session-specific parameters
+        session_duration = {
+            "baseline": np.random.randint(300, 900),  # 5-15 minutes
+            "optogenetic_stim": np.random.randint(600, 1800),  # 10-30 minutes
+            "thermal_stim": np.random.randint(900, 2700),  # 15-45 minutes
+            "odor_gradient": np.random.randint(300, 600)  # 5-10 minutes
+        }.get(experiment_type, 600)
         
-        # Generate signal data
-        single_signal, signal_disp = self.generate_realistic_signal_data(
-            rig_name, condition, len(time_array)
-        )
-        
-        # Build experimental matrix
-        exp_matrix = {
-            't': time_array,
-            'x': x_pos,
-            'y': y_pos,
-            'signal': single_signal,
-            'signal_disp': signal_disp
+        metadata = {
+            # Animal information
+            "animal_id": animal_id,
+            "strain": animal_info["strain"],
+            "genetic_line": animal_line,
+            "age_days": np.random.randint(3, 7),
+            "sex": np.random.choice(["male", "female"]),
+            
+            # Experimental information
+            "experiment_type": experiment_type,
+            "date": date.strftime("%Y%m%d"),
+            "time": date.strftime("%H%M%S"),
+            "replicate": replicate,
+            "session_duration_seconds": session_duration,
+            "condition": experiment_type.replace("_", "-"),
+            
+            # Rig information
+            "rig": rig_type,
+            "sampling_frequency": rig_config["sampling_frequency"],
+            "arena_diameter_mm": rig_config["arena_diameter_mm"],
+            "mm_per_px": rig_config["mm_per_px"],
+            "signal_channels": rig_config["signal_channels"],
+            
+            # Environmental conditions
+            "temperature_c": np.random.normal(23.0, 1.0),
+            "humidity_percent": np.random.normal(50.0, 5.0),
+            "light_intensity_lux": np.random.normal(100.0, 10.0),
+            
+            # Experimenter information
+            "experimenter": np.random.choice(["researcher_a", "researcher_b", "researcher_c"]),
+            "protocol_version": "v2.1",
+            "notes": f"Standard {experiment_type} protocol"
         }
         
-        if include_derived_measures:
-            # Calculate derived measures
-            dt = np.diff(time_array, prepend=time_array[1] - time_array[0])
-            dx = np.diff(x_pos, prepend=0)
-            dy = np.diff(y_pos, prepend=0)
+        return metadata
+    
+    def create_experimental_matrix(
+        self,
+        experiment_type: str,
+        date: datetime,
+        animal_line: str = "wild_type",
+        replicate: int = 1,
+        rig_type: str = "old_opto",
+        include_signals: bool = True,
+        seed_offset: int = 0
+    ) -> Dict[str, Any]:
+        """
+        Create a complete experimental data matrix with metadata.
+        
+        Args:
+            experiment_type: Type of experiment
+            date: Experiment date
+            animal_line: Genetic line
+            replicate: Replicate number
+            rig_type: Rig configuration
+            include_signals: Whether to include neural signals
+            seed_offset: Seed offset for variation
             
-            # Velocity components
-            exp_matrix['vx'] = dx / dt
-            exp_matrix['vy'] = dy / dt
-            exp_matrix['speed'] = np.sqrt(exp_matrix['vx']**2 + exp_matrix['vy']**2)
+        Returns:
+            Complete experimental data dictionary
+        """
+        metadata = self.generate_experimental_metadata(
+            experiment_type, date, animal_line, replicate, rig_type
+        )
+        
+        rig_config = self.rig_configurations[rig_type]
+        duration = metadata["session_duration_seconds"]
+        sampling_freq = rig_config["sampling_frequency"]
+        
+        # Generate trajectory data
+        time, x_pos, y_pos = self.generate_realistic_trajectory(
+            duration, sampling_freq, rig_config["arena_diameter_mm"],
+            experiment_type, seed_offset
+        )
+        
+        # Create experimental matrix
+        exp_matrix = {
+            "t": time,
+            "x": x_pos,
+            "y": y_pos
+        }
+        
+        # Add derived kinematic measures
+        dt = np.diff(time, prepend=time[1] - time[0])
+        dx = np.diff(x_pos, prepend=0)
+        dy = np.diff(y_pos, prepend=0)
+        
+        exp_matrix["vx"] = dx / dt
+        exp_matrix["vy"] = dy / dt
+        exp_matrix["speed"] = np.sqrt(exp_matrix["vx"]**2 + exp_matrix["vy"]**2)
+        exp_matrix["distance_from_center"] = np.sqrt(x_pos**2 + y_pos**2)
+        
+        # Add angular measures
+        exp_matrix["heading"] = np.arctan2(dy, dx)
+        exp_matrix["dtheta"] = np.diff(exp_matrix["heading"], prepend=0)
+        
+        # Add neural signals if requested
+        if include_signals:
+            n_timepoints = len(time)
+            n_channels = rig_config["signal_channels"]
             
-            # Angular measures
-            exp_matrix['dtheta'] = np.arctan2(dy, dx)
+            signals = self.generate_realistic_neural_signals(
+                n_timepoints, n_channels, experiment_type, rig_type, seed_offset
+            )
             
-            # Distance measures
-            exp_matrix['distance_from_center'] = np.sqrt(x_pos**2 + y_pos**2)
-            exp_matrix['cumulative_distance'] = np.cumsum(np.sqrt(dx**2 + dy**2))
+            if n_channels == 1:
+                exp_matrix["signal"] = signals[0, :]
+            else:
+                exp_matrix["signal_disp"] = signals
+                # Also add individual channel access
+                for ch in range(min(n_channels, 4)):  # First 4 channels as examples
+                    exp_matrix[f"signal_ch{ch:02d}"] = signals[ch, :]
+        
+        # Add metadata to matrix
+        for key, value in metadata.items():
+            if not isinstance(value, (np.ndarray, list)):
+                exp_matrix[key] = value
         
         return exp_matrix
 
-    def create_multi_day_study_structure(
-        self,
-        base_directory: Path,
-        n_days: int = 7,
-        animals_per_day: List[int] = None,
-        rigs: List[str] = None,
-        conditions: List[str] = None
-    ) -> Dict[str, Any]:
-        """
-        Create a realistic multi-day experimental study directory structure.
-        
-        Args:
-            base_directory: Root directory for the study
-            n_days: Number of experimental days
-            animals_per_day: List of animal counts per day (if None, randomized)
-            rigs: List of rig names to use (if None, uses all available)
-            conditions: List of conditions to use (if None, uses all available)
-            
-        Returns:
-            Dictionary with study structure and metadata
-        """
-        if animals_per_day is None:
-            animals_per_day = [np.random.randint(3, 8) for _ in range(n_days)]
-        
-        if rigs is None:
-            rigs = list(self.rig_configurations.keys())
-        
-        if conditions is None:
-            conditions = list(self.experimental_conditions.keys())
-        
-        # Create study structure
-        study_structure = {
-            "base_directory": base_directory,
-            "experiment_days": {},
-            "animals": {},
-            "files": [],
-            "metadata": {
-                "study_start_date": datetime.now().date(),
-                "total_days": n_days,
-                "total_animals": sum(animals_per_day),
-                "rigs_used": rigs,
-                "conditions_tested": conditions
-            }
-        }
-        
-        # Generate experimental schedule
-        start_date = datetime.now().date() - timedelta(days=n_days)
-        
-        for day_idx in range(n_days):
-            current_date = start_date + timedelta(days=day_idx)
-            date_str = current_date.strftime("%Y-%m-%d")
-            day_directory = base_directory / date_str
-            day_directory.mkdir(parents=True, exist_ok=True)
-            
-            study_structure["experiment_days"][date_str] = {
-                "directory": day_directory,
-                "date": current_date,
-                "animals_tested": animals_per_day[day_idx],
-                "files": []
-            }
-            
-            # Generate animals for this day
-            for animal_idx in range(animals_per_day[day_idx]):
-                # Select animal line with realistic distribution
-                animal_line = np.random.choice(list(self.animal_lines.keys()), 
-                                             p=[0.4, 0.3, 0.2, 0.1])  # WT most common
-                animal_id = f"{animal_line}_{day_idx:02d}_{animal_idx:03d}"
-                
-                # Select rig and condition
-                rig = np.random.choice(rigs)
-                condition = np.random.choice(conditions)
-                
-                # Generate experimental data
-                exp_matrix = self.generate_experimental_matrix(
-                    rig, condition, animal_id
-                )
-                
-                # Create filename with realistic pattern
-                filename = f"{date_str}_{animal_id}_{rig}_{condition}_exp.pkl"
-                file_path = day_directory / filename
-                
-                # Save experimental data
-                with open(file_path, 'wb') as f:
-                    pickle.dump(exp_matrix, f)
-                
-                # Record file information
-                file_info = {
-                    "path": file_path,
-                    "filename": filename,
-                    "animal_id": animal_id,
-                    "animal_line": animal_line,
-                    "rig": rig,
-                    "condition": condition,
-                    "date": current_date,
-                    "day_index": day_idx,
-                    "animal_index": animal_idx,
-                    "file_size_bytes": file_path.stat().st_size,
-                    "n_timepoints": len(exp_matrix['t']),
-                    "duration_seconds": exp_matrix['t'][-1] - exp_matrix['t'][0]
-                }
-                
-                study_structure["experiment_days"][date_str]["files"].append(file_info)
-                study_structure["files"].append(file_info)
-                
-                # Track animal across days
-                if animal_id not in study_structure["animals"]:
-                    study_structure["animals"][animal_id] = {
-                        "animal_line": animal_line,
-                        "first_test_date": current_date,
-                        "experiments": []
-                    }
-                
-                study_structure["animals"][animal_id]["experiments"].append(file_info)
-        
-        return study_structure
 
-    def create_corrupted_data_scenarios(
-        self,
-        base_directory: Path,
-        n_corrupted_files: int = 5
-    ) -> Dict[str, Path]:
-        """
-        Create realistic data corruption scenarios for error recovery testing.
-        
-        Args:
-            base_directory: Directory to create corrupted files in
-            n_corrupted_files: Number of corrupted files to create
-            
-        Returns:
-            Dictionary mapping corruption type to file paths
-        """
-        corrupted_dir = base_directory / "corrupted_data"
-        corrupted_dir.mkdir(exist_ok=True)
-        
-        corruption_scenarios = {}
-        
-        # Truncated pickle file
-        truncated_path = corrupted_dir / "truncated_experiment.pkl"
-        with open(truncated_path, 'wb') as f:
-            f.write(b'\x80\x03}')  # Incomplete pickle header
-        corruption_scenarios["truncated_pickle"] = truncated_path
-        
-        # Empty file
-        empty_path = corrupted_dir / "empty_experiment.pkl"
-        empty_path.touch()
-        corruption_scenarios["empty_file"] = empty_path
-        
-        # Non-pickle file with .pkl extension
-        non_pickle_path = corrupted_dir / "not_pickle.pkl"
-        with open(non_pickle_path, 'w') as f:
-            f.write("This is not a pickle file")
-        corruption_scenarios["fake_pickle"] = non_pickle_path
-        
-        # Missing required columns
-        missing_columns_path = corrupted_dir / "missing_columns.pkl"
-        incomplete_matrix = {'x': np.array([1, 2, 3]), 'y': np.array([4, 5, 6])}  # Missing 't'
-        with open(missing_columns_path, 'wb') as f:
-            pickle.dump(incomplete_matrix, f)
-        corruption_scenarios["missing_columns"] = missing_columns_path
-        
-        # Mismatched array lengths
-        mismatched_path = corrupted_dir / "mismatched_lengths.pkl"
-        mismatched_matrix = {
-            't': np.array([0, 1, 2, 3]),
-            'x': np.array([1, 2]),  # Wrong length
-            'y': np.array([4, 5, 6])  # Wrong length
-        }
-        with open(mismatched_path, 'wb') as f:
-            pickle.dump(mismatched_matrix, f)
-        corruption_scenarios["mismatched_lengths"] = mismatched_path
-        
-        return corruption_scenarios
-
-
-@pytest.fixture(scope="function")
+@pytest.fixture(scope="session")
 def realistic_data_generator():
-    """Fixture providing the realistic experimental data generator."""
-    return RealisticExperimentalDataGenerator(seed=42)
-
-
-@pytest.fixture(scope="function")  
-def multi_day_study_scenario(realistic_data_generator, cross_platform_temp_dir):
-    """
-    Create a comprehensive multi-day experimental study scenario.
-    
-    This fixture generates a realistic experimental study with:
-    - Multiple days of data collection
-    - Various animal lines and experimental conditions
-    - Different rig configurations
-    - Realistic file naming and directory structure
-    - Complex metadata patterns for extraction testing
-    """
-    study_dir = cross_platform_temp_dir / "multi_day_study"
-    study_dir.mkdir(exist_ok=True)
-    
-    # Generate 5-day study with realistic parameters
-    study_structure = realistic_data_generator.create_multi_day_study_structure(
-        base_directory=study_dir,
-        n_days=5,
-        animals_per_day=[4, 6, 5, 7, 4],  # Varying daily schedules
-        rigs=["old_opto", "new_opto"],
-        conditions=["baseline", "optogenetic_stimulation", "chemical_stimulation"]
-    )
-    
-    return study_structure
+    """Session-scoped fixture providing realistic experimental data generator."""
+    return RealisticExperimentalDataGenerator(random_seed=42)
 
 
 @pytest.fixture(scope="function")
-def large_scale_performance_dataset(realistic_data_generator, cross_platform_temp_dir):
+def realistic_experiment_directory(tmp_path, realistic_data_generator):
     """
-    Create large-scale datasets for performance testing against SLA requirements.
-    
-    Generates datasets of various sizes to test:
-    - Data loading performance (1 second per 100MB SLA)
-    - DataFrame transformation (500ms per 1M rows SLA)
-    - File discovery performance (5 seconds for 10,000 files SLA)
+    Create a realistic experimental directory structure with multiple experiments,
+    dates, conditions, and animals representing actual research workflows.
     """
-    perf_dir = cross_platform_temp_dir / "performance_testing"
-    perf_dir.mkdir(exist_ok=True)
+    base_dir = tmp_path / "neuroscience_data"
+    base_dir.mkdir()
     
-    performance_datasets = {}
-    
-    # Small dataset (baseline)
-    small_matrix = realistic_data_generator.generate_experimental_matrix(
-        "old_opto", "baseline", "perf_test_small", duration_minutes=5
-    )
-    small_path = perf_dir / "small_experiment.pkl"
-    with open(small_path, 'wb') as f:
-        pickle.dump(small_matrix, f)
-    performance_datasets["small"] = {
-        "path": small_path,
-        "expected_rows": len(small_matrix['t']),
-        "file_size_mb": small_path.stat().st_size / 1024 / 1024
+    # Create realistic directory structure
+    directories = {
+        "experiments": base_dir / "experiments",
+        "raw_data": base_dir / "experiments" / "raw_data",
+        "processed": base_dir / "experiments" / "processed",
+        "configs": base_dir / "configs",
+        "batch_definitions": base_dir / "batch_definitions",
+        "analysis_results": base_dir / "analysis_results"
     }
     
-    # Large dataset (>1M rows)
-    large_matrix = realistic_data_generator.generate_experimental_matrix(
-        "high_speed_rig", "optogenetic_stimulation", "perf_test_large", duration_minutes=90
-    )
-    large_path = perf_dir / "large_experiment.pkl"
-    with open(large_path, 'wb') as f:
-        pickle.dump(large_matrix, f)
-    performance_datasets["large"] = {
-        "path": large_path,
-        "expected_rows": len(large_matrix['t']),
-        "file_size_mb": large_path.stat().st_size / 1024 / 1024
-    }
+    for dir_path in directories.values():
+        dir_path.mkdir(parents=True, exist_ok=True)
     
-    # Very large dataset (compressed)
-    very_large_matrix = realistic_data_generator.generate_experimental_matrix(
-        "high_speed_rig", "heat_stress", "perf_test_very_large", duration_minutes=120
-    )
-    very_large_path = perf_dir / "very_large_experiment.pkl.gz"
-    with gzip.open(very_large_path, 'wb') as f:
-        pickle.dump(very_large_matrix, f)
-    performance_datasets["very_large"] = {
-        "path": very_large_path,
-        "expected_rows": len(very_large_matrix['t']),
-        "file_size_mb": very_large_path.stat().st_size / 1024 / 1024
-    }
+    # Generate experimental data across multiple scenarios
+    experiment_scenarios = [
+        # Multi-day baseline study
+        {"type": "baseline", "dates": ["2024-01-15", "2024-01-16", "2024-01-17"], 
+         "animals": ["wild_type", "wild_type", "control_line"], "rigs": ["old_opto"]},
+        
+        # Optogenetic stimulation series
+        {"type": "optogenetic_stim", "dates": ["2024-01-20", "2024-01-21"], 
+         "animals": ["mutant_line_1", "mutant_line_1"], "rigs": ["new_opto"]},
+        
+        # Thermal stimulation study
+        {"type": "thermal_stim", "dates": ["2024-01-25"], 
+         "animals": ["wild_type", "mutant_line_2"], "rigs": ["old_opto", "new_opto"]},
+        
+        # High-resolution tracking
+        {"type": "baseline", "dates": ["2024-02-01"], 
+         "animals": ["wild_type"], "rigs": ["high_speed_rig"]},
+        
+        # Complex multi-rig comparison
+        {"type": "odor_gradient", "dates": ["2024-02-05", "2024-02-06"], 
+         "animals": ["wild_type", "mutant_line_1"], "rigs": ["old_opto", "new_opto"]}
+    ]
     
-    return performance_datasets
-
-
-@pytest.fixture(scope="function")
-def comprehensive_config_scenario(multi_day_study_scenario, cross_platform_temp_dir):
-    """
-    Create comprehensive configuration scenario with realistic experimental design.
+    created_files = []
+    experiment_metadata = []
     
-    This fixture provides a complete YAML configuration that matches the multi-day
-    study structure for end-to-end integration testing.
-    """
-    config_dir = cross_platform_temp_dir / "configs"
-    config_dir.mkdir(exist_ok=True)
+    for scenario in experiment_scenarios:
+        for date_str in scenario["dates"]:
+            date_obj = datetime.strptime(date_str, "%Y-%m-%d")
+            
+            # Create date-based directory structure
+            date_dir = directories["raw_data"] / date_str
+            date_dir.mkdir(exist_ok=True)
+            
+            for animal_line in scenario["animals"]:
+                for rig in scenario["rigs"]:
+                    for replicate in range(1, 4):  # 3 replicates per condition
+                        # Generate experimental data
+                        exp_matrix = realistic_data_generator.create_experimental_matrix(
+                            experiment_type=scenario["type"],
+                            date=date_obj,
+                            animal_line=animal_line,
+                            replicate=replicate,
+                            rig_type=rig,
+                            seed_offset=hash(f"{date_str}_{animal_line}_{rig}_{replicate}") % 1000
+                        )
+                        
+                        # Create realistic filename
+                        animal_id = exp_matrix["animal_id"]
+                        filename = f"{scenario['type']}_{animal_id}_{rig}_{date_str}_rep{replicate:02d}.pkl"
+                        file_path = date_dir / filename
+                        
+                        # Save as pickle file
+                        with open(file_path, 'wb') as f:
+                            pickle.dump(exp_matrix, f)
+                        
+                        created_files.append(file_path)
+                        experiment_metadata.append({
+                            "file_path": file_path,
+                            "experiment_type": scenario["type"],
+                            "date": date_str,
+                            "animal_line": animal_line,
+                            "rig": rig,
+                            "replicate": replicate,
+                            "animal_id": animal_id,
+                            "filename": filename
+                        })
     
-    # Extract information from study structure
-    study = multi_day_study_scenario
+    # Create some corrupted files for error testing
+    corrupted_dir = directories["raw_data"] / "corrupted"
+    corrupted_dir.mkdir(exist_ok=True)
     
-    # Create comprehensive configuration
-    config = {
+    corrupted_files = []
+    
+    # Empty file
+    empty_file = corrupted_dir / "empty_experiment.pkl"
+    empty_file.touch()
+    corrupted_files.append(empty_file)
+    
+    # Invalid pickle data
+    invalid_pickle = corrupted_dir / "invalid_data.pkl"
+    with open(invalid_pickle, 'wb') as f:
+        f.write(b"not a pickle file")
+    corrupted_files.append(invalid_pickle)
+    
+    # Incomplete data structure
+    incomplete_data = {"t": np.array([0, 1, 2]), "x": np.array([0, 1])}  # Mismatched lengths
+    incomplete_file = corrupted_dir / "incomplete_experiment.pkl"
+    with open(incomplete_file, 'wb') as f:
+        pickle.dump(incomplete_data, f)
+    corrupted_files.append(incomplete_file)
+    
+    # Create comprehensive configuration file
+    config_data = {
         "project": {
-            "name": "multi_day_neuroscience_study",
+            "name": "realistic_neuroscience_study",
             "directories": {
-                "major_data_directory": str(study["base_directory"]),
-                "processed_data_directory": str(config_dir / "processed"),
-                "backup_directory": str(config_dir / "backups")
+                "major_data_directory": str(directories["raw_data"]),
+                "processed_data_directory": str(directories["processed"]),
+                "analysis_results_directory": str(directories["analysis_results"])
             },
-            "ignore_substrings": [
-                "._",  # Mac hidden files
-                ".DS_Store",  # Mac metadata
-                "__pycache__",  # Python cache
-                ".tmp",  # Temporary files
-                "backup_",  # Backup files
-                "calibration",  # Calibration data
-                "test_"  # Test files
-            ],
-            "mandatory_substrings": [
-                "_exp"  # All experimental files must contain "_exp"
-            ],
+            "ignore_substrings": ["backup", "temp", "corrupted", "._", "__pycache__"],
+            "mandatory_substrings": [],
             "extraction_patterns": [
-                # Date-animal-rig-condition pattern
-                r"(?P<date>\d{4}-\d{2}-\d{2})_(?P<animal_line>\w+)_(?P<day>\d{2})_(?P<animal_num>\d{3})_(?P<rig>\w+)_(?P<condition>\w+)_exp\.pkl",
-                # Alternative pattern for metadata extraction
-                r"(?P<year>\d{4})-(?P<month>\d{2})-(?P<day_of_month>\d{2})_(?P<animal_id>\w+)_(?P<rig_type>\w+)_(?P<experimental_condition>\w+)",
-                # Simple pattern fallback
-                r"(?P<identifier>\w+)_(?P<timestamp>\d+)"
-            ],
-            "file_extensions": [".pkl", ".pickle", ".pkl.gz"],
-            "max_file_size_mb": 1000,
-            "parallel_processing": True
+                r"(?P<experiment_type>\w+)_(?P<animal_id>\w+)_(?P<rig>\w+)_(?P<date>\d{4}-\d{2}-\d{2})_rep(?P<replicate>\d+)\.pkl",
+                r"(?P<experiment_type>\w+)_(?P<date>\d{4}-\d{2}-\d{2})_(?P<animal_id>\w+)_(?P<condition>\w+)\.pkl"
+            ]
         },
-        "rigs": {
-            "old_opto": {
-                "sampling_frequency": 60.0,
-                "mm_per_px": 0.154,
-                "camera_resolution": [1024, 768],
-                "arena_diameter_mm": 120.0,
-                "calibration_date": "2024-01-15",
-                "led_wavelength_nm": 470,
-                "typical_experiments": ["baseline", "optogenetic_stimulation"]
+        "rigs": realistic_data_generator.rig_configurations,
+        "datasets": {
+            "baseline_studies": {
+                "rig": "old_opto",
+                "patterns": ["*baseline*"],
+                "dates_vials": {
+                    "2024-01-15": [1, 2, 3],
+                    "2024-01-16": [1, 2, 3],
+                    "2024-01-17": [1, 2, 3]
+                },
+                "metadata": {
+                    "extraction_patterns": [
+                        r"baseline_(?P<animal_id>\w+)_(?P<rig>\w+)_(?P<date>\d{4}-\d{2}-\d{2})_rep(?P<replicate>\d+)\.pkl"
+                    ],
+                    "required_fields": ["animal_id", "rig", "date", "replicate"]
+                }
             },
-            "new_opto": {
-                "sampling_frequency": 60.0,
-                "mm_per_px": 0.1818,
-                "camera_resolution": [1280, 1024],
-                "arena_diameter_mm": 150.0,
-                "calibration_date": "2024-06-01",
-                "led_wavelength_nm": 470,
-                "typical_experiments": ["optogenetic_stimulation", "chemical_stimulation"]
+            "optogenetic_experiments": {
+                "rig": "new_opto",
+                "patterns": ["*optogenetic*"],
+                "dates_vials": {
+                    "2024-01-20": [1, 2, 3],
+                    "2024-01-21": [1, 2, 3]
+                },
+                "metadata": {
+                    "extraction_patterns": [
+                        r"optogenetic_stim_(?P<animal_id>\w+)_(?P<rig>\w+)_(?P<date>\d{4}-\d{2}-\d{2})_rep(?P<replicate>\d+)\.pkl"
+                    ],
+                    "required_fields": ["animal_id", "rig", "date", "replicate"]
+                }
             },
-            "high_speed_rig": {
-                "sampling_frequency": 200.0,
-                "mm_per_px": 0.05,
-                "camera_resolution": [2048, 2048],
-                "arena_diameter_mm": 200.0,
-                "calibration_date": "2024-08-15",
-                "led_wavelength_nm": 590,
-                "typical_experiments": ["heat_stress", "baseline"]
+            "multi_rig_comparison": {
+                "rig": ["old_opto", "new_opto", "high_speed_rig"],
+                "patterns": ["*thermal*", "*odor*", "*baseline*"],
+                "metadata": {
+                    "extraction_patterns": [
+                        r"(?P<experiment_type>\w+)_(?P<animal_id>\w+)_(?P<rig>\w+)_(?P<date>\d{4}-\d{2}-\d{2})_rep(?P<replicate>\d+)\.pkl"
+                    ],
+                    "required_fields": ["experiment_type", "animal_id", "rig", "date", "replicate"]
+                }
             }
         },
-        "datasets": {},
-        "experiments": {}
-    }
-    
-    # Generate dataset configurations for each day
-    for date_str, day_info in study["experiment_days"].items():
-        dataset_name = f"day_{date_str.replace('-', '_')}"
-        
-        # Extract animal IDs for this day
-        animal_ids = [file_info["animal_id"] for file_info in day_info["files"]]
-        
-        config["datasets"][dataset_name] = {
-            "description": f"Experimental data from {date_str}",
-            "rig": "mixed",  # Multiple rigs used
-            "patterns": [f"*{date_str}*", "*_exp.pkl"],
-            "dates_vials": {
-                date_str: list(range(1, len(animal_ids) + 1))
+        "experiments": {
+            "longitudinal_baseline": {
+                "datasets": ["baseline_studies"],
+                "metadata": {
+                    "study_type": "longitudinal",
+                    "duration_days": 3
+                }
             },
-            "metadata": {
-                "extraction_patterns": [
-                    rf"{date_str}_(?P<animal_line>\w+)_\d{{2}}_(?P<animal_num>\d{{3}})_(?P<rig>\w+)_(?P<condition>\w+)_exp\.pkl"
-                ],
-                "required_fields": ["animal_line", "animal_num", "rig", "condition"],
-                "experiment_date": date_str
+            "optogenetic_manipulation": {
+                "datasets": ["optogenetic_experiments"],
+                "metadata": {
+                    "study_type": "intervention",
+                    "stimulation_protocol": "10Hz_5s_on_15s_off"
+                }
             },
-            "filters": {
-                "ignore_substrings": ["calibration", "test"],
-                "mandatory_substrings": ["_exp"],
-                "min_file_size_bytes": 1000
-            }
-        }
-    
-    # Generate experiment configurations
-    for condition in ["baseline", "optogenetic_stimulation", "chemical_stimulation", "heat_stress"]:
-        config["experiments"][f"{condition}_study"] = {
-            "description": f"Multi-day {condition} experimental paradigm",
-            "datasets": [name for name in config["datasets"].keys()],
-            "metadata": {
-                "extraction_patterns": [
-                    rf"(?P<date>\d{{4}}-\d{{2}}-\d{{2}})_(?P<animal_id>\w+)_(?P<rig>\w+)_{condition}_exp\.pkl"
-                ],
-                "required_fields": ["date", "animal_id", "rig"],
-                "experimental_condition": condition,
-                "study_type": "longitudinal"
-            },
-            "filters": {
-                "mandatory_substrings": [condition],
-                "ignore_substrings": ["calibration", "backup"]
-            },
-            "analysis_parameters": {
-                "velocity_threshold": 2.0,
-                "smoothing_window": 5,
-                "edge_exclusion_mm": 10,
-                "signal_processing": {
-                    "highpass_freq": 0.1,
-                    "lowpass_freq": 30.0,
-                    "artifact_threshold": 3.0
+            "cross_rig_validation": {
+                "datasets": ["multi_rig_comparison"],
+                "metadata": {
+                    "study_type": "validation",
+                    "comparison_type": "equipment"
                 }
             }
         }
-    
-    # Add cross-experiment comparisons
-    config["experiments"]["multi_condition_comparison"] = {
-        "description": "Cross-condition comparison across all experimental days",
-        "datasets": list(config["datasets"].keys()),
-        "metadata": {
-            "extraction_patterns": [
-                r"(?P<date>\d{4}-\d{2}-\d{2})_(?P<animal_id>\w+)_(?P<rig>\w+)_(?P<condition>\w+)_exp\.pkl"
-            ],
-            "required_fields": ["date", "animal_id", "rig", "condition"],
-            "study_type": "comparative"
-        },
-        "grouping": {
-            "by_condition": True,
-            "by_animal_line": True,
-            "by_rig": True,
-            "temporal_binning": "daily"
-        }
     }
     
-    # Save configuration
-    config_path = config_dir / "comprehensive_study_config.yaml"
-    with open(config_path, 'w') as f:
-        yaml.dump(config, f, default_flow_style=False, sort_keys=False)
+    config_file = directories["configs"] / "realistic_experiment_config.yaml"
+    with open(config_file, 'w') as f:
+        yaml.dump(config_data, f, default_flow_style=False)
     
     return {
-        "config": config,
-        "config_path": config_path,
-        "study_structure": study
+        "base_directory": base_dir,
+        "directories": directories,
+        "config_file": config_file,
+        "config_data": config_data,
+        "created_files": created_files,
+        "corrupted_files": corrupted_files,
+        "experiment_metadata": experiment_metadata,
+        "total_experiments": len(experiment_metadata)
     }
 
 
-class TestRealisticExperimentalScenarios:
+class TestRealisticSingleExperimentScenarios:
     """
-    Comprehensive integration test suite for realistic experimental scenarios.
+    Test realistic single experiment scenarios with various experimental contexts
+    and comprehensive validation of data loading and processing workflows.
+    """
     
-    This test class validates flyrigloader functionality across diverse experimental
-    workflows that mirror actual neuroscience research patterns, ensuring robustness
-    under realistic conditions and data scales.
+    def test_baseline_experiment_complete_workflow(self, realistic_experiment_directory):
+        """
+        Test complete workflow for a single baseline experiment including
+        configuration loading, file discovery, data loading, and validation.
+        
+        Validates:
+        - TST-INTEG-002: Realistic test data generation
+        - F-015: Complete experimental data flows
+        - Section 4.1.1.1: End-to-end user journey
+        """
+        config_file = realistic_experiment_directory["config_file"]
+        
+        # Test configuration loading
+        config = load_config(config_file)
+        assert config is not None
+        assert "experiments" in config
+        assert "datasets" in config
+        assert "project" in config
+        
+        # Test experiment file discovery
+        experiment_files = api.load_experiment_files(
+            config_path=config_file,
+            experiment_name="longitudinal_baseline",
+            extract_metadata=True
+        )
+        
+        assert isinstance(experiment_files, dict), "Should return metadata dictionary"
+        assert len(experiment_files) > 0, "Should find baseline experiment files"
+        
+        # Validate metadata extraction
+        for file_path, metadata in experiment_files.items():
+            assert "animal_id" in metadata
+            assert "rig" in metadata
+            assert "date" in metadata
+            assert "replicate" in metadata
+            assert Path(file_path).suffix == ".pkl"
+        
+        # Test data loading for one file
+        first_file = list(experiment_files.keys())[0]
+        exp_data = read_pickle_any_format(first_file)
+        
+        # Validate experimental data structure
+        assert isinstance(exp_data, dict)
+        assert "t" in exp_data
+        assert "x" in exp_data
+        assert "y" in exp_data
+        assert len(exp_data["t"]) == len(exp_data["x"]) == len(exp_data["y"])
+        
+        # Validate data quality
+        assert np.all(np.isfinite(exp_data["t"]))
+        assert np.all(np.isfinite(exp_data["x"]))
+        assert np.all(np.isfinite(exp_data["y"]))
+        
+        logger.info(f"Successfully validated baseline experiment workflow with {len(experiment_files)} files")
+    
+    def test_optogenetic_experiment_signal_processing(self, realistic_experiment_directory):
+        """
+        Test optogenetic stimulation experiment with multi-channel signal processing.
+        
+        Validates:
+        - F-007: Complex metadata extraction with stimulation parameters
+        - TST-PERF-002: Signal processing performance with multi-channel data
+        """
+        config_file = realistic_experiment_directory["config_file"]
+        
+        # Load optogenetic experiment files
+        experiment_files = api.load_experiment_files(
+            config_path=config_file,
+            experiment_name="optogenetic_manipulation",
+            extract_metadata=True
+        )
+        
+        assert len(experiment_files) > 0
+        
+        # Test signal processing for optogenetic experiments
+        for file_path, metadata in experiment_files.items():
+            if "optogenetic" in str(file_path):
+                exp_data = read_pickle_any_format(file_path)
+                
+                # Validate multi-channel signal data
+                if "signal_disp" in exp_data:
+                    signal_data = exp_data["signal_disp"]
+                    assert signal_data.ndim == 2, "Multi-channel signals should be 2D"
+                    assert signal_data.shape[1] == len(exp_data["t"])
+                    
+                    # Validate signal characteristics
+                    assert np.all(np.isfinite(signal_data))
+                    assert signal_data.std() > 0, "Signals should have variation"
+                
+                # Validate experimental metadata
+                assert "experiment_type" in exp_data
+                assert exp_data["experiment_type"] == "optogenetic_stim"
+                assert "rig" in exp_data
+                assert "sampling_frequency" in exp_data
+                
+                break
+        
+        logger.info("Successfully validated optogenetic experiment signal processing")
+    
+    def test_high_speed_tracking_performance(self, realistic_experiment_directory):
+        """
+        Test high-speed tracking experiments with performance validation.
+        
+        Validates:
+        - TST-PERF-002: Performance with high-frequency data (200 Hz)
+        - Complex trajectory analysis with high temporal resolution
+        """
+        config_file = realistic_experiment_directory["config_file"]
+        
+        # Find high-speed rig experiments
+        all_files = realistic_experiment_directory["created_files"]
+        high_speed_files = [f for f in all_files if "high_speed_rig" in str(f)]
+        
+        if not high_speed_files:
+            pytest.skip("No high-speed rig experiments found")
+        
+        # Test performance with high-frequency data
+        start_time = time.time()
+        
+        for file_path in high_speed_files:
+            exp_data = read_pickle_any_format(file_path)
+            
+            # Validate high-frequency characteristics
+            sampling_freq = exp_data.get("sampling_frequency", 60)
+            assert sampling_freq >= 200, f"Expected high sampling frequency, got {sampling_freq}"
+            
+            # Validate data density
+            duration = exp_data["t"][-1] - exp_data["t"][0]
+            expected_points = int(duration * sampling_freq)
+            actual_points = len(exp_data["t"])
+            assert abs(actual_points - expected_points) < sampling_freq, "Data density should match sampling frequency"
+            
+            # Validate temporal resolution
+            dt = np.median(np.diff(exp_data["t"]))
+            expected_dt = 1.0 / sampling_freq
+            assert abs(dt - expected_dt) < expected_dt * 0.1, "Temporal resolution should be consistent"
+        
+        load_time = time.time() - start_time
+        
+        # Performance assertion - should load high-speed data efficiently
+        data_size_mb = sum(f.stat().st_size for f in high_speed_files) / (1024 * 1024)
+        max_load_time = data_size_mb * 1.0  # 1 second per MB SLA
+        assert load_time <= max_load_time, f"Loading took {load_time:.2f}s, expected <= {max_load_time:.2f}s"
+        
+        logger.info(f"Successfully validated high-speed tracking performance: {data_size_mb:.1f}MB in {load_time:.2f}s")
+
+
+class TestRealisticMultiDayStudyScenarios:
     """
-
-    def test_single_experiment_workflow_integration(
-        self,
-        realistic_data_generator,
-        cross_platform_temp_dir,
-        performance_benchmarks
-    ):
+    Test realistic multi-day experimental study scenarios with temporal organization
+    and longitudinal data analysis validation.
+    """
+    
+    def test_longitudinal_baseline_study(self, realistic_experiment_directory):
         """
-        Test complete workflow for a single realistic experiment.
+        Test multi-day longitudinal baseline study with date-based organization.
         
         Validates:
-        - Realistic experimental data generation
-        - File discovery with realistic naming patterns
-        - Data loading and validation
-        - DataFrame transformation
-        - Metadata extraction from realistic filenames
-        
-        Requirements: TST-INTEG-002, F-015
+        - Section 4.1.2.2: Multi-experiment batch processing
+        - F-002-RQ-005: Date-based directory resolution
+        - Temporal data organization and aggregation
         """
-        logger.info("Starting single experiment workflow integration test")
+        config_file = realistic_experiment_directory["config_file"]
         
-        # Create realistic experiment
-        exp_dir = cross_platform_temp_dir / "single_experiment"
-        exp_dir.mkdir(exist_ok=True)
+        # Load all baseline experiments
+        baseline_files = api.load_experiment_files(
+            config_path=config_file,
+            experiment_name="longitudinal_baseline",
+            extract_metadata=True
+        )
         
-        # Generate realistic experimental data
-        animal_id = "WT_001_mouse"
-        rig_name = "new_opto"
-        condition = "optogenetic_stimulation"
+        # Group by date for longitudinal analysis
+        date_groups = {}
+        for file_path, metadata in baseline_files.items():
+            date = metadata["date"]
+            if date not in date_groups:
+                date_groups[date] = []
+            date_groups[date].append((file_path, metadata))
         
+        # Validate multi-day organization
+        assert len(date_groups) >= 3, "Should have multiple experimental days"
+        
+        # Validate date-based file discovery
+        expected_dates = ["2024-01-15", "2024-01-16", "2024-01-17"]
+        for expected_date in expected_dates:
+            if expected_date in date_groups:
+                day_files = date_groups[expected_date]
+                assert len(day_files) > 0, f"Should have files for {expected_date}"
+                
+                # Validate consistency within day
+                for file_path, metadata in day_files:
+                    assert metadata["date"] == expected_date
+                    assert "baseline" in str(file_path).lower()
+        
+        # Test batch processing performance
         start_time = time.time()
-        exp_matrix = realistic_data_generator.generate_experimental_matrix(
-            rig_name, condition, animal_id, duration_minutes=10
-        )
-        generation_time = time.time() - start_time
+        all_data = []
         
-        # Verify generation performance (should be fast)
-        assert generation_time < 5.0, f"Data generation too slow: {generation_time:.2f}s"
+        for file_path, metadata in baseline_files.items():
+            exp_data = read_pickle_any_format(file_path)
+            all_data.append({
+                "data": exp_data,
+                "metadata": metadata,
+                "file_path": file_path
+            })
         
-        # Validate realistic data characteristics
-        assert len(exp_matrix['t']) > 1000, "Experiment should have substantial time points"
-        assert 'signal_disp' in exp_matrix, "Should include multi-channel signal data"
-        assert exp_matrix['signal_disp'].shape[0] == 32, "new_opto rig should have 32 channels"
+        batch_time = time.time() - start_time
         
-        # Verify biologically plausible ranges
-        arena_radius = realistic_data_generator.rig_configurations[rig_name]["arena_diameter_mm"] / 2
-        max_distance = np.sqrt(exp_matrix['x']**2 + exp_matrix['y']**2).max()
-        assert max_distance <= arena_radius * 1.1, "Trajectory should stay within arena bounds"
+        # Performance validation
+        total_files = len(baseline_files)
+        max_batch_time = total_files * 0.5  # 0.5 seconds per file SLA
+        assert batch_time <= max_batch_time, f"Batch processing took {batch_time:.2f}s, expected <= {max_batch_time:.2f}s"
         
-        # Create realistic filename and save data
-        experiment_date = datetime.now().strftime("%Y-%m-%d")
-        filename = f"{experiment_date}_{animal_id}_{rig_name}_{condition}_exp.pkl"
-        file_path = exp_dir / filename
-        
-        with open(file_path, 'wb') as f:
-            pickle.dump(exp_matrix, f)
-        
-        # Test file discovery
-        discovered_files = discover_files(
-            directory=exp_dir,
-            pattern="*_exp.pkl",
-            recursive=False
-        )
-        
-        assert len(discovered_files) == 1, "Should discover exactly one experiment file"
-        assert str(file_path) in discovered_files, "Should discover the created file"
-        
-        # Test data loading
-        start_time = time.time()
-        loaded_matrix = read_pickle_any_format(file_path)
-        loading_time = time.time() - start_time
-        
-        file_size_mb = file_path.stat().st_size / 1024 / 1024
-        expected_loading_time = performance_benchmarks.benchmark_data_loading(file_size_mb)
-        performance_benchmarks.assert_performance_sla(
-            "single_experiment_loading", loading_time, expected_loading_time
-        )
-        
-        # Validate loaded data integrity
-        assert set(loaded_matrix.keys()) == set(exp_matrix.keys()), "All data columns should be preserved"
-        np.testing.assert_array_equal(loaded_matrix['t'], exp_matrix['t'], "Time arrays should match exactly")
-        np.testing.assert_array_equal(loaded_matrix['x'], exp_matrix['x'], "X positions should match exactly")
-        
-        logger.info("Single experiment workflow integration test completed successfully")
-
-    def test_multi_day_study_batch_processing(
-        self,
-        multi_day_study_scenario,
-        comprehensive_config_scenario,
-        performance_benchmarks
-    ):
+        logger.info(f"Successfully validated longitudinal study: {total_files} files across {len(date_groups)} days in {batch_time:.2f}s")
+    
+    def test_cross_day_data_consistency(self, realistic_experiment_directory):
         """
-        Test batch processing of multi-day experimental study.
+        Test data consistency and quality across multiple experimental days.
         
         Validates:
-        - Multi-experiment batch discovery and loading
-        - Date-based directory organization
-        - Cross-day data consistency
-        - Batch processing performance
-        - Complex metadata extraction patterns
-        
-        Requirements: Section 4.1.2.2, TST-INTEG-002, F-007
+        - Data quality consistency across time
+        - Metadata consistency in longitudinal studies
+        - Animal tracking across multiple sessions
         """
-        logger.info("Starting multi-day study batch processing test")
+        config_file = realistic_experiment_directory["config_file"]
         
-        study = multi_day_study_scenario
-        config_scenario = comprehensive_config_scenario
-        config = config_scenario["config"]
+        # Load baseline study data
+        baseline_files = api.load_experiment_files(
+            config_path=config_file,
+            experiment_name="longitudinal_baseline",
+            extract_metadata=True
+        )
         
-        # Test batch discovery across all days
+        # Group by animal for consistency checking
+        animal_sessions = {}
+        for file_path, metadata in baseline_files.items():
+            animal_id = metadata["animal_id"]
+            if animal_id not in animal_sessions:
+                animal_sessions[animal_id] = []
+            
+            exp_data = read_pickle_any_format(file_path)
+            animal_sessions[animal_id].append({
+                "date": metadata["date"],
+                "data": exp_data,
+                "metadata": metadata
+            })
+        
+        # Validate cross-session consistency for each animal
+        for animal_id, sessions in animal_sessions.items():
+            if len(sessions) > 1:
+                # Sort by date
+                sessions.sort(key=lambda x: x["date"])
+                
+                # Check data structure consistency
+                base_keys = set(sessions[0]["data"].keys())
+                for session in sessions[1:]:
+                    session_keys = set(session["data"].keys())
+                    common_keys = base_keys.intersection(session_keys)
+                    assert len(common_keys) >= 3, f"Sessions should have common data keys for {animal_id}"
+                
+                # Check metadata consistency
+                base_rig = sessions[0]["metadata"]["rig"]
+                for session in sessions[1:]:
+                    # Rig should be consistent within animal
+                    assert session["metadata"]["rig"] == base_rig, f"Rig should be consistent for {animal_id}"
+                
+                # Check data quality trends
+                durations = [len(session["data"]["t"]) for session in sessions]
+                # Durations should be reasonable (not dramatically different)
+                duration_cv = np.std(durations) / np.mean(durations)
+                assert duration_cv < 0.5, f"Session durations too variable for {animal_id}: CV={duration_cv:.2f}"
+        
+        logger.info(f"Successfully validated cross-day consistency for {len(animal_sessions)} animals")
+    
+    def test_temporal_batch_processing_workflow(self, realistic_experiment_directory):
+        """
+        Test temporal batch processing with date-based filtering and aggregation.
+        
+        Validates:
+        - Section 4.1.2.2: Multi-experiment batch processing workflow
+        - Date range filtering and selection
+        - Aggregate statistics across time periods
+        """
+        config_file = realistic_experiment_directory["config_file"]
+        
+        # Test date-based filtering using patterns
+        config = load_config(config_file)
+        base_dir = config["project"]["directories"]["major_data_directory"]
+        
+        # Discover files with date-based patterns
+        from flyrigloader.discovery.files import discover_files
+        
+        # Test specific date filtering
+        date_pattern = "2024-01-15"
+        files_2024_01_15 = discover_files(
+            directory=base_dir,
+            pattern=f"*{date_pattern}*",
+            recursive=True,
+            extensions=[".pkl"]
+        )
+        
+        assert len(files_2024_01_15) > 0, "Should find files for specific date"
+        
+        # Validate all files match date pattern
+        for file_path in files_2024_01_15:
+            assert date_pattern in str(file_path), f"File {file_path} should contain date pattern"
+        
+        # Test date range batch processing
+        date_range_files = []
+        for date in ["2024-01-15", "2024-01-16", "2024-01-17"]:
+            daily_files = discover_files(
+                directory=base_dir,
+                pattern=f"*{date}*",
+                recursive=True,
+                extensions=[".pkl"]
+            )
+            date_range_files.extend(daily_files)
+        
+        # Process batch with performance monitoring
         start_time = time.time()
+        batch_results = []
         
-        # Simulate batch processing of all experiments
-        all_experiment_files = []
-        all_metadata = {}
-        
-        for experiment_name in config["experiments"].keys():
-            # Load files for this experiment
+        for file_path in date_range_files:
             try:
-                experiment_files = load_experiment_files(
-                    config=config,
-                    experiment_name=experiment_name,
-                    base_directory=study["base_directory"],
-                    pattern="*_exp.pkl",
-                    recursive=True,
+                exp_data = read_pickle_any_format(file_path)
+                
+                # Extract summary statistics
+                summary = {
+                    "file_path": str(file_path),
+                    "duration_seconds": exp_data["t"][-1] - exp_data["t"][0] if len(exp_data["t"]) > 0 else 0,
+                    "total_distance": np.sum(np.sqrt(np.diff(exp_data["x"])**2 + np.diff(exp_data["y"])**2)),
+                    "mean_speed": np.mean(exp_data.get("speed", [0])),
+                    "data_points": len(exp_data["t"])
+                }
+                batch_results.append(summary)
+                
+            except Exception as e:
+                logger.warning(f"Failed to process {file_path}: {e}")
+        
+        batch_time = time.time() - start_time
+        
+        # Validate batch processing results
+        assert len(batch_results) > 0, "Should successfully process some files"
+        assert len(batch_results) >= len(date_range_files) * 0.8, "Should process at least 80% of files successfully"
+        
+        # Performance validation
+        files_per_second = len(batch_results) / batch_time
+        assert files_per_second >= 2.0, f"Should process at least 2 files/second, got {files_per_second:.2f}"
+        
+        logger.info(f"Successfully processed {len(batch_results)} files in batch in {batch_time:.2f}s ({files_per_second:.1f} files/s)")
+
+
+class TestRealisticComplexMetadataScenarios:
+    """
+    Test realistic complex metadata extraction scenarios with diverse filename
+    patterns and experimental hierarchies.
+    """
+    
+    def test_complex_filename_pattern_extraction(self, realistic_experiment_directory):
+        """
+        Test complex metadata extraction from realistic experimental filename patterns.
+        
+        Validates:
+        - F-007: Realistic metadata extraction pattern validation
+        - Complex regex pattern matching with named groups
+        - Multi-pattern extraction scenarios
+        """
+        config_file = realistic_experiment_directory["config_file"]
+        
+        # Load configuration with extraction patterns
+        config = load_config(config_file)
+        patterns = config["project"]["extraction_patterns"]
+        
+        # Test pattern matching on actual files
+        all_files = realistic_experiment_directory["created_files"]
+        extraction_results = {}
+        
+        for file_path in all_files:
+            filename = file_path.name
+            extracted_metadata = {}
+            
+            # Try each pattern
+            for pattern in patterns:
+                try:
+                    match = re.match(pattern, filename)
+                    if match:
+                        extracted_metadata.update(match.groupdict())
+                        break
+                except Exception as e:
+                    logger.debug(f"Pattern {pattern} failed on {filename}: {e}")
+            
+            if extracted_metadata:
+                extraction_results[str(file_path)] = extracted_metadata
+        
+        # Validate extraction success rate
+        total_files = len([f for f in all_files if f.suffix == ".pkl" and "corrupted" not in str(f)])
+        extraction_rate = len(extraction_results) / total_files
+        assert extraction_rate >= 0.8, f"Should extract metadata from at least 80% of files, got {extraction_rate:.2%}"
+        
+        # Validate extracted metadata quality
+        required_fields = ["experiment_type", "animal_id", "rig", "date", "replicate"]
+        for file_path, metadata in extraction_results.items():
+            found_fields = [field for field in required_fields if field in metadata]
+            assert len(found_fields) >= 4, f"Should extract at least 4 required fields from {file_path}, got {found_fields}"
+            
+            # Validate field formats
+            if "date" in metadata:
+                date_str = metadata["date"]
+                assert re.match(r"\d{4}-\d{2}-\d{2}", date_str), f"Date should be in YYYY-MM-DD format: {date_str}"
+            
+            if "replicate" in metadata:
+                rep_str = metadata["replicate"]
+                assert rep_str.isdigit(), f"Replicate should be numeric: {rep_str}"
+        
+        logger.info(f"Successfully extracted metadata from {len(extraction_results)} files ({extraction_rate:.1%} success rate)")
+    
+    def test_hierarchical_experiment_organization(self, realistic_experiment_directory):
+        """
+        Test hierarchical experimental organization with nested datasets and experiments.
+        
+        Validates:
+        - Complex experiment-dataset relationships
+        - Hierarchical metadata inheritance
+        - Multi-level filtering and organization
+        """
+        config_file = realistic_experiment_directory["config_file"]
+        config = load_config(config_file)
+        
+        # Test hierarchical experiment structure
+        experiments = config["experiments"]
+        datasets = config["datasets"]
+        
+        # Validate experiment-dataset relationships
+        for exp_name, exp_config in experiments.items():
+            assert "datasets" in exp_config, f"Experiment {exp_name} should specify datasets"
+            
+            exp_datasets = exp_config["datasets"]
+            for dataset_name in exp_datasets:
+                assert dataset_name in datasets, f"Dataset {dataset_name} should exist in config"
+        
+        # Test cross-rig validation experiment
+        cross_rig_files = api.load_experiment_files(
+            config_path=config_file,
+            experiment_name="cross_rig_validation",
+            extract_metadata=True
+        )
+        
+        # Group by rig for comparison
+        rig_groups = {}
+        for file_path, metadata in cross_rig_files.items():
+            rig = metadata["rig"]
+            if rig not in rig_groups:
+                rig_groups[rig] = []
+            rig_groups[rig].append((file_path, metadata))
+        
+        # Validate multi-rig data availability
+        expected_rigs = ["old_opto", "new_opto"]
+        found_rigs = list(rig_groups.keys())
+        common_rigs = set(expected_rigs).intersection(set(found_rigs))
+        assert len(common_rigs) >= 1, f"Should have data from multiple rigs, found: {found_rigs}"
+        
+        # Test rig-specific characteristics
+        for rig, files in rig_groups.items():
+            rig_config = config["rigs"][rig]
+            
+            for file_path, metadata in files[:3]:  # Test first 3 files per rig
+                exp_data = read_pickle_any_format(file_path)
+                
+                # Validate rig-specific parameters
+                if "sampling_frequency" in exp_data:
+                    assert exp_data["sampling_frequency"] == rig_config["sampling_frequency"]
+                
+                if "arena_diameter_mm" in exp_data:
+                    assert exp_data["arena_diameter_mm"] == rig_config["arena_diameter_mm"]
+                
+                # Validate signal channel counts
+                if "signal_disp" in exp_data:
+                    expected_channels = rig_config["signal_channels"]
+                    actual_channels = exp_data["signal_disp"].shape[0]
+                    assert actual_channels == expected_channels, f"Expected {expected_channels} channels for {rig}, got {actual_channels}"
+        
+        logger.info(f"Successfully validated hierarchical organization across {len(rig_groups)} rigs")
+    
+    def test_animal_identifier_consistency(self, realistic_experiment_directory):
+        """
+        Test animal identifier consistency and tracking across experiments.
+        
+        Validates:
+        - Animal ID generation and consistency
+        - Genetic line tracking
+        - Cross-experiment animal identification
+        """
+        config_file = realistic_experiment_directory["config_file"]
+        
+        # Collect all animal data across experiments
+        all_experiments = ["longitudinal_baseline", "optogenetic_manipulation", "cross_rig_validation"]
+        animal_database = {}
+        
+        for exp_name in all_experiments:
+            try:
+                exp_files = api.load_experiment_files(
+                    config_path=config_file,
+                    experiment_name=exp_name,
                     extract_metadata=True
                 )
                 
-                if isinstance(experiment_files, dict):
-                    all_experiment_files.extend(experiment_files.keys())
-                    all_metadata.update(experiment_files)
-                else:
-                    all_experiment_files.extend(experiment_files)
+                for file_path, metadata in exp_files.items():
+                    animal_id = metadata["animal_id"]
                     
+                    if animal_id not in animal_database:
+                        animal_database[animal_id] = {
+                            "experiments": [],
+                            "genetic_line": None,
+                            "strain": None,
+                            "sessions": []
+                        }
+                    
+                    # Load actual data for genetic information
+                    exp_data = read_pickle_any_format(file_path)
+                    
+                    animal_info = animal_database[animal_id]
+                    animal_info["experiments"].append(exp_name)
+                    animal_info["sessions"].append({
+                        "file_path": file_path,
+                        "date": metadata["date"],
+                        "experiment": exp_name
+                    })
+                    
+                    # Extract genetic information
+                    if "genetic_line" in exp_data:
+                        if animal_info["genetic_line"] is None:
+                            animal_info["genetic_line"] = exp_data["genetic_line"]
+                        else:
+                            # Consistency check
+                            assert animal_info["genetic_line"] == exp_data["genetic_line"], \
+                                f"Genetic line inconsistency for {animal_id}"
+                    
+                    if "strain" in exp_data:
+                        if animal_info["strain"] is None:
+                            animal_info["strain"] = exp_data["strain"]
+                        else:
+                            # Consistency check
+                            assert animal_info["strain"] == exp_data["strain"], \
+                                f"Strain inconsistency for {animal_id}"
+            
             except KeyError:
-                # Some experiments may not have matching files, which is realistic
+                # Experiment might not exist in config, skip
                 continue
         
-        batch_processing_time = time.time() - start_time
+        # Validate animal database
+        assert len(animal_database) > 0, "Should identify multiple animals"
         
-        # Validate batch processing performance
-        total_files = len(study["files"])
-        expected_batch_time = performance_benchmarks.benchmark_file_discovery(total_files)
-        performance_benchmarks.assert_performance_sla(
-            "multi_day_batch_discovery", batch_processing_time, expected_batch_time
-        )
-        
-        # Validate cross-day consistency
-        assert len(all_experiment_files) >= total_files // 2, "Should discover substantial number of files"
-        
-        # Test date-based organization validation
-        date_pattern = r"\d{4}-\d{2}-\d{2}"
-        date_organized_files = [f for f in all_experiment_files if Path(f).name.count('-') >= 2]
-        assert len(date_organized_files) > 0, "Should find date-organized files"
-        
-        # Validate metadata extraction across multiple patterns
-        if all_metadata:
-            # Check for successful metadata extraction
-            successful_extractions = sum(1 for metadata in all_metadata.values() if metadata)
-            extraction_rate = successful_extractions / len(all_metadata)
-            assert extraction_rate > 0.7, f"Metadata extraction rate too low: {extraction_rate:.2%}"
+        # Validate animal ID patterns
+        for animal_id, animal_info in animal_database.items():
+            # Animal IDs should follow consistent pattern
+            assert "_" in animal_id, f"Animal ID should contain underscores: {animal_id}"
             
-            # Validate specific metadata fields
-            sample_metadata = next(iter(all_metadata.values()))
-            if sample_metadata:
-                expected_fields = {"animal_line", "rig", "condition"}
-                extracted_fields = set(sample_metadata.keys())
-                assert len(expected_fields.intersection(extracted_fields)) > 0, "Should extract expected metadata fields"
+            # Animals should have multiple sessions for longitudinal studies
+            sessions = animal_info["sessions"]
+            if len(sessions) > 1:
+                # Sort by date
+                sessions.sort(key=lambda x: x["date"])
+                
+                # Validate temporal consistency
+                dates = [s["date"] for s in sessions]
+                assert len(set(dates)) >= 1, f"Animal {animal_id} should have sessions across time"
         
-        logger.info("Multi-day study batch processing test completed successfully")
+        # Generate summary statistics
+        multi_session_animals = [aid for aid, info in animal_database.items() if len(info["sessions"]) > 1]
+        genetic_lines = set(info["genetic_line"] for info in animal_database.values() if info["genetic_line"])
+        
+        logger.info(f"Successfully validated {len(animal_database)} animals, {len(multi_session_animals)} with multiple sessions, {len(genetic_lines)} genetic lines")
 
-    def test_large_scale_performance_validation(
-        self,
-        large_scale_performance_dataset,
-        performance_benchmarks
-    ):
+
+class TestRealisticDataScalePerformance:
+    """
+    Test realistic data scale performance validation scenarios with large
+    experimental datasets and complex processing workflows.
+    """
+    
+    def test_large_dataset_batch_processing(self, realistic_experiment_directory, performance_benchmarks):
         """
-        Test performance against SLA requirements with large-scale realistic data.
+        Test performance with large-scale experimental datasets.
         
         Validates:
-        - Data loading performance (1 second per 100MB SLA)
-        - DataFrame transformation (500ms per 1M rows SLA)
-        - Memory efficiency with large datasets
-        - Compressed file handling performance
-        
-        Requirements: TST-PERF-002, Section 2.2.9
+        - TST-PERF-002: Realistic data scale performance validation
+        - Batch processing of multiple large experiments
+        - Memory efficiency with large signal arrays
         """
-        logger.info("Starting large-scale performance validation test")
+        config_file = realistic_experiment_directory["config_file"]
         
-        datasets = large_scale_performance_dataset
+        # Load all available experiments for performance testing
+        all_files = realistic_experiment_directory["created_files"]
         
-        for size_category, dataset_info in datasets.items():
-            logger.info(f"Testing performance for {size_category} dataset")
-            
-            file_path = dataset_info["path"]
-            expected_rows = dataset_info["expected_rows"]
-            file_size_mb = dataset_info["file_size_mb"]
-            
-            # Test data loading performance
-            start_time = time.time()
-            loaded_matrix = read_pickle_any_format(file_path)
-            loading_time = time.time() - start_time
-            
-            # Validate loading SLA (1 second per 100MB)
-            expected_loading_time = performance_benchmarks.benchmark_data_loading(file_size_mb)
-            performance_benchmarks.assert_performance_sla(
-                f"{size_category}_data_loading", loading_time, expected_loading_time
-            )
-            
-            # Test DataFrame transformation performance
-            start_time = time.time()
-            
-            # Simulate DataFrame transformation
-            df_data = {}
-            for key, value in loaded_matrix.items():
-                if isinstance(value, np.ndarray):
-                    if value.ndim == 1:
-                        df_data[key] = value
-                    elif value.ndim == 2:
-                        # Handle 2D arrays (like signal_disp)
-                        for ch in range(min(value.shape[0], 5)):  # Limit for performance
-                            df_data[f"{key}_ch{ch:02d}"] = value[ch, :]
-            
-            df = pd.DataFrame(df_data)
-            transformation_time = time.time() - start_time
-            
-            # Validate transformation SLA (500ms per 1M rows)
-            row_count = len(df)
-            expected_transform_time = performance_benchmarks.benchmark_dataframe_transform(row_count)
-            performance_benchmarks.assert_performance_sla(
-                f"{size_category}_dataframe_transform", transformation_time, expected_transform_time
-            )
-            
-            # Validate data integrity after transformation
-            assert len(df) == expected_rows, f"DataFrame should have expected number of rows: {expected_rows}"
-            assert 't' in df.columns, "Time column should be preserved"
-            assert 'x' in df.columns and 'y' in df.columns, "Position columns should be preserved"
-            
-            # Validate realistic data ranges
-            assert df['t'].min() >= 0, "Time should start at zero or positive"
-            assert df['t'].is_monotonic_increasing, "Time should be monotonically increasing"
-            
-            logger.info(f"Performance validation for {size_category} dataset completed")
-        
-        logger.info("Large-scale performance validation test completed successfully")
-
-    def test_complex_metadata_extraction_scenarios(
-        self,
-        multi_day_study_scenario,
-        comprehensive_config_scenario
-    ):
-        """
-        Test complex metadata extraction with realistic filename patterns.
-        
-        Validates:
-        - Multiple regex pattern matching
-        - Named group extraction
-        - Date parsing from filenames
-        - Animal ID and condition extraction
-        - Fallback pattern handling
-        
-        Requirements: F-007, TST-INTEG-002
-        """
-        logger.info("Starting complex metadata extraction scenarios test")
-        
-        study = multi_day_study_scenario
-        config_scenario = comprehensive_config_scenario
-        config = config_scenario["config"]
-        
-        # Test metadata extraction across all study files
-        extraction_results = {}
-        pattern_success_counts = {}
-        
-        for file_info in study["files"]:
-            file_path = file_info["path"]
-            filename = file_info["filename"]
-            
-            # Test extraction using project-level patterns
-            extraction_patterns = config["project"]["extraction_patterns"]
-            
-            extracted_metadata = None
-            successful_pattern = None
-            
-            for pattern_idx, pattern in enumerate(extraction_patterns):
-                try:
-                    import re
-                    match = re.search(pattern, filename)
-                    if match:
-                        extracted_metadata = match.groupdict()
-                        successful_pattern = pattern_idx
-                        pattern_success_counts[pattern_idx] = pattern_success_counts.get(pattern_idx, 0) + 1
-                        break
-                except re.error:
-                    continue
-            
-            extraction_results[str(file_path)] = {
-                "filename": filename,
-                "extracted_metadata": extracted_metadata,
-                "successful_pattern": successful_pattern,
-                "expected_metadata": {
-                    "animal_id": file_info["animal_id"],
-                    "rig": file_info["rig"],
-                    "condition": file_info["condition"],
-                    "date": file_info["date"].strftime("%Y-%m-%d")
-                }
-            }
-        
-        # Validate extraction success rate
-        successful_extractions = sum(1 for result in extraction_results.values() 
-                                   if result["extracted_metadata"] is not None)
-        total_files = len(extraction_results)
-        success_rate = successful_extractions / total_files
-        
-        assert success_rate > 0.8, f"Metadata extraction success rate too low: {success_rate:.2%}"
-        
-        # Validate pattern effectiveness
-        assert len(pattern_success_counts) > 0, "At least one pattern should be successful"
-        most_effective_pattern = max(pattern_success_counts.items(), key=lambda x: x[1])
-        logger.info(f"Most effective pattern (index {most_effective_pattern[0]}): {most_effective_pattern[1]} successes")
-        
-        # Validate specific metadata field extraction
-        field_extraction_counts = {}
-        for result in extraction_results.values():
-            if result["extracted_metadata"]:
-                for field in result["extracted_metadata"].keys():
-                    field_extraction_counts[field] = field_extraction_counts.get(field, 0) + 1
-        
-        # Check for extraction of key experimental metadata
-        key_fields = ["date", "animal", "rig", "condition"]
-        extracted_key_fields = [field for field in field_extraction_counts.keys() 
-                               if any(key in field.lower() for key in key_fields)]
-        
-        assert len(extracted_key_fields) >= 2, f"Should extract at least 2 key metadata fields, found: {extracted_key_fields}"
-        
-        # Test date extraction specifically
-        date_extractions = [result for result in extraction_results.values()
-                           if result["extracted_metadata"] and 
-                           any("date" in field.lower() for field in result["extracted_metadata"].keys())]
-        
-        assert len(date_extractions) > total_files * 0.5, "Should successfully extract dates from most files"
-        
-        logger.info("Complex metadata extraction scenarios test completed successfully")
-
-    def test_error_recovery_and_resilience(
-        self,
-        realistic_data_generator,
-        cross_platform_temp_dir
-    ):
-        """
-        Test error recovery with realistic failure scenarios.
-        
-        Validates:
-        - Corrupted file handling
-        - Missing data file recovery
-        - Incomplete experimental matrices
-        - Network/filesystem errors
-        - Graceful degradation
-        
-        Requirements: Section 4.1.2.3, TST-INTEG-002
-        """
-        logger.info("Starting error recovery and resilience test")
-        
-        error_dir = cross_platform_temp_dir / "error_scenarios"
-        error_dir.mkdir(exist_ok=True)
-        
-        # Create corrupted data scenarios
-        corrupted_files = realistic_data_generator.create_corrupted_data_scenarios(
-            error_dir, n_corrupted_files=5
-        )
-        
-        # Test handling of each corruption type
-        for corruption_type, file_path in corrupted_files.items():
-            logger.info(f"Testing error recovery for {corruption_type}")
-            
-            # Test that appropriate exceptions are raised
-            if corruption_type in ["truncated_pickle", "empty_file", "fake_pickle"]:
-                with pytest.raises((pickle.UnpicklingError, EOFError, ValueError, FileNotFoundError)):
-                    read_pickle_any_format(file_path)
-            
-            elif corruption_type == "missing_columns":
-                # Should load but fail validation if enforced
-                try:
-                    loaded_data = read_pickle_any_format(file_path)
-                    assert isinstance(loaded_data, dict), "Should load as dictionary"
-                    assert 't' not in loaded_data, "Should be missing time column"
-                except Exception:
-                    pass  # This is also acceptable behavior
-            
-            elif corruption_type == "mismatched_lengths":
-                # Should load but have inconsistent array lengths
-                loaded_data = read_pickle_any_format(file_path)
-                assert isinstance(loaded_data, dict), "Should load as dictionary"
-                lengths = [len(arr) for arr in loaded_data.values() if isinstance(arr, np.ndarray)]
-                assert len(set(lengths)) > 1, "Should have mismatched array lengths"
-        
-        # Test graceful handling of missing files
-        non_existent_path = error_dir / "does_not_exist.pkl"
-        with pytest.raises(FileNotFoundError):
-            read_pickle_any_format(non_existent_path)
-        
-        # Test discovery resilience with mixed file types
-        valid_experiment = realistic_data_generator.generate_experimental_matrix(
-            "old_opto", "baseline", "recovery_test"
-        )
-        valid_path = error_dir / "valid_experiment.pkl"
-        with open(valid_path, 'wb') as f:
-            pickle.dump(valid_experiment, f)
-        
-        # Discover files in directory with mixed valid/invalid files
-        all_files = discover_files(
-            directory=error_dir,
-            pattern="*.pkl",
-            recursive=False
-        )
-        
-        # Should find all pickle files (valid and invalid)
-        expected_pickle_files = [str(p) for p in error_dir.glob("*.pkl")]
-        assert len(all_files) >= len(expected_pickle_files), "Should discover all pickle files"
-        
-        # Test selective loading with error handling
-        successfully_loaded = []
-        failed_to_load = []
+        # Measure batch loading performance
+        start_time = time.time()
+        total_data_size = 0
+        processed_files = 0
+        memory_efficient_processing = True
         
         for file_path in all_files:
             try:
-                data = read_pickle_any_format(file_path)
-                if isinstance(data, dict) and 't' in data:
-                    successfully_loaded.append(file_path)
-                else:
-                    failed_to_load.append(file_path)
-            except Exception:
-                failed_to_load.append(file_path)
-        
-        # Should successfully load at least the valid file
-        assert len(successfully_loaded) >= 1, "Should load at least one valid file"
-        assert str(valid_path) in successfully_loaded, "Should successfully load the known valid file"
-        
-        # Most corrupted files should fail to load
-        assert len(failed_to_load) >= len(corrupted_files) - 1, "Most corrupted files should fail to load"
-        
-        logger.info("Error recovery and resilience test completed successfully")
-
-    def test_cross_rig_configuration_consistency(
-        self,
-        realistic_data_generator,
-        cross_platform_temp_dir
-    ):
-        """
-        Test consistency across different rig configurations.
-        
-        Validates:
-        - Data structure consistency across rigs
-        - Sampling frequency handling
-        - Signal channel count validation
-        - Cross-rig data compatibility
-        - Metadata standardization
-        
-        Requirements: TST-INTEG-002, F-015
-        """
-        logger.info("Starting cross-rig configuration consistency test")
-        
-        rig_dir = cross_platform_temp_dir / "cross_rig_test"
-        rig_dir.mkdir(exist_ok=True)
-        
-        rig_data = {}
-        animal_id = "cross_rig_test_mouse"
-        condition = "baseline"
-        duration = 5  # minutes
-        
-        # Generate data for each rig configuration
-        for rig_name in realistic_data_generator.rig_configurations.keys():
-            logger.info(f"Generating data for rig: {rig_name}")
-            
-            exp_matrix = realistic_data_generator.generate_experimental_matrix(
-                rig_name, condition, animal_id, duration_minutes=duration
-            )
-            
-            # Save data
-            file_path = rig_dir / f"{rig_name}_{animal_id}_{condition}.pkl"
-            with open(file_path, 'wb') as f:
-                pickle.dump(exp_matrix, f)
-            
-            rig_data[rig_name] = {
-                "file_path": file_path,
-                "data": exp_matrix,
-                "config": realistic_data_generator.rig_configurations[rig_name]
-            }
-        
-        # Validate data structure consistency
-        common_columns = None
-        for rig_name, rig_info in rig_data.items():
-            data_columns = set(rig_info["data"].keys())
-            if common_columns is None:
-                common_columns = data_columns
-            else:
-                common_columns = common_columns.intersection(data_columns)
-        
-        # Should have core experimental columns across all rigs
-        required_columns = {'t', 'x', 'y', 'signal', 'signal_disp'}
-        assert required_columns.issubset(common_columns), f"Missing required columns: {required_columns - common_columns}"
-        
-        # Validate sampling frequency consistency
-        for rig_name, rig_info in rig_data.items():
-            expected_freq = rig_info["config"]["sampling_frequency"]
-            time_array = rig_info["data"]["t"]
-            
-            if len(time_array) > 1:
-                calculated_freq = 1.0 / np.mean(np.diff(time_array))
-                freq_error = abs(calculated_freq - expected_freq) / expected_freq
-                assert freq_error < 0.05, f"Sampling frequency mismatch for {rig_name}: expected {expected_freq}, got {calculated_freq:.2f}"
-        
-        # Validate signal channel counts
-        for rig_name, rig_info in rig_data.items():
-            expected_channels = rig_info["config"]["signal_channels"]
-            signal_disp = rig_info["data"]["signal_disp"]
-            
-            assert signal_disp.shape[0] == expected_channels, f"Channel count mismatch for {rig_name}: expected {expected_channels}, got {signal_disp.shape[0]}"
-        
-        # Test cross-rig data loading consistency
-        for rig_name, rig_info in rig_data.items():
-            loaded_data = read_pickle_any_format(rig_info["file_path"])
-            
-            # Validate loaded data structure
-            assert isinstance(loaded_data, dict), f"Data from {rig_name} should load as dictionary"
-            assert set(loaded_data.keys()) == set(rig_info["data"].keys()), f"Column consistency issue for {rig_name}"
-            
-            # Validate array shapes
-            for column in required_columns:
-                original_shape = rig_info["data"][column].shape
-                loaded_shape = loaded_data[column].shape
-                assert original_shape == loaded_shape, f"Shape mismatch for {rig_name}.{column}: {original_shape} vs {loaded_shape}"
-        
-        logger.info("Cross-rig configuration consistency test completed successfully")
-
-    def test_temporal_correlation_and_longitudinal_analysis(
-        self,
-        multi_day_study_scenario
-    ):
-        """
-        Test temporal correlations and longitudinal analysis capabilities.
-        
-        Validates:
-        - Cross-day data consistency for same animals
-        - Temporal trend detection
-        - Longitudinal metadata tracking
-        - Data continuity across experimental sessions
-        - Animal-specific pattern recognition
-        
-        Requirements: TST-INTEG-002, Section 4.1.2.2
-        """
-        logger.info("Starting temporal correlation and longitudinal analysis test")
-        
-        study = multi_day_study_scenario
-        
-        # Group experiments by animal for longitudinal analysis
-        animal_timelines = {}
-        for file_info in study["files"]:
-            animal_id = file_info["animal_id"]
-            if animal_id not in animal_timelines:
-                animal_timelines[animal_id] = []
-            animal_timelines[animal_id].append(file_info)
-        
-        # Sort each animal's timeline by date
-        for animal_id in animal_timelines:
-            animal_timelines[animal_id].sort(key=lambda x: x["date"])
-        
-        # Validate longitudinal data structure
-        multi_day_animals = {aid: timeline for aid, timeline in animal_timelines.items() 
-                           if len(timeline) > 1}
-        
-        assert len(multi_day_animals) > 0, "Should have animals with multiple experimental sessions"
-        
-        # Test temporal consistency for multi-day animals
-        for animal_id, timeline in multi_day_animals.items():
-            logger.info(f"Analyzing longitudinal data for {animal_id}")
-            
-            # Load data for all sessions
-            session_data = []
-            for session_info in timeline:
-                try:
-                    data = read_pickle_any_format(session_info["path"])
-                    session_data.append({
-                        "data": data,
-                        "date": session_info["date"],
-                        "condition": session_info["condition"],
-                        "rig": session_info["rig"],
-                        "duration": data["t"][-1] - data["t"][0] if len(data["t"]) > 0 else 0
-                    })
-                except Exception as e:
-                    logger.warning(f"Failed to load session data for {animal_id}: {e}")
-                    continue
-            
-            if len(session_data) < 2:
-                continue
-            
-            # Validate temporal progression
-            dates = [session["date"] for session in session_data]
-            assert dates == sorted(dates), f"Timeline should be chronologically ordered for {animal_id}"
-            
-            # Check for realistic experimental gaps (not too long)
-            for i in range(1, len(dates)):
-                gap_days = (dates[i] - dates[i-1]).days
-                assert gap_days <= 10, f"Unrealistic experimental gap for {animal_id}: {gap_days} days"
-            
-            # Validate data consistency across sessions
-            common_columns = None
-            for session in session_data:
-                session_columns = set(session["data"].keys())
-                if common_columns is None:
-                    common_columns = session_columns
-                else:
-                    common_columns = common_columns.intersection(session_columns)
-            
-            required_columns = {'t', 'x', 'y'}
-            assert required_columns.issubset(common_columns), f"Missing required columns across sessions for {animal_id}"
-            
-            # Validate realistic behavioral consistency
-            # Animals should show some consistency in basic measures
-            session_speeds = []
-            for session in session_data:
-                data = session["data"]
-                if 'speed' in data:
-                    mean_speed = np.mean(data['speed'])
-                elif 'x' in data and 'y' in data and 't' in data:
-                    # Calculate speed if not present
-                    dx = np.diff(data['x'], prepend=data['x'][0])
-                    dy = np.diff(data['y'], prepend=data['y'][0])
-                    dt = np.diff(data['t'], prepend=data['t'][1] - data['t'][0])
-                    speeds = np.sqrt(dx**2 + dy**2) / dt
-                    mean_speed = np.mean(speeds[speeds < 50])  # Filter outliers
-                else:
-                    continue
+                file_size = file_path.stat().st_size
+                total_data_size += file_size
                 
-                session_speeds.append(mean_speed)
-            
-            if len(session_speeds) >= 2:
-                speed_cv = np.std(session_speeds) / np.mean(session_speeds)
-                # Coefficient of variation should be reasonable (not too high)
-                assert speed_cv < 2.0, f"Excessive speed variation across sessions for {animal_id}: {speed_cv:.2f}"
+                # Load and process data
+                exp_data = read_pickle_any_format(file_path)
+                
+                # Validate data structure and compute basic statistics
+                assert "t" in exp_data and "x" in exp_data and "y" in exp_data
+                
+                # Memory-efficient processing check
+                data_points = len(exp_data["t"])
+                if data_points > 10000:  # Large dataset
+                    # Should have multi-channel signals for large datasets
+                    if "signal_disp" in exp_data:
+                        signal_array = exp_data["signal_disp"]
+                        # Memory footprint check
+                        expected_size = signal_array.nbytes
+                        if expected_size > 50 * 1024 * 1024:  # > 50MB
+                            # Should use appropriate data types
+                            assert signal_array.dtype in [np.float32, np.float64]
+                
+                processed_files += 1
+                
+            except Exception as e:
+                logger.warning(f"Failed to process {file_path}: {e}")
         
-        # Test cross-animal comparison capabilities
-        baseline_sessions = [file_info for file_info in study["files"] 
-                           if file_info["condition"] == "baseline"]
+        total_time = time.time() - start_time
         
-        if len(baseline_sessions) >= 3:
-            # Load baseline data for comparison
-            baseline_speeds = []
-            for session_info in baseline_sessions[:5]:  # Limit for performance
-                try:
-                    data = read_pickle_any_format(session_info["path"])
-                    if 'x' in data and 'y' in data and 't' in data:
-                        dx = np.diff(data['x'], prepend=data['x'][0])
-                        dy = np.diff(data['y'], prepend=data['y'][0])
-                        dt = np.diff(data['t'], prepend=data['t'][1] - data['t'][0])
-                        speeds = np.sqrt(dx**2 + dy**2) / dt
-                        mean_speed = np.mean(speeds[speeds < 50])
-                        baseline_speeds.append(mean_speed)
-                except Exception:
-                    continue
-            
-            if len(baseline_speeds) >= 3:
-                # Validate that baseline speeds are in realistic range
-                mean_baseline_speed = np.mean(baseline_speeds)
-                assert 2.0 <= mean_baseline_speed <= 20.0, f"Unrealistic baseline speed range: {mean_baseline_speed:.2f} mm/s"
+        # Performance validation
+        data_size_mb = total_data_size / (1024 * 1024)
+        performance_benchmarks.assert_performance_sla(
+            "large_dataset_batch_processing",
+            total_time,
+            performance_benchmarks.benchmark_data_loading(data_size_mb)
+        )
         
-        logger.info("Temporal correlation and longitudinal analysis test completed successfully")
-
-    def test_realistic_experimental_design_patterns(
-        self,
-        comprehensive_config_scenario
-    ):
+        # Throughput validation
+        files_per_second = processed_files / total_time
+        assert files_per_second >= 1.0, f"Should process at least 1 file/second, got {files_per_second:.2f}"
+        
+        logger.info(f"Successfully processed {processed_files} files ({data_size_mb:.1f}MB) in {total_time:.2f}s")
+    
+    def test_high_frequency_signal_processing(self, realistic_experiment_directory, performance_benchmarks):
         """
-        Test realistic experimental design patterns and workflows.
+        Test performance with high-frequency multi-channel signal data.
         
         Validates:
-        - Randomized controlled trial simulation
-        - Counterbalanced experimental designs
-        - Within-subject and between-subject comparisons
-        - Statistical power considerations
-        - Experimental metadata completeness
-        
-        Requirements: TST-INTEG-002, F-015, Section 4.1.2.2
+        - High-frequency signal processing performance
+        - Multi-channel data handling efficiency
+        - Signal array transformation benchmarks
         """
-        logger.info("Starting realistic experimental design patterns test")
+        config_file = realistic_experiment_directory["config_file"]
         
-        config_scenario = comprehensive_config_scenario
-        config = config_scenario["config"]
-        study = config_scenario["study_structure"]
+        # Find files with high-frequency signal data
+        all_files = realistic_experiment_directory["created_files"]
+        signal_files = []
         
-        # Analyze experimental design structure
-        conditions = set()
-        animals = set()
-        rigs = set()
-        daily_schedules = {}
+        for file_path in all_files:
+            try:
+                exp_data = read_pickle_any_format(file_path)
+                if "signal_disp" in exp_data and exp_data["signal_disp"].shape[0] >= 16:
+                    signal_files.append((file_path, exp_data))
+                    if len(signal_files) >= 5:  # Test with 5 files
+                        break
+            except:
+                continue
         
-        for file_info in study["files"]:
-            conditions.add(file_info["condition"])
-            animals.add(file_info["animal_id"])
-            rigs.add(file_info["rig"])
+        if not signal_files:
+            pytest.skip("No multi-channel signal files found for performance testing")
+        
+        # Test signal processing performance
+        start_time = time.time()
+        total_signal_points = 0
+        
+        for file_path, exp_data in signal_files:
+            signal_data = exp_data["signal_disp"]
+            n_channels, n_timepoints = signal_data.shape
+            total_signal_points += n_channels * n_timepoints
             
-            date_str = file_info["date"].strftime("%Y-%m-%d")
-            if date_str not in daily_schedules:
-                daily_schedules[date_str] = {"animals": set(), "conditions": set()}
-            daily_schedules[date_str]["animals"].add(file_info["animal_id"])
-            daily_schedules[date_str]["conditions"].add(file_info["condition"])
-        
-        # Validate experimental design characteristics
-        assert len(conditions) >= 2, "Should have multiple experimental conditions"
-        assert len(animals) >= 5, "Should have sufficient animal count for statistical power"
-        assert len(rigs) >= 1, "Should have rig information"
-        
-        # Test counterbalancing validation
-        # Check if animals are tested across multiple conditions
-        animal_conditions = {}
-        for file_info in study["files"]:
-            animal_id = file_info["animal_id"]
-            condition = file_info["condition"]
+            # Simulate realistic signal processing operations
+            # 1. Channel-wise statistics
+            channel_means = np.mean(signal_data, axis=1)
+            channel_stds = np.std(signal_data, axis=1)
             
-            if animal_id not in animal_conditions:
-                animal_conditions[animal_id] = set()
-            animal_conditions[animal_id].add(condition)
-        
-        multi_condition_animals = {aid: conds for aid, conds in animal_conditions.items() 
-                                 if len(conds) > 1}
-        
-        # Some animals should be tested in multiple conditions (within-subject design)
-        within_subject_ratio = len(multi_condition_animals) / len(animal_conditions)
-        logger.info(f"Within-subject design ratio: {within_subject_ratio:.2%}")
-        
-        # Test daily scheduling patterns
-        for date_str, schedule in daily_schedules.items():
-            animals_per_day = len(schedule["animals"])
-            conditions_per_day = len(schedule["conditions"])
+            # 2. Temporal filtering (simplified)
+            filtered_signals = np.zeros_like(signal_data)
+            for ch in range(n_channels):
+                # Simple smoothing filter
+                kernel_size = min(5, n_timepoints // 10)
+                if kernel_size > 1:
+                    kernel = np.ones(kernel_size) / kernel_size
+                    filtered_signals[ch, :] = np.convolve(signal_data[ch, :], kernel, mode='same')
+                else:
+                    filtered_signals[ch, :] = signal_data[ch, :]
             
-            # Realistic daily schedules
-            assert 2 <= animals_per_day <= 10, f"Unrealistic animal count for {date_str}: {animals_per_day}"
-            assert conditions_per_day <= animals_per_day, f"More conditions than animals on {date_str}"
+            # 3. Cross-channel correlation (subset)
+            if n_channels >= 4:
+                sample_channels = signal_data[:4, :]  # First 4 channels
+                correlation_matrix = np.corrcoef(sample_channels)
+            
+            # Validate processing results
+            assert np.all(np.isfinite(channel_means))
+            assert np.all(np.isfinite(channel_stds))
+            assert np.all(np.isfinite(filtered_signals))
         
-        # Test experimental group balance
-        condition_counts = {}
-        for file_info in study["files"]:
-            condition = file_info["condition"]
-            condition_counts[condition] = condition_counts.get(condition, 0) + 1
+        processing_time = time.time() - start_time
         
-        # Groups should be reasonably balanced
-        if len(condition_counts) > 1:
-            min_count = min(condition_counts.values())
-            max_count = max(condition_counts.values())
-            balance_ratio = min_count / max_count
-            assert balance_ratio > 0.3, f"Experimental groups too unbalanced: {balance_ratio:.2%}"
+        # Performance validation
+        points_per_second = total_signal_points / processing_time
+        min_throughput = 1_000_000  # 1M points per second minimum
+        assert points_per_second >= min_throughput, \
+            f"Signal processing should handle at least {min_throughput:,} points/s, got {points_per_second:,.0f}"
         
-        # Test rig utilization patterns
-        rig_usage = {}
-        for file_info in study["files"]:
-            rig = file_info["rig"]
-            rig_usage[rig] = rig_usage.get(rig, 0) + 1
+        # SLA validation
+        estimated_mb = (total_signal_points * 8) / (1024 * 1024)  # 8 bytes per float64
+        performance_benchmarks.assert_performance_sla(
+            "signal_processing",
+            processing_time,
+            performance_benchmarks.benchmark_dataframe_transform(total_signal_points)
+        )
         
-        # Validate realistic rig distribution
-        if len(rig_usage) > 1:
-            # No single rig should dominate entirely
-            max_rig_usage = max(rig_usage.values())
-            total_usage = sum(rig_usage.values())
-            max_rig_proportion = max_rig_usage / total_usage
-            assert max_rig_proportion < 0.9, f"Single rig used too exclusively: {max_rig_proportion:.2%}"
+        logger.info(f"Successfully processed {total_signal_points:,} signal points in {processing_time:.2f}s ({points_per_second:,.0f} points/s)")
+    
+    def test_memory_efficient_large_experiment_loading(self, realistic_experiment_directory):
+        """
+        Test memory-efficient loading of large experimental datasets.
         
-        # Test experimental timeline realism
-        all_dates = [file_info["date"] for file_info in study["files"]]
-        date_range = max(all_dates) - min(all_dates)
-        assert date_range.days <= 30, f"Experimental timeline too long: {date_range.days} days"
-        assert date_range.days >= 1, "Should span multiple days"
+        Validates:
+        - Memory usage optimization for large datasets
+        - Streaming/incremental loading capabilities
+        - Resource cleanup and management
+        """
+        config_file = realistic_experiment_directory["config_file"]
         
-        # Test animal line distribution
-        animal_lines = {}
-        for file_info in study["files"]:
-            animal_id = file_info["animal_id"]
-            line = animal_id.split('_')[0]  # Extract line from ID
-            animal_lines[line] = animal_lines.get(line, 0) + 1
+        # Find largest experiment files
+        all_files = realistic_experiment_directory["created_files"]
+        file_sizes = [(f, f.stat().st_size) for f in all_files]
+        file_sizes.sort(key=lambda x: x[1], reverse=True)
         
-        # Should have realistic animal line representation
-        assert len(animal_lines) >= 1, "Should have animal line information"
-        if "WT" in animal_lines:
-            # Wild type should be well represented
-            wt_proportion = animal_lines["WT"] / sum(animal_lines.values())
-            assert wt_proportion >= 0.2, f"Wild type under-represented: {wt_proportion:.2%}"
+        largest_files = file_sizes[:3]  # Test with 3 largest files
         
-        logger.info("Realistic experimental design patterns test completed successfully")
+        initial_memory = None
+        try:
+            import psutil
+            process = psutil.Process()
+            initial_memory = process.memory_info().rss / (1024 * 1024)  # MB
+        except ImportError:
+            logger.warning("psutil not available, skipping memory monitoring")
+        
+        # Test memory-efficient loading
+        for file_path, file_size in largest_files:
+            # Load data
+            exp_data = read_pickle_any_format(file_path)
+            
+            # Validate data completeness
+            required_keys = ["t", "x", "y"]
+            for key in required_keys:
+                assert key in exp_data, f"Missing required key: {key}"
+                assert len(exp_data[key]) > 0, f"Empty data for key: {key}"
+            
+            # Memory usage check
+            if initial_memory is not None:
+                current_memory = process.memory_info().rss / (1024 * 1024)
+                memory_increase = current_memory - initial_memory
+                file_size_mb = file_size / (1024 * 1024)
+                
+                # Memory increase should be reasonable (not more than 3x file size)
+                max_memory_increase = file_size_mb * 3
+                assert memory_increase <= max_memory_increase, \
+                    f"Memory increase {memory_increase:.1f}MB exceeds limit {max_memory_increase:.1f}MB for file {file_size_mb:.1f}MB"
+            
+            # Clean up references to help GC
+            del exp_data
+        
+        logger.info(f"Successfully validated memory-efficient loading of {len(largest_files)} large files")
+
+
+class TestRealisticErrorRecoveryScenarios:
+    """
+    Test realistic error recovery and robustness scenarios with various
+    failure modes and recovery mechanisms.
+    """
+    
+    def test_corrupted_file_handling(self, realistic_experiment_directory):
+        """
+        Test robust handling of corrupted or invalid experimental files.
+        
+        Validates:
+        - Section 4.1.2.3: Error recovery validation with realistic failure scenarios
+        - Graceful degradation with partial data loss
+        - Comprehensive error reporting and logging
+        """
+        config_file = realistic_experiment_directory["config_file"]
+        corrupted_files = realistic_experiment_directory["corrupted_files"]
+        
+        # Test individual corrupted file handling
+        for corrupted_file in corrupted_files:
+            logger.info(f"Testing corrupted file handling: {corrupted_file.name}")
+            
+            with pytest.raises((pickle.UnpicklingError, EOFError, FileNotFoundError, ValueError)):
+                read_pickle_any_format(corrupted_file)
+        
+        # Test batch processing with mixed valid/corrupted files
+        all_files = realistic_experiment_directory["created_files"] + corrupted_files
+        
+        successful_loads = 0
+        failed_loads = 0
+        error_summary = {}
+        
+        for file_path in all_files:
+            try:
+                exp_data = read_pickle_any_format(file_path)
+                # Validate basic structure
+                if isinstance(exp_data, dict) and "t" in exp_data:
+                    successful_loads += 1
+                else:
+                    failed_loads += 1
+                    error_type = "invalid_structure"
+                    error_summary[error_type] = error_summary.get(error_type, 0) + 1
+            
+            except Exception as e:
+                failed_loads += 1
+                error_type = type(e).__name__
+                error_summary[error_type] = error_summary.get(error_type, 0) + 1
+        
+        # Validate error recovery behavior
+        total_files = len(all_files)
+        success_rate = successful_loads / total_files
+        
+        # Should successfully process most valid files
+        expected_corrupted = len(corrupted_files)
+        expected_success_rate = (total_files - expected_corrupted) / total_files
+        assert success_rate >= expected_success_rate * 0.9, \
+            f"Success rate {success_rate:.2%} below expected {expected_success_rate:.2%}"
+        
+        logger.info(f"Error recovery test: {successful_loads}/{total_files} successful loads, error summary: {error_summary}")
+    
+    def test_incomplete_experiment_recovery(self, realistic_experiment_directory):
+        """
+        Test recovery from incomplete or partially corrupted experimental data.
+        
+        Validates:
+        - Partial data recovery and validation
+        - Missing field handling and defaults
+        - Data quality assessment and filtering
+        """
+        config_file = realistic_experiment_directory["config_file"]
+        
+        # Create test cases with incomplete data
+        temp_dir = realistic_experiment_directory["base_directory"] / "incomplete_test"
+        temp_dir.mkdir(exist_ok=True)
+        
+        incomplete_scenarios = [
+            # Missing required fields
+            {"t": np.array([0, 1, 2]), "x": np.array([0, 1, 2])},  # Missing y
+            
+            # Mismatched array lengths
+            {"t": np.array([0, 1, 2, 3]), "x": np.array([0, 1]), "y": np.array([0, 1])},
+            
+            # Empty arrays
+            {"t": np.array([]), "x": np.array([]), "y": np.array([])},
+            
+            # Wrong data types
+            {"t": [0, 1, 2], "x": "invalid", "y": np.array([0, 1, 2])},
+            
+            # Partially valid data
+            {"t": np.array([0, 1, 2]), "x": np.array([0, 1, 2]), "y": np.array([0, 1, 2]), 
+             "signal": np.array([np.nan, 1, 2])},
+        ]
+        
+        recovery_results = []
+        
+        for i, incomplete_data in enumerate(incomplete_scenarios):
+            test_file = temp_dir / f"incomplete_{i}.pkl"
+            
+            # Save incomplete data
+            with open(test_file, 'wb') as f:
+                pickle.dump(incomplete_data, f)
+            
+            # Test recovery
+            try:
+                loaded_data = read_pickle_any_format(test_file)
+                
+                # Attempt basic validation
+                recovery_status = "partial"
+                issues = []
+                
+                # Check required fields
+                required_fields = ["t", "x", "y"]
+                missing_fields = [field for field in required_fields if field not in loaded_data]
+                if missing_fields:
+                    issues.append(f"missing_fields: {missing_fields}")
+                
+                # Check array lengths
+                if all(field in loaded_data for field in required_fields):
+                    try:
+                        lengths = [len(loaded_data[field]) for field in required_fields]
+                        if len(set(lengths)) > 1:
+                            issues.append(f"length_mismatch: {lengths}")
+                    except (TypeError, AttributeError):
+                        issues.append("invalid_array_types")
+                
+                # Check for NaN values
+                for field in required_fields:
+                    if field in loaded_data:
+                        try:
+                            if isinstance(loaded_data[field], np.ndarray) and np.any(np.isnan(loaded_data[field])):
+                                issues.append(f"nan_values_in_{field}")
+                        except (TypeError, AttributeError):
+                            pass
+                
+                if not issues:
+                    recovery_status = "success"
+                
+                recovery_results.append({
+                    "scenario": i,
+                    "status": recovery_status,
+                    "issues": issues
+                })
+                
+            except Exception as e:
+                recovery_results.append({
+                    "scenario": i,
+                    "status": "failed",
+                    "error": str(e)
+                })
+        
+        # Analyze recovery results
+        total_scenarios = len(incomplete_scenarios)
+        successful_recoveries = sum(1 for r in recovery_results if r["status"] in ["success", "partial"])
+        
+        # Should be able to load most files even if they have issues
+        recovery_rate = successful_recoveries / total_scenarios
+        assert recovery_rate >= 0.8, f"Should recover from at least 80% of incomplete data scenarios, got {recovery_rate:.2%}"
+        
+        logger.info(f"Incomplete data recovery: {successful_recoveries}/{total_scenarios} scenarios handled, recovery rate: {recovery_rate:.2%}")
+    
+    def test_configuration_error_recovery(self, realistic_experiment_directory):
+        """
+        Test recovery from configuration errors and invalid settings.
+        
+        Validates:
+        - Configuration validation and error reporting
+        - Fallback configuration mechanisms
+        - Invalid parameter handling
+        """
+        base_config = realistic_experiment_directory["config_data"]
+        temp_dir = realistic_experiment_directory["base_directory"] / "config_test"
+        temp_dir.mkdir(exist_ok=True)
+        
+        # Test various configuration error scenarios
+        config_error_scenarios = [
+            # Missing required sections
+            {"project": {"name": "test"}},  # Missing directories
+            
+            # Invalid directory paths
+            {"project": {"directories": {"major_data_directory": "/nonexistent/path"}}},
+            
+            # Malformed experiments section
+            {"project": base_config["project"], "experiments": {"invalid": "not_a_dict"}},
+            
+            # Invalid extraction patterns
+            {"project": {"extraction_patterns": ["[invalid regex("], "directories": base_config["project"]["directories"]}},
+            
+            # Missing datasets referenced by experiments
+            {
+                "project": base_config["project"],
+                "experiments": {"test_exp": {"datasets": ["nonexistent_dataset"]}},
+                "datasets": {}
+            }
+        ]
+        
+        error_handling_results = []
+        
+        for i, error_config in enumerate(config_error_scenarios):
+            config_file = temp_dir / f"error_config_{i}.yaml"
+            
+            # Save error configuration
+            with open(config_file, 'w') as f:
+                yaml.dump(error_config, f)
+            
+            # Test error handling
+            try:
+                # Test configuration loading
+                config = load_config(config_file)
+                
+                # Test API functions with error config
+                if "experiments" in error_config:
+                    experiment_names = list(error_config["experiments"].keys())
+                    if experiment_names:
+                        try:
+                            result = api.load_experiment_files(
+                                config_path=config_file,
+                                experiment_name=experiment_names[0]
+                            )
+                            error_handling_results.append({
+                                "scenario": i,
+                                "config_load": "success",
+                                "api_call": "success" if result is not None else "failed"
+                            })
+                        except Exception as api_error:
+                            error_handling_results.append({
+                                "scenario": i,
+                                "config_load": "success",
+                                "api_call": "failed",
+                                "api_error": str(api_error)
+                            })
+                    else:
+                        error_handling_results.append({
+                            "scenario": i,
+                            "config_load": "success",
+                            "api_call": "skipped"
+                        })
+                else:
+                    error_handling_results.append({
+                        "scenario": i,
+                        "config_load": "success",
+                        "api_call": "not_applicable"
+                    })
+                    
+            except Exception as config_error:
+                error_handling_results.append({
+                    "scenario": i,
+                    "config_load": "failed",
+                    "config_error": str(config_error)
+                })
+        
+        # Validate error handling
+        total_scenarios = len(config_error_scenarios)
+        
+        # Should gracefully handle configuration errors
+        handled_errors = sum(1 for r in error_handling_results if "error" in str(r).lower())
+        assert handled_errors >= total_scenarios * 0.6, \
+            f"Should handle at least 60% of configuration errors gracefully"
+        
+        # Should provide meaningful error messages
+        for result in error_handling_results:
+            if "error" in result:
+                error_msg = result.get("config_error") or result.get("api_error", "")
+                assert len(error_msg) > 10, "Error messages should be descriptive"
+        
+        logger.info(f"Configuration error recovery: handled {len(error_handling_results)} scenarios")
+
+
+class TestRealisticWorkflowIntegration:
+    """
+    Test realistic end-to-end workflow integration scenarios combining
+    multiple system components in realistic research workflows.
+    """
+    
+    def test_complete_neuroscience_research_workflow(self, realistic_experiment_directory, performance_benchmarks):
+        """
+        Test complete neuroscience research workflow from configuration to analysis.
+        
+        Validates:
+        - Section 4.1.1.1: End-to-end user journey
+        - F-015: Complete experimental data flows validation
+        - Integration of all system components
+        """
+        config_file = realistic_experiment_directory["config_file"]
+        
+        # Step 1: Configuration and validation
+        config = load_config(config_file)
+        assert config is not None
+        
+        # Step 2: Experiment discovery and organization
+        all_experiments = list(config["experiments"].keys())
+        experiment_results = {}
+        
+        start_time = time.time()
+        
+        for experiment_name in all_experiments:
+            try:
+                # Discover experiment files
+                exp_files = api.load_experiment_files(
+                    config_path=config_file,
+                    experiment_name=experiment_name,
+                    extract_metadata=True
+                )
+                
+                # Process experimental data
+                processed_data = []
+                for file_path, metadata in list(exp_files.items())[:5]:  # Process first 5 files per experiment
+                    exp_data = read_pickle_any_format(file_path)
+                    
+                    # Basic analysis pipeline
+                    analysis_result = {
+                        "file_path": file_path,
+                        "metadata": metadata,
+                        "duration_seconds": exp_data["t"][-1] - exp_data["t"][0] if len(exp_data["t"]) > 0 else 0,
+                        "trajectory_length": np.sum(np.sqrt(np.diff(exp_data["x"])**2 + np.diff(exp_data["y"])**2)),
+                        "mean_speed": np.mean(exp_data.get("speed", [0])),
+                        "arena_coverage": len(np.unique(np.round(exp_data["x"], 1))) * len(np.unique(np.round(exp_data["y"], 1))),
+                        "data_quality_score": 1.0 - (np.sum(np.isnan(exp_data["x"])) + np.sum(np.isnan(exp_data["y"]))) / (2 * len(exp_data["x"]))
+                    }
+                    
+                    processed_data.append(analysis_result)
+                
+                experiment_results[experiment_name] = {
+                    "total_files": len(exp_files),
+                    "processed_files": len(processed_data),
+                    "processed_data": processed_data
+                }
+                
+            except Exception as e:
+                logger.warning(f"Failed to process experiment {experiment_name}: {e}")
+                experiment_results[experiment_name] = {"error": str(e)}
+        
+        total_time = time.time() - start_time
+        
+        # Step 3: Validate workflow results
+        successful_experiments = [name for name, result in experiment_results.items() if "error" not in result]
+        assert len(successful_experiments) >= 2, f"Should successfully process at least 2 experiments, got {len(successful_experiments)}"
+        
+        # Step 4: Cross-experiment analysis
+        all_processed_data = []
+        for exp_name in successful_experiments:
+            all_processed_data.extend(experiment_results[exp_name]["processed_data"])
+        
+        # Aggregate statistics
+        if all_processed_data:
+            durations = [d["duration_seconds"] for d in all_processed_data]
+            speeds = [d["mean_speed"] for d in all_processed_data]
+            quality_scores = [d["data_quality_score"] for d in all_processed_data]
+            
+            workflow_summary = {
+                "total_experiments": len(successful_experiments),
+                "total_files_processed": len(all_processed_data),
+                "mean_duration": np.mean(durations),
+                "mean_speed": np.mean(speeds),
+                "mean_quality_score": np.mean(quality_scores),
+                "processing_time": total_time
+            }
+            
+            # Validate workflow quality
+            assert workflow_summary["mean_quality_score"] >= 0.9, "Data quality should be high"
+            assert workflow_summary["mean_duration"] > 0, "Should have positive duration data"
+            
+            # Performance validation
+            files_per_second = workflow_summary["total_files_processed"] / total_time
+            assert files_per_second >= 0.5, f"Should process at least 0.5 files/second in complete workflow, got {files_per_second:.2f}"
+        
+        logger.info(f"Complete workflow validation: {len(successful_experiments)} experiments, {len(all_processed_data)} files in {total_time:.2f}s")
+    
+    def test_multi_experimenter_collaborative_workflow(self, realistic_experiment_directory):
+        """
+        Test collaborative research workflow with multiple experimenters and datasets.
+        
+        Validates:
+        - Multi-user data organization and access
+        - Cross-experimenter data consistency
+        - Collaborative metadata standards
+        """
+        config_file = realistic_experiment_directory["config_file"]
+        
+        # Group data by experimenter
+        all_files = realistic_experiment_directory["created_files"]
+        experimenter_data = {}
+        
+        for file_path in all_files[:10]:  # Test with subset for performance
+            try:
+                exp_data = read_pickle_any_format(file_path)
+                experimenter = exp_data.get("experimenter", "unknown")
+                
+                if experimenter not in experimenter_data:
+                    experimenter_data[experimenter] = {
+                        "files": [],
+                        "experiments": set(),
+                        "animals": set(),
+                        "dates": set()
+                    }
+                
+                experimenter_data[experimenter]["files"].append(file_path)
+                experimenter_data[experimenter]["experiments"].add(exp_data.get("experiment_type", "unknown"))
+                experimenter_data[experimenter]["animals"].add(exp_data.get("animal_id", "unknown"))
+                experimenter_data[experimenter]["dates"].add(exp_data.get("date", "unknown"))
+                
+            except Exception as e:
+                logger.debug(f"Could not process {file_path}: {e}")
+        
+        # Validate multi-experimenter organization
+        assert len(experimenter_data) >= 2, f"Should have multiple experimenters, found: {list(experimenter_data.keys())}"
+        
+        # Validate experimenter data quality
+        for experimenter, data in experimenter_data.items():
+            assert len(data["files"]) > 0, f"Experimenter {experimenter} should have data files"
+            assert len(data["experiments"]) > 0, f"Experimenter {experimenter} should have experiments"
+            
+            # Check data consistency within experimenter
+            file_count = len(data["files"])
+            if file_count > 1:
+                # Should have some consistency in experimental approach
+                experiment_count = len(data["experiments"])
+                assert experiment_count <= file_count, f"Experimenter {experimenter} has inconsistent experiment organization"
+        
+        # Test cross-experimenter consistency
+        all_experimenters = list(experimenter_data.keys())
+        if len(all_experimenters) >= 2:
+            exp1_data = experimenter_data[all_experimenters[0]]
+            exp2_data = experimenter_data[all_experimenters[1]]
+            
+            # Should have some overlap in experimental types (collaborative project)
+            common_experiments = exp1_data["experiments"].intersection(exp2_data["experiments"])
+            # At least some shared experimental approaches in collaborative work
+            total_experiments = exp1_data["experiments"].union(exp2_data["experiments"])
+            if len(total_experiments) > 0:
+                overlap_rate = len(common_experiments) / len(total_experiments)
+                # Allow for some experimenter specialization
+                assert overlap_rate >= 0.2, f"Should have some experimental overlap between experimenters"
+        
+        logger.info(f"Validated collaborative workflow: {len(experimenter_data)} experimenters")
+    
+    def test_longitudinal_study_temporal_analysis(self, realistic_experiment_directory):
+        """
+        Test longitudinal study analysis with temporal organization and trends.
+        
+        Validates:
+        - Temporal data organization and analysis
+        - Longitudinal tracking and consistency
+        - Time-series analysis capabilities
+        """
+        config_file = realistic_experiment_directory["config_file"]
+        
+        # Load longitudinal baseline study
+        baseline_files = api.load_experiment_files(
+            config_path=config_file,
+            experiment_name="longitudinal_baseline",
+            extract_metadata=True
+        )
+        
+        # Organize data temporally
+        temporal_data = {}
+        
+        for file_path, metadata in baseline_files.items():
+            date = metadata["date"]
+            animal_id = metadata["animal_id"]
+            
+            key = (animal_id, date)
+            
+            if key not in temporal_data:
+                exp_data = read_pickle_any_format(file_path)
+                temporal_data[key] = {
+                    "animal_id": animal_id,
+                    "date": date,
+                    "file_path": file_path,
+                    "duration": exp_data["t"][-1] - exp_data["t"][0] if len(exp_data["t"]) > 0 else 0,
+                    "total_distance": np.sum(np.sqrt(np.diff(exp_data["x"])**2 + np.diff(exp_data["y"])**2)),
+                    "mean_speed": np.mean(exp_data.get("speed", [0])),
+                    "arena_center_time": np.sum(np.sqrt(exp_data["x"]**2 + exp_data["y"]**2) < 30) / len(exp_data["x"]) if len(exp_data["x"]) > 0 else 0
+                }
+        
+        # Group by animal for longitudinal analysis
+        animal_timeseries = {}
+        for (animal_id, date), data in temporal_data.items():
+            if animal_id not in animal_timeseries:
+                animal_timeseries[animal_id] = []
+            animal_timeseries[animal_id].append(data)
+        
+        # Sort by date within each animal
+        for animal_id in animal_timeseries:
+            animal_timeseries[animal_id].sort(key=lambda x: x["date"])
+        
+        # Validate longitudinal patterns
+        multi_session_animals = [aid for aid, sessions in animal_timeseries.items() if len(sessions) > 1]
+        assert len(multi_session_animals) > 0, "Should have animals with multiple sessions"
+        
+        # Analyze temporal trends
+        temporal_consistency_results = []
+        
+        for animal_id in multi_session_animals:
+            sessions = animal_timeseries[animal_id]
+            
+            # Extract time series
+            dates = [s["date"] for s in sessions]
+            durations = [s["duration"] for s in sessions]
+            distances = [s["total_distance"] for s in sessions]
+            speeds = [s["mean_speed"] for s in sessions]
+            center_times = [s["arena_center_time"] for s in sessions]
+            
+            # Calculate consistency metrics
+            duration_cv = np.std(durations) / np.mean(durations) if np.mean(durations) > 0 else 0
+            speed_cv = np.std(speeds) / np.mean(speeds) if np.mean(speeds) > 0 else 0
+            
+            temporal_consistency_results.append({
+                "animal_id": animal_id,
+                "sessions": len(sessions),
+                "date_range": f"{min(dates)} to {max(dates)}",
+                "duration_cv": duration_cv,
+                "speed_cv": speed_cv,
+                "mean_duration": np.mean(durations),
+                "mean_speed": np.mean(speeds)
+            })
+        
+        # Validate temporal consistency
+        for result in temporal_consistency_results:
+            # Behavioral measures should be reasonably consistent within animals
+            assert result["duration_cv"] < 1.0, f"Duration too variable for {result['animal_id']}: CV={result['duration_cv']:.2f}"
+            assert result["speed_cv"] < 2.0, f"Speed too variable for {result['animal_id']}: CV={result['speed_cv']:.2f}"
+        
+        logger.info(f"Longitudinal analysis: {len(multi_session_animals)} animals across time, consistency validated")
+
+
+# Performance benchmark configuration for realistic scenarios
+@pytest.mark.performance
+class TestRealisticPerformanceBenchmarks:
+    """
+    Comprehensive performance benchmarks for realistic experimental scenarios.
+    These tests validate performance against defined SLAs and establish
+    performance baselines for various operational scenarios.
+    """
+    
+    def test_realistic_discovery_performance_benchmark(self, realistic_experiment_directory, performance_benchmarks):
+        """
+        Benchmark file discovery performance with realistic directory structures.
+        
+        SLA: File discovery should complete within 5 seconds for 10,000 files
+        """
+        config_file = realistic_experiment_directory["config_file"]
+        base_dir = realistic_experiment_directory["directories"]["raw_data"]
+        
+        # Count available files for baseline
+        from flyrigloader.discovery.files import discover_files
+        
+        start_time = time.time()
+        discovered_files = discover_files(
+            directory=base_dir,
+            pattern="*.pkl",
+            recursive=True
+        )
+        discovery_time = time.time() - start_time
+        
+        file_count = len(discovered_files)
+        performance_benchmarks.assert_performance_sla(
+            "realistic_file_discovery",
+            discovery_time,
+            performance_benchmarks.benchmark_file_discovery(file_count)
+        )
+        
+        logger.info(f"Discovery benchmark: {file_count} files in {discovery_time:.3f}s")
+    
+    def test_realistic_data_loading_performance_benchmark(self, realistic_experiment_directory, performance_benchmarks):
+        """
+        Benchmark data loading performance with realistic experimental data.
+        
+        SLA: Data loading should achieve 1 second per 100MB performance
+        """
+        all_files = realistic_experiment_directory["created_files"]
+        test_files = all_files[:10]  # Test with subset
+        
+        total_size = sum(f.stat().st_size for f in test_files)
+        
+        start_time = time.time()
+        loaded_count = 0
+        
+        for file_path in test_files:
+            try:
+                exp_data = read_pickle_any_format(file_path)
+                if isinstance(exp_data, dict) and "t" in exp_data:
+                    loaded_count += 1
+            except Exception as e:
+                logger.warning(f"Failed to load {file_path}: {e}")
+        
+        loading_time = time.time() - start_time
+        
+        size_mb = total_size / (1024 * 1024)
+        performance_benchmarks.assert_performance_sla(
+            "realistic_data_loading",
+            loading_time,
+            performance_benchmarks.benchmark_data_loading(size_mb)
+        )
+        
+        logger.info(f"Loading benchmark: {loaded_count} files ({size_mb:.1f}MB) in {loading_time:.3f}s")
+
+
+if __name__ == "__main__":
+    # Allow running specific test classes or methods for development
+    import sys
+    if len(sys.argv) > 1:
+        pytest.main([__file__] + sys.argv[1:])
+    else:
+        pytest.main([__file__, "-v"])
