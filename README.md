@@ -368,8 +368,8 @@ When `parse_dates=True` is specified, the API will attempt to convert any field 
 git clone <repository-url>
 cd flyrigloader
 
-# Install the package in development mode
-pip install -e .
+# Create the development environment
+./setup_env.sh --dev
 ```
 
 ### Testing
