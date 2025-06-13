@@ -44,7 +44,7 @@ python_classes = ["Test*"]
 python_functions = ["test_*"]
 addopts = [
     "--strict-markers",
-    "--strict-config", 
+    "--strict-config",
     "--cov=src/flyrigloader",
     "--cov-report=html:htmlcov",
     "--cov-report=xml:coverage.xml",
@@ -57,11 +57,16 @@ addopts = [
     "--timeout=30",
     "--durations=10"
 ]
+
+# Define custom markers
 markers = [
+    "api: mark tests that test the API",
+    "performance: mark tests that measure performance",
     "slow: marks tests as slow (deselect with '-m \"not slow\"')",
     "unit: marks tests as unit tests",
-    "integration: marks tests as integration tests", 
-    "benchmark: marks tests as performance benchmarks"
+    "integration: marks tests as integration tests",
+    "benchmark: marks tests as performance benchmarks",
+    "property_based: marks tests that use property-based testing"
 ]
 filterwarnings = [
     "error",

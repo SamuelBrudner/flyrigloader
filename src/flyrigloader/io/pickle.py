@@ -549,6 +549,27 @@ def reset_global_dependencies() -> None:
 
 # Convenience functions for backward compatibility
 
+def load_experimental_data(path: Union[str, Path]) -> Dict[str, Any]:
+    """
+    Load experimental data from a pickle file with automatic format detection.
+    
+    This is a convenience wrapper around read_pickle_any_format for backward compatibility.
+    
+    Args:
+        path: Path to the pickle file to read
+        
+    Returns:
+        Dictionary containing the loaded experimental data
+        
+    Raises:
+        FileNotFoundError: If the file does not exist
+        ValueError: If the file format is invalid
+        PermissionError: If the file cannot be accessed
+        RuntimeError: If the file cannot be loaded
+    """
+    return read_pickle_any_format(path)
+
+
 def read_pickle_any_format(path: Union[str, Path]) -> Union[Dict[str, Any], pd.DataFrame]:
     """
     Convenience function for reading pickle files using the default PickleLoader.

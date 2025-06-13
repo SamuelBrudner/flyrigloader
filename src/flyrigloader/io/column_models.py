@@ -755,6 +755,147 @@ def get_validation_diagnostics(dependencies: Optional[DependencyContainer] = Non
     return diagnostics
 
 
+def validate_experimental_data(experimental_data: Dict[str, Any], column_config: Union[Dict[str, Any], ColumnConfigDict], 
+                           dependencies: Optional[DependencyContainer] = None) -> Dict[str, Any]:
+    """
+    Validate experimental data against a column configuration.
+    
+    This function validates that the provided experimental data dictionary conforms to the
+    specified column configuration, checking for required fields, data types, and dimensions.
+    
+    Args:
+        experimental_data: Dictionary containing experimental data to validate
+        column_config: Column configuration dictionary or ColumnConfigDict instance
+        dependencies: Optional dependency container for testing scenarios
+        
+    Returns:
+        Dict[str, Any]: Validated and potentially transformed experimental data
+        
+    Raises:
+        ValueError: If validation fails
+        TypeError: If input types are incorrect
+    """
+    if not isinstance(experimental_data, dict):
+        raise TypeError(f"experimental_data must be a dictionary, got {type(experimental_data).__name__}")
+    
+    # Get dependency container
+    deps = dependencies or get_dependency_container()
+    
+    # Convert dict to ColumnConfigDict if needed
+    if not isinstance(column_config, ColumnConfigDict):
+        try:
+            column_config = ColumnConfigDict.model_validate(column_config)
+        except Exception as e:
+            raise ValueError(f"Invalid column configuration: {str(e)}") from e
+    
+    validated_data = {}
+    
+    # Check required columns
+    for col_name, col_config in column_config.columns.items():
+        if col_config.required and col_name not in experimental_data:
+            if col_config.default_value is not None:
+                validated_data[col_name] = col_config.default_value
+                continue
+            raise ValueError(f"Missing required column: {col_name}")
+        
+        if col_name in experimental_data:
+            value = experimental_data[col_name]
+            
+            # Type checking
+            if col_config.type == "numpy.ndarray":
+                if not isinstance(value, np.ndarray):
+                    raise TypeError(f"Column {col_name} must be a numpy.ndarray, got {type(value).__name__}")
+                
+                # Dimension checking
+                if col_config.dimension is not None:
+                    if len(value.shape) != col_config.dimension.value:
+                        raise ValueError(
+                            f"Column {col_name} must be {col_config.dimension.value}D, "
+                            f"got {len(value.shape)}D"
+                        )
+            
+            validated_data[col_name] = value
+    
+    # Add any missing optional columns with default values
+    for col_name, col_config in column_config.columns.items():
+        if col_name not in validated_data and col_config.default_value is not None:
+            validated_data[col_name] = col_config.default_value
+    
+    return validated_data
+
+
+def transform_to_standardized_format(
+    experimental_data: Dict[str, Any],
+    column_config: Union[Dict[str, Any], ColumnConfigDict],
+    dependencies: Optional[DependencyContainer] = None
+) -> Dict[str, Any]:
+    """
+    Transform experimental data into a standardized format based on column configuration.
+    
+    This function applies any necessary transformations to the input data to ensure
+    it matches the expected format defined in the column configuration. This includes:
+    - Renaming columns based on aliases
+    - Applying special handling for specific column types
+    - Ensuring consistent data types and shapes
+    
+    Args:
+        experimental_data: Dictionary containing the raw experimental data
+        column_config: Column configuration dictionary or ColumnConfigDict instance
+        dependencies: Optional dependency container for testing scenarios
+        
+    Returns:
+        Dict[str, Any]: Transformed data in standardized format
+        
+    Raises:
+        ValueError: If transformation fails or data cannot be standardized
+        TypeError: If input types are incorrect
+    """
+    # Get dependencies
+    deps = dependencies or _dependency_container
+    logger = deps.logger
+    
+    # Convert dict config to ColumnConfigDict if needed
+    if not isinstance(column_config, ColumnConfigDict):
+        try:
+            column_config = ColumnConfigDict.model_validate(column_config)
+        except Exception as e:
+            error_msg = f"Invalid column configuration: {str(e)}"
+            logger.error(error_msg)
+            raise ValueError(error_msg) from e
+    
+    # Make a copy of the input data to avoid modifying the original
+    transformed_data = experimental_data.copy()
+    
+    # Apply column aliases
+    for col_name, col_config in column_config.columns.items():
+        if col_config.alias and col_config.alias in transformed_data:
+            transformed_data[col_name] = transformed_data.pop(col_config.alias)
+    
+    # Apply special handling for specific column types
+    for col_name, col_config in column_config.columns.items():
+        if col_name not in transformed_data:
+            if col_config.default_value is not None:
+                transformed_data[col_name] = col_config.default_value
+            continue
+            
+        # Handle special column types
+        if col_config.special_handling == SpecialHandlerType.EXTRACT_FIRST_COLUMN_IF_2D:
+            data = transformed_data[col_name]
+            if isinstance(data, np.ndarray) and data.ndim == 2:
+                transformed_data[col_name] = data[:, 0]
+                
+        elif col_config.special_handling == SpecialHandlerType.TRANSFORM_TIME_DIMENSION:
+            # Implementation for time dimension transformation would go here
+            pass
+    
+    # Validate the transformed data
+    try:
+        return validate_experimental_data(transformed_data, column_config, dependencies=dependencies)
+    except Exception as e:
+        logger.error(f"Failed to validate transformed data: {str(e)}")
+        raise
+
+
 # Import compatibility layer for backward compatibility
 try:
     from flyrigloader import logger

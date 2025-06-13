@@ -160,6 +160,7 @@ def _import_with_test_hooks(module_name: str, function_name: str, fallback_func:
 
 # Enhanced import handling with improved logging and error recovery
 try:
+    from flyrigloader.utils.dataframe import combine_metadata_and_data as _combine_metadata_and_data
     from flyrigloader.utils.paths import (
         get_relative_path as _get_relative_path,
         get_absolute_path as _get_absolute_path,
@@ -261,6 +262,20 @@ def extract_unique_values(*args, **kwargs):
     func = _import_with_test_hooks('dataframe', 'extract_unique_values', _extract_unique_values)
     return func(*args, **kwargs)
 
+def combine_metadata_and_data(*args, **kwargs):
+    """
+    Combine metadata with data into a single dictionary with test hook support.
+    
+    This function merges metadata into the data dictionary with an optional prefix
+    to avoid key collisions. It handles nested dictionaries and ensures that 
+    metadata doesn't overwrite existing data keys.
+    
+    Supports pytest.monkeypatch scenarios through registered test providers
+    while maintaining production functionality and security isolation.
+    """
+    func = _import_with_test_hooks('dataframe', 'combine_metadata_and_data', _combine_metadata_and_data)
+    return func(*args, **kwargs)
+
 # Enhanced __all__ with test utilities (available only in test environments)
 _base_exports = [
     # Path utilities
@@ -272,7 +287,8 @@ _base_exports = [
     # DataFrame utilities
     'build_manifest_df',
     'filter_manifest_df',
-    'extract_unique_values'
+    'extract_unique_values',
+    'combine_metadata_and_data'
 ]
 
 # Test-specific exports (TST-REF-003: only available in test environments)

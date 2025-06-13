@@ -10,6 +10,51 @@ from pathlib import Path
 from typing import Optional, Dict, Any, Union
 from loguru import logger
 
+# Standard log formats for consistent logging across the application
+log_format_console = (
+    "<green>{time:YYYY-MM-DD HH:mm:ss.SSS}</green> | "
+    "<level>{level: <8}</level> | "
+    "<cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - <level>{message}</level>"
+)
+
+log_format_file = (
+    "{time:YYYY-MM-DD HH:mm:ss.SSS} | "
+    "{level: <8} | "
+    "{name}:{function}:{line} - {message}"
+)
+
+def _get_default_log_directory() -> Path:
+    """Get the default log directory path.
+    
+    Returns:
+        Path: Path to the default log directory
+    """
+    # First try to get the log directory from environment variable
+    log_dir = os.environ.get("FLYRIGLOADER_LOG_DIR")
+    if log_dir:
+        return Path(log_dir)
+    
+    # Fall back to a logs directory in the user's home directory
+    home = Path.home()
+    log_dir = home / ".flyrigloader" / "logs"
+    
+    # Create the directory if it doesn't exist
+    log_dir.mkdir(parents=True, exist_ok=True)
+    return log_dir
+
+# Standard log file path
+def _get_log_file_path() -> Path:
+    """Get the path to the log file.
+    
+    Returns:
+        Path: Path to the log file
+    """
+    log_dir = _get_default_log_directory()
+    log_dir.mkdir(parents=True, exist_ok=True)  # Ensure directory exists
+    return log_dir / f"flyrigloader_{os.getpid()}.log"
+
+log_file_path = _get_log_file_path()
+
 
 # --- Logger Configuration Infrastructure ---
 

@@ -168,3 +168,6 @@ test.txt
 
 # Log files and directories
 logs/
+
+dev_env/
+prod_env/

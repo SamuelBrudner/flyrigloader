@@ -137,6 +137,94 @@ class StandardFileSystemProvider:
 _default_filesystem_provider = StandardFileSystemProvider()
 
 
+def normalize_path_separators(path: Union[str, Path]) -> str:
+    """
+    Normalize path separators in a path string to be consistent across platforms.
+    
+    This function ensures that path separators are consistent with the current
+    operating system, converting forward slashes to backslashes on Windows and
+    vice versa on Unix-like systems.
+    
+    Args:
+        path: The path to normalize (string or Path object)
+        
+    Returns:
+        String with normalized path separators
+        
+    Example:
+        >>> # On Unix
+        >>> normalize_path_separators('C:\\Windows\\Path')
+        'C:/Windows/Path'
+        
+        >>> # On Windows
+        >>> normalize_path_separators('C:/Windows/Path')
+        'C:\\Windows\\Path'
+    """
+    path_str = str(path)
+    if os.sep == '\\':
+        # On Windows, convert forward slashes to backslashes
+        return path_str.replace('/', '\\')
+    else:
+        # On Unix, convert backslashes to forward slashes
+        return path_str.replace('\\', '/')
+
+
+def resolve_path(
+    path: Union[str, Path],
+    base_dir: Optional[Union[str, Path]] = None,
+    fs_provider: Optional[FileSystemProvider] = None
+) -> Path:
+    """
+    Resolve a path to its absolute form with symlinks resolved.
+    
+    This function provides a high-level interface for path resolution with
+    dependency injection support for testing and error handling.
+    
+    Args:
+        path: The path to resolve (can be relative or absolute)
+        base_dir: Optional base directory for relative paths
+        fs_provider: Optional filesystem provider for dependency injection
+        
+    Returns:
+        Resolved absolute Path object
+        
+    Raises:
+        ValueError: If the path cannot be resolved
+        
+    Example:
+        >>> resolve_path("relative/path", "/base/dir")
+        Path("/base/dir/relative/path")
+        
+        >>> resolve_path("~/file.txt")
+        Path("/home/username/file.txt")
+    """
+    # Use provided filesystem provider or default
+    provider = fs_provider or _default_filesystem_provider
+    
+    try:
+        # Convert input to Path if it's a string
+        path_obj = Path(path) if isinstance(path, str) else path
+        
+        # If path is already absolute, just resolve it
+        if path_obj.is_absolute():
+            return provider.resolve_path(path_obj)
+            
+        # Handle relative paths with base directory
+        if base_dir is not None:
+            base_dir_obj = Path(base_dir) if isinstance(base_dir, str) else base_dir
+            if not base_dir_obj.is_absolute():
+                base_dir_obj = base_dir_obj.resolve()
+            path_obj = base_dir_obj / path_obj
+        
+        # Resolve the final path (handles symlinks, . and ..)
+        return provider.resolve_path(path_obj)
+        
+    except Exception as e:
+        error_msg = f"Failed to resolve path '{path}': {str(e)}"
+        logger.error(error_msg)
+        raise ValueError(error_msg) from e
+
+
 def get_relative_path(
     path: Union[str, Path], 
     base_dir: Union[str, Path],

@@ -351,8 +351,190 @@ class DataFrameUtilities:
         return record
 
 
+def combine_metadata_and_data(data: Dict[str, Any], metadata: Dict[str, Any], 
+                          prefix: str = "meta_", inplace: bool = False) -> Dict[str, Any]:
+    """
+    Combine experimental data with metadata into a single dictionary.
+    
+    This function merges metadata into the data dictionary with an optional prefix
+    to avoid key collisions. It handles nested dictionaries and ensures that 
+    metadata doesn't overwrite existing data keys.
+    
+    Args:
+        data: Dictionary containing experimental data
+        metadata: Dictionary containing metadata to be added
+        prefix: Prefix to add to metadata keys to avoid collisions
+        inplace: If True, modify the data dictionary in place
+                
+    Returns:
+        Dictionary with combined data and metadata
+        
+    Raises:
+        TypeError: If either data or metadata is not a dictionary
+        ValueError: If there are key conflicts that can't be resolved with prefixing
+    """
+    if not isinstance(data, dict):
+        raise TypeError(f"data must be a dictionary, got {type(data).__name__}")
+    if not isinstance(metadata, dict):
+        raise TypeError(f"metadata must be a dictionary, got {type(metadata).__name__}")
+    
+    # Create a copy if not modifying in place
+    result = data if inplace else data.copy()
+    
+    for key, value in metadata.items():
+        # Skip None values in metadata
+        if value is None:
+            continue
+            
+        # Handle nested dictionaries recursively
+        if isinstance(value, dict) and key in result and isinstance(result[key], dict):
+            result[key] = combine_metadata_and_data(
+                result[key], 
+                value, 
+                prefix=prefix,
+                inplace=False  # Always create new dict for nested updates
+            )
+        else:
+            # Add prefix to avoid key collisions
+            prefixed_key = f"{prefix}{key}" if prefix else key
+            
+            # Check for key conflicts
+            if prefixed_key in result and result[prefixed_key] != value:
+                raise ValueError(
+                    f"Key conflict for '{prefixed_key}'. "
+                    f"Existing value: {result[prefixed_key]}, New value: {value}"
+                )
+            
+            # Add the metadata with prefix
+            result[prefixed_key] = value
+    
+    return result
+
+
 # Global instance for backward compatibility and standard usage
 _default_utilities = DataFrameUtilities()
+
+
+def attach_file_metadata_to_dataframe(
+    df: pd.DataFrame,
+    file_metadata: Dict[str, Dict[str, Any]],
+    path_column: str = 'path',
+    inplace: bool = False,
+    **kwargs
+) -> pd.DataFrame:
+    """
+    Attach file metadata to an existing DataFrame.
+    
+    This function merges file metadata into an existing DataFrame based on
+    matching file paths. The metadata is joined on the specified path column.
+    
+    Args:
+        df: Input DataFrame containing file paths
+        file_metadata: Dictionary mapping file paths to metadata dictionaries
+        path_column: Name of the column containing file paths
+        inplace: If True, modify the input DataFrame in place
+        **kwargs: Additional arguments passed to pandas.merge
+        
+    Returns:
+        DataFrame with attached metadata
+        
+    Raises:
+        ValueError: If path_column is not in the DataFrame
+        KeyError: If path_column is not found in the DataFrame
+        
+    Example:
+        >>> df = pd.DataFrame({
+        ...     'path': ['/data/file1.txt', '/data/file2.txt'],
+        ...     'value': [1, 2]
+        ... })
+        >>> metadata = {
+        ...     '/data/file1.txt': {'animal': 'mouse', 'condition': 'test'},
+        ...     '/data/file2.txt': {'animal': 'rat', 'condition': 'control'}
+        ... }
+        >>> result = attach_file_metadata_to_dataframe(df, metadata)
+    """
+    if not inplace:
+        df = df.copy()
+    
+    if path_column not in df.columns:
+        raise KeyError(f"Column '{path_column}' not found in DataFrame columns: {df.columns.tolist()}")
+    
+    # Convert metadata to DataFrame
+    metadata_df = pd.DataFrame.from_dict(file_metadata, orient='index')
+    metadata_df.index.name = path_column
+    metadata_df = metadata_df.reset_index()
+    
+    # Merge with original DataFrame
+    merged_df = df.merge(metadata_df, on=path_column, how='left', **kwargs)
+    
+    return merged_df
+
+
+def discovery_results_to_dataframe(
+    discovery_results: Union[List[Dict[str, Any]], Dict[str, Dict[str, Any]]],
+    include_stats: bool = False,
+    base_directory: Optional[Union[str, Path]] = None,
+    **kwargs
+) -> pd.DataFrame:
+    """
+    Convert discovery results to a pandas DataFrame.
+    
+    This is a high-level convenience function that wraps build_manifest_df
+    with a more user-friendly interface for common discovery result formats.
+    
+    Args:
+        discovery_results: Discovery results to convert. Can be:
+            - A list of file paths (strings)
+            - A list of dictionaries with file metadata
+            - A dictionary mapping file paths to metadata dictionaries
+        include_stats: Whether to include file statistics (size, mtime, etc.)
+        base_directory: Optional base directory for relative paths
+        **kwargs: Additional arguments passed to build_manifest_df
+        
+    Returns:
+        DataFrame with file information and metadata
+        
+    Raises:
+        ValueError: If input data is invalid or processing fails
+        TypeError: If discovery_results is not a list or dict
+        
+    Example:
+        >>> results = [
+        ...     {"path": "/data/file1.txt", "animal": "mouse", "condition": "test"},
+        ...     {"path": "/data/file2.txt", "animal": "rat", "condition": "control"},
+        ... ]
+        >>> df = discovery_results_to_dataframe(results)
+    """
+    # Handle different input formats
+    if isinstance(discovery_results, list):
+        if not discovery_results:
+            return pd.DataFrame()
+            
+        # Convert list of dicts to dict format if needed
+        if all(isinstance(item, dict) for item in discovery_results):
+            # If all items have a 'path' key, use that as the dict key
+            if all('path' in item for item in discovery_results):
+                discovery_results = {
+                    item['path']: {k: v for k, v in item.items() if k != 'path'}
+                    for item in discovery_results
+                }
+            else:
+                # Otherwise, convert list to dict with sequential keys
+                discovery_results = {str(i): item for i, item in enumerate(discovery_results)}
+    
+    # At this point, discovery_results should be a dict
+    if not isinstance(discovery_results, dict):
+        raise TypeError(
+            f"discovery_results must be a list or dict, got {type(discovery_results).__name__}"
+        )
+    
+    # Use build_manifest_df for the actual conversion
+    return build_manifest_df(
+        files=discovery_results,
+        include_stats=include_stats,
+        base_directory=base_directory,
+        **kwargs
+    )
 
 
 def build_manifest_df(

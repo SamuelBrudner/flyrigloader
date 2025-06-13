@@ -604,7 +604,7 @@ class TestConfigurationDrivenDiscoveryPerformance:
         Creates a predictable file system environment for consistent
         performance measurement without I/O overhead.
         """
-        from unittest.mock import MagicMock
+        from unittest.mock import MagicMock, PropertyMock
         
         # Mock file discovery functions to focus on configuration processing
         mock_discover_files = MagicMock()
@@ -612,12 +612,26 @@ class TestConfigurationDrivenDiscoveryPerformance:
             f"/test/data/file_{i:03d}.csv" for i in range(100)
         ]
         
+        # Mock the path provider's exists method to return True for /test/data
+        mock_path_provider = MagicMock()
+        mock_path_provider.resolve_path.side_effect = lambda x: Path(str(x))
+        mock_path_provider.exists.side_effect = lambda x: str(x).startswith('/test/')
+        
+        # Patch the discovery function and path provider
         monkeypatch.setattr(
             "flyrigloader.config.discovery.discover_files", 
             mock_discover_files
         )
         
-        return mock_discover_files
+        # Patch the default discovery engine's path provider
+        from flyrigloader.config.discovery import _default_discovery_engine
+        original_provider = _default_discovery_engine.path_provider
+        _default_discovery_engine.path_provider = mock_path_provider
+        
+        yield mock_discover_files
+        
+        # Restore the original path provider after test
+        _default_discovery_engine.path_provider = original_provider
     
     @pytest.mark.benchmark(group="config_discovery")
     def test_discover_files_with_config_performance(self, benchmark, medium_config_dict, mock_file_system):
