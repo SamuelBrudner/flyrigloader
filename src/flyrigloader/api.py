@@ -11,7 +11,7 @@ from pathlib import Path
 import copy
 from typing import Dict, List, Any, Optional, Union, Protocol, Callable
 from abc import ABC, abstractmethod
-from loguru import logger
+from flyrigloader import logger
 
 
 MISSING_DATA_DIR_ERROR = (

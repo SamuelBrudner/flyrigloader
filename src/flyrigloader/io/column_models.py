@@ -81,7 +81,7 @@ class DefaultLogger:
     """Default logger implementation using Loguru."""
     
     def __init__(self):
-        from loguru import logger
+        from flyrigloader import logger
         self._logger = logger
     
     def debug(self, message: str) -> None:
@@ -754,7 +754,7 @@ def get_validation_diagnostics(dependencies: Optional[DependencyContainer] = Non
 
 # Import compatibility layer for backward compatibility
 try:
-    from loguru import logger
+    from flyrigloader import logger
     _legacy_logger = logger
 except ImportError:
     _legacy_logger = DefaultLogger()

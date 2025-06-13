@@ -15,7 +15,7 @@ import pandas as pd
 from pathlib import Path
 from typing import Dict, Any, Union, Optional, List, Tuple, Protocol, runtime_checkable
 from abc import ABC, abstractmethod
-from loguru import logger
+from flyrigloader import logger
 from flyrigloader.io.column_models import (
     load_column_config, 
     ColumnConfigDict, 

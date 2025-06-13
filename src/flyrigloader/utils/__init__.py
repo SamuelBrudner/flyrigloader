@@ -18,7 +18,7 @@ from typing import Any, Dict, Optional, Union, Callable, TypeVar
 
 # Enhanced error handling with logging support for test observability
 try:
-    from loguru import logger
+    from flyrigloader import logger
 except ImportError:
     # Fallback to standard logging for test environments without Loguru
     import logging

@@ -15,7 +15,7 @@ from pathlib import Path
 from abc import ABC, abstractmethod
 import os
 import sys
-from loguru import logger
+from flyrigloader import logger
 
 
 @runtime_checkable
