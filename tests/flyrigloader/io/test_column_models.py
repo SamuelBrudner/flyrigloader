@@ -11,13 +11,20 @@ from pydantic import ValidationError
 import pandas as pd
 
 from flyrigloader.io.column_models import (
-    ColumnConfig, 
-    ColumnConfigDict, 
-    ColumnDimension, 
+    ColumnConfig,
+    ColumnConfigDict,
+    ColumnDimension,
     SpecialHandlerType,
     load_column_config,
     get_config_from_source
 )
+import pydantic
+
+
+def test_models_inherit_basemodel():
+    """Ensure core models derive from Pydantic BaseModel."""
+    assert issubclass(ColumnConfig, pydantic.BaseModel)
+    assert issubclass(ColumnConfigDict, pydantic.BaseModel)
 from flyrigloader.io.pickle import make_dataframe_from_config
 
 

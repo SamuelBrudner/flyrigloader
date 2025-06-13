@@ -16,6 +16,9 @@ from typing import Dict, List, Optional, Union, Any, Literal, Callable, Protocol
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 
+# Pydantic imports with v2 compatibility (F-020)
+from pydantic import BaseModel, Field, field_validator, model_validator
+
 import numpy as np
 import os
 
