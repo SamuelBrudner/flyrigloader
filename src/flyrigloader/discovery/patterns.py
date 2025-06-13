@@ -5,7 +5,7 @@ Utilities for working with regex patterns to extract metadata from filenames.
 """
 from typing import Any, Dict, List, Optional, Pattern, Union, Tuple, Protocol, Callable
 import re
-from loguru import logger
+from flyrigloader import logger
 from pathlib import Path
 from abc import ABC, abstractmethod
 

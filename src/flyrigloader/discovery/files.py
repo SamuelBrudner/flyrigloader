@@ -11,7 +11,7 @@ from datetime import datetime
 import fnmatch
 from abc import ABC, abstractmethod
 
-from loguru import logger
+from flyrigloader import logger
 from flyrigloader.discovery.patterns import PatternMatcher, match_files_to_patterns
 from flyrigloader.discovery.stats import get_file_stats, attach_file_stats
 

@@ -23,7 +23,7 @@ Configurable Logging Context (Section 2.2.8):
 import os
 from typing import Any, Dict, List, Optional, Protocol, Union, runtime_checkable
 from pathlib import Path
-from loguru import logger
+from flyrigloader import logger
 
 # Core discovery functionality exports
 from flyrigloader.discovery.files import (

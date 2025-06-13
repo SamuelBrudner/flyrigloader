@@ -12,7 +12,7 @@ from pathlib import Path
 from abc import ABC, abstractmethod
 
 import pandas as pd
-from loguru import logger
+from flyrigloader import logger
 
 from flyrigloader.discovery.stats import get_file_stats
 from flyrigloader.utils.paths import get_relative_path
