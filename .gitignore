@@ -51,6 +51,25 @@ coverage.xml
 .pytest_cache/
 cover/
 
+# Performance testing and benchmark artifacts
+benchmark-artifacts/
+performance-reports/
+scripts/benchmarks/__pycache__/
+scripts/benchmarks/.pytest_cache/
+scripts/benchmarks/*.json
+scripts/benchmarks/*.csv
+scripts/benchmarks/reports/
+scripts/benchmarks/artifacts/
+scripts/benchmarks/output/
+scripts/benchmarks/.coverage*
+scripts/benchmarks/htmlcov/
+
+# CI/CD benchmark integration artifacts
+.github/benchmark_results/
+.benchmark_status
+benchmark_summary.md
+performance_comparison.html
+
 # Translations
 *.mo
 *.pot
@@ -168,6 +187,26 @@ test.txt
 
 # Log files and directories
 logs/
+benchmark-logs/
+performance-logs/
 
+# Development and production environments
 dev_env/
 prod_env/
+
+# Memory profiling and statistical analysis artifacts
+*.memory_profile
+*.prof
+memory_profiler_*.txt
+profiling_results/
+statistical_analysis/
+regression_reports/
+baseline_comparisons/
+environment_normalization/
+
+# Benchmark execution temporary files
+.benchmark_cache/
+temp_benchmark_*/
+large_dataset_*/
+synthetic_data_*/
+performance_test_data/
