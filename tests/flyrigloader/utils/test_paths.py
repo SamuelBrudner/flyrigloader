@@ -14,7 +14,8 @@ from flyrigloader.utils.paths import (
     get_relative_path,
     get_absolute_path,
     find_common_base_directory,
-    ensure_directory_exists
+    ensure_directory_exists,
+    ensure_directory
 )
 
 
@@ -590,3 +591,44 @@ class TestCheckFileExistsComprehensive:
             # Test non-existent file in same directory
             nonexistent = Path(temp_dir) / "nonexistent_file.txt"
             assert check_file_exists(nonexistent) is False
+
+
+class TestEnsureDirectory:
+    """Tests for the ensure_directory utility."""
+
+    def test_ensure_directory_creates_new(self, tmp_path):
+        target = tmp_path / "created"
+        assert not target.exists()
+        ensure_directory(target)
+        assert target.exists() and target.is_dir()
+
+    def test_ensure_directory_existing_no_error(self, tmp_path):
+        target = tmp_path / "existing"
+        target.mkdir()
+        ensure_directory(target)
+        assert target.exists() and target.is_dir()
+
+    def test_ensure_directory_existing_error(self, tmp_path):
+        target = tmp_path / "existing_error"
+        target.mkdir()
+        with pytest.raises(FileExistsError):
+            ensure_directory(target, exist_ok=False)
+
+    def test_ensure_directory_nested_creation(self, tmp_path):
+        nested = tmp_path / "a" / "b" / "c"
+        ensure_directory(nested)
+        assert nested.exists() and nested.is_dir()
+
+    def test_ensure_directory_invalid_path(self):
+        with pytest.raises(OSError):
+            ensure_directory(Path("\0invalid"))
+
+    def test_ensure_directory_permission_denied(self, tmp_path):
+        base = tmp_path / "readonly"
+        base.mkdir()
+        base.chmod(0o400)
+        try:
+            with pytest.raises(PermissionError):
+                ensure_directory(base / "child")
+        finally:
+            base.chmod(0o700)

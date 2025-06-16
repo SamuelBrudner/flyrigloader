@@ -165,7 +165,8 @@ try:
         get_relative_path as _get_relative_path,
         get_absolute_path as _get_absolute_path,
         find_common_base_directory as _find_common_base_directory,
-        ensure_directory_exists as _ensure_directory_exists
+        ensure_directory_exists as _ensure_directory_exists,
+        ensure_directory as _ensure_directory
     )
     logger.debug("Successfully imported path utilities")
 except ImportError as e:
@@ -232,6 +233,12 @@ def ensure_directory_exists(*args, **kwargs):
     func = _import_with_test_hooks('paths', 'ensure_directory_exists', _ensure_directory_exists)
     return func(*args, **kwargs)
 
+
+def ensure_directory(*args, **kwargs):
+    """Ensure a directory exists using the public utility with test hook support."""
+    func = _import_with_test_hooks('paths', 'ensure_directory', _ensure_directory)
+    return func(*args, **kwargs)
+
 def build_manifest_df(*args, **kwargs):
     """
     Convert discovery results to a pandas DataFrame with test hook support.
@@ -283,6 +290,7 @@ _base_exports = [
     'get_absolute_path',
     'find_common_base_directory',
     'ensure_directory_exists',
+    'ensure_directory',
     
     # DataFrame utilities
     'build_manifest_df',

@@ -418,6 +418,41 @@ def ensure_directory_exists(
         raise ValueError(f"Failed to ensure directory exists at {path}: {e}") from e
 
 
+def ensure_directory(directory: Path, exist_ok: bool = True) -> None:
+    """Ensure a directory exists, creating it if necessary.
+
+    Args:
+        directory (Path): The directory path to create if missing.
+        exist_ok (bool, optional): If ``True`` (default), no exception is raised
+            when the directory already exists.
+
+    Raises:
+        PermissionError: If there are insufficient permissions to create the
+            directory.
+        FileExistsError: If ``exist_ok`` is ``False`` and the directory already
+            exists.
+        OSError: For other filesystem-related errors.
+
+    Example:
+        >>> from pathlib import Path
+        >>> ensure_directory(Path('output'))
+    """
+
+    try:
+        dir_path = Path(directory)
+        dir_path.mkdir(parents=True, exist_ok=exist_ok)
+        logger.debug(f"Directory ensured: {dir_path} (exist_ok={exist_ok})")
+    except PermissionError as e:
+        logger.error(f"Permission denied creating directory {dir_path}: {e}")
+        raise
+    except FileExistsError as e:
+        logger.error(f"Directory already exists at {dir_path}: {e}")
+        raise
+    except OSError as e:
+        logger.error(f"Error creating directory {dir_path}: {e}")
+        raise
+
+
 def check_file_exists(
     file_path: Union[str, Path],
     *,
