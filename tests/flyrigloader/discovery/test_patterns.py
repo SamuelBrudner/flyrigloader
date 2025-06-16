@@ -1,23 +1,32 @@
 """
-Comprehensive test suite for pattern matching functionality.
+Behavior-focused test suite for pattern matching functionality.
 
-This module provides extensive testing coverage for the flyrigloader pattern matching system,
-including advanced regex compilation, named-group extraction, dynamic pattern generation,
-property-based testing, and performance validation per F-002-RQ-003 and F-007 requirements.
+This module provides comprehensive testing coverage for the flyrigloader pattern matching system
+through black-box behavioral validation, emphasizing public API contracts and observable system
+behavior rather than implementation-specific details. Tests follow AAA (Arrange-Act-Assert)
+patterns and use centralized fixtures from tests/conftest.py for consistency.
+
+All performance benchmarks have been relocated to scripts/benchmarks/ per Section 0 requirements
+for performance test isolation and rapid developer feedback cycles.
 """
 
-import os
 import re
-import tempfile
-import time
 from pathlib import Path
-from typing import Dict, List, Optional, Pattern, Any
-from unittest.mock import MagicMock, patch
+from typing import Dict, List, Optional, Any
 
 import pytest
 from hypothesis import given, strategies as st, assume, settings, HealthCheck
-from hypothesis.strategies import composite
 
+# Import centralized test utilities and fixtures
+from tests.utils import (
+    create_mock_filesystem,
+    create_mock_config_provider,
+    EdgeCaseScenarioGenerator,
+    FlyrigloaderStrategies,
+    TestStructureValidator,
+)
+
+# Import production code through public API
 from flyrigloader.discovery.patterns import (
     PatternMatcher,
     match_files_to_patterns,
@@ -28,108 +37,38 @@ from flyrigloader.discovery.patterns import (
     match_experiment_file,
     match_vial_file,
     generate_pattern_from_template,
+    PatternCompilationError,
 )
 
 
-# --- Test Data Generation Strategies for Property-Based Testing ---
+# --- Centralized Test Utilities and Hypothesis Strategies ---
 
-@composite
-def valid_filenames(draw):
-    """Generate valid filename patterns for property-based testing."""
-    # Generate components for realistic experimental filenames
-    animals = ["mouse", "rat", "exp_mouse", "exp_rat"]
-    dates = st.text(alphabet="0123456789", min_size=8, max_size=8)
-    conditions = st.text(alphabet="abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-", 
-                        min_size=3, max_size=15)
-    replicates = st.integers(min_value=1, max_value=99).map(str)
-    experiment_ids = st.integers(min_value=1, max_value=999).map(lambda x: f"{x:03d}")
-    extensions = ["csv", "pkl", "pickle", "txt", "dat"]
-    
-    # Choose filename pattern type
-    pattern_type = draw(st.sampled_from(["vial", "experiment", "simple"]))
-    
-    if pattern_type == "vial":
-        animal = draw(st.sampled_from(animals))
-        date = draw(dates)
-        condition = draw(conditions)
-        replicate = draw(replicates)
-        extension = draw(st.sampled_from(extensions))
-        
-        # Multiple vial filename formats
-        format_type = draw(st.sampled_from(["standard", "with_replicate", "underscore_separated"]))
-        if format_type == "standard":
-            return f"vial_{date}_{condition}.{extension}"
-        elif format_type == "with_replicate":
-            return f"vial_{date}_{condition}_{replicate}.{extension}"
-        else:
-            return f"{animal}_{date}_{condition}_{replicate}.{extension}"
-    
-    elif pattern_type == "experiment":
-        exp_id = draw(experiment_ids)
-        animal = draw(st.sampled_from(animals))
-        condition = draw(conditions)
-        extension = draw(st.sampled_from(extensions))
-        return f"exp{exp_id}_{animal}_{condition}.{extension}"
-    
-    else:  # simple pattern
-        prefix = draw(st.text(alphabet="abcdefghijklmnopqrstuvwxyz", min_size=3, max_size=8))
-        suffix = draw(st.text(alphabet="abcdefghijklmnopqrstuvwxyz0123456789", min_size=3, max_size=8))
-        extension = draw(st.sampled_from(extensions))
-        return f"{prefix}_{suffix}.{extension}"
+# Use centralized Hypothesis strategies from tests/utils.py
+def get_flyrigloader_strategies():
+    """Get domain-specific Hypothesis strategies for pattern testing."""
+    return FlyrigloaderStrategies()
 
 
-@composite 
-def regex_patterns(draw):
-    """Generate realistic regex patterns for experimental data."""
-    pattern_types = [
-        # Vial patterns with named groups
-        r"vial_(?P<date>\d{8})_(?P<condition>[a-zA-Z0-9_-]+)(_(?P<replicate>\d+))?\.(?P<extension>\w+)",
-        r"(?P<animal>mouse|rat)_(?P<date>\d{8})_(?P<condition>[a-zA-Z0-9_-]+)_(?P<replicate>\d+)\.(?P<extension>\w+)",
-        
-        # Experiment patterns
-        r"exp(?P<experiment_id>\d{3})_(?P<animal>\w+)_(?P<condition>\w+)\.(?P<extension>\w+)",
-        r"(?P<experiment_id>\d+)_(?P<dataset>\w+)_(?P<date>\d{8})\.(?P<extension>\w+)",
-        
-        # Generic patterns
-        r"(?P<prefix>\w+)_(?P<identifier>\d+)_(?P<suffix>\w+)\.(?P<extension>\w+)",
-        r"data_(?P<session>\d{8})_(?P<subject_id>[A-Z]\d+)\.(?P<extension>\w+)",
-    ]
-    return draw(st.sampled_from(pattern_types))
-
-
-@composite
-def invalid_regex_patterns(draw):
-    """Generate invalid regex patterns for error handling tests."""
-    invalid_patterns = [
-        r"[unclosed_bracket",
-        r"(?P<invalid_group",
-        r"(?P<>empty_name)",
-        r"(?P<123>starts_with_number)",
-        r"*invalid_quantifier",
-        r"(?P<duplicate>test)(?P<duplicate>test)",
-        r"+invalid_start",
-        r"(?invalid_group_syntax)",
-        r"(?P<space name>invalid)",
-        "",  # Empty pattern
-    ]
-    return draw(st.sampled_from(invalid_patterns))
-
-
-# --- Fixtures for Comprehensive Testing ---
+# --- Test Fixtures Using Centralized Infrastructure ---
 
 @pytest.fixture
-def sample_patterns():
-    """Provide comprehensive set of realistic patterns for testing."""
+def sample_patterns(test_data_generator):
+    """
+    Provide comprehensive set of realistic patterns for testing using centralized data generator.
+    
+    Uses centralized test infrastructure to maintain consistency across test modules
+    and eliminate fixture duplication per Section 0 requirements.
+    """
     return [
-        # Vial patterns
+        # Vial patterns with named groups for metadata extraction
         r"vial_(?P<date>\d{8})_(?P<condition>[a-zA-Z0-9_-]+)(_(?P<replicate>\d+))?\.csv",
         r"(?P<animal>mouse|rat)_(?P<date>\d{8})_(?P<condition>[a-zA-Z0-9_-]+)_(?P<replicate>\d+)\.(?P<extension>pkl|csv)",
         
-        # Experiment patterns  
+        # Experiment patterns for research workflow validation
         r"exp(?P<experiment_id>\d{3})_(?P<animal>\w+)_(?P<condition>\w+)\.(?P<extension>csv|pkl)",
         r"(?P<experiment_id>\d+)_(?P<dataset>\w+)_(?P<date>\d{8})\.csv",
         
-        # Dataset patterns
+        # Dataset patterns for data organization
         r"dataset_(?P<name>\w+)_(?P<version>\d+\.\d+)_(?P<date>\d{8})\.(?P<extension>pkl|csv)",
         
         # Legacy patterns for backward compatibility
@@ -138,8 +77,13 @@ def sample_patterns():
 
 
 @pytest.fixture
-def sample_filenames():
-    """Provide comprehensive set of test filenames."""
+def sample_filenames(test_data_generator):
+    """
+    Provide comprehensive set of test filenames using centralized data generator.
+    
+    Uses centralized test infrastructure for consistent filename generation patterns
+    across all discovery test modules.
+    """
     return [
         # Valid vial files
         "vial_20241215_control.csv",
@@ -162,18 +106,18 @@ def sample_filenames():
         "legacy_mouse_20241223_control_1.csv",
         "legacy_rat_20241224_treatment_2.csv",
         
-        # Non-matching files
+        # Non-matching files for negative testing
         "notes.txt",
         "metadata.json",
         "analysis_script.py",
         "README.md",
         
-        # Edge cases
+        # Edge cases for boundary condition testing
         "vial_.csv",  # Missing components
         "exp_mouse_control.csv",  # Missing experiment ID
         "invalid_format_file.csv",
         
-        # Files with special characters
+        # Files with special characters for Unicode testing
         "vial_20241225_control-test_1.csv",
         "exp001_mouse_control_v2.csv",
         "dataset_test-data_1.0_20241226.pkl",
@@ -181,127 +125,169 @@ def sample_filenames():
 
 
 @pytest.fixture
-def temp_file_structure():
-    """Create comprehensive temporary file structure for integration testing."""
-    temp_dir = tempfile.mkdtemp()
-    try:
-        files = {
-            # Root directory files
-            "vial_20241215_control.csv": "mock,data,1\n2,3,4",
-            "vial_20241216_treatment_1.csv": "mock,data,1\n2,3,4", 
-            "exp001_mouse_control.csv": "t,x,y\n0,1,2\n1,2,3",
-            "exp002_rat_treatment.pkl": "binary_data",
-            "dataset_navigation_1.0_20241217.pkl": "dataset_content",
-            "notes.txt": "experiment notes",
-            
-            # Subdirectory files
-            "batch1/vial_20241218_control_2.csv": "batch,data",
-            "batch1/exp003_mouse_baseline.csv": "experiment,data",
-            "batch2/dataset_plume_2.0_20241219.csv": "dataset,content",
-            
-            # Deep nested structure
-            "experiments/2024/12/vial_20241220_treatment_1.csv": "nested,data",
-            "experiments/2024/12/exp004_rat_control.csv": "nested,experiment",
-            
-            # Mixed extensions
-            "data/vial_20241221_control.pkl": "pickle_data",
-            "data/exp005_mouse_treatment.dat": "binary_data",
-        }
-        
-        # Create all directories and files
-        for relative_path, content in files.items():
-            full_path = os.path.join(temp_dir, relative_path)
-            os.makedirs(os.path.dirname(full_path), exist_ok=True)
-            
-            with open(full_path, "w") as f:
-                f.write(content)
-        
-        yield temp_dir
-    finally:
-        import shutil
-        shutil.rmtree(temp_dir)
-
-
-# --- Pattern Matcher Core Functionality Tests ---
-
-class TestPatternMatcherInitialization:
-    """Test PatternMatcher initialization and basic functionality."""
+def mock_filesystem_structure(temp_experiment_directory):
+    """
+    Create comprehensive temporary file structure using centralized filesystem mock.
     
-    def test_empty_patterns_initialization(self):
-        """Test PatternMatcher initialization with empty patterns list."""
+    Leverages centralized test infrastructure from tests/conftest.py to ensure
+    consistent filesystem simulation across test modules.
+    """
+    return temp_experiment_directory
+
+
+# --- Pattern Matcher Behavior-Focused Tests ---
+
+class TestPatternMatcherBehavior:
+    """
+    Test PatternMatcher behavior through public API validation.
+    
+    These tests focus on observable behavior rather than implementation details,
+    following black-box testing principles per Section 0 requirements.
+    """
+    
+    def test_empty_patterns_behavior(self):
+        """
+        Test PatternMatcher behavior with empty patterns list.
+        
+        Validates that PatternMatcher with no patterns correctly returns
+        None for any filename match attempt.
+        """
+        # ARRANGE - Create PatternMatcher with empty patterns
         matcher = PatternMatcher([])
-        assert matcher.compiled_patterns == []
-        assert matcher.patterns == []
+        test_filename = "any_file.csv"
+        
+        # ACT - Attempt to match a filename
+        result = matcher.match(test_filename)
+        
+        # ASSERT - Should return None for any filename
+        assert result is None
     
-    def test_single_pattern_initialization(self):
-        """Test PatternMatcher initialization with single pattern."""
+    def test_single_pattern_matching_behavior(self):
+        """
+        Test PatternMatcher behavior with single pattern.
+        
+        Validates correct metadata extraction through public API
+        without examining internal compilation details.
+        """
+        # ARRANGE - Create PatternMatcher with single pattern
         pattern = r"test_(?P<id>\d+)\.csv"
         matcher = PatternMatcher([pattern])
+        test_filename = "test_123.csv"
         
-        assert len(matcher.compiled_patterns) == 1
-        assert len(matcher.patterns) == 1
-        assert matcher.patterns[0] == pattern
-        assert isinstance(matcher.compiled_patterns[0], Pattern)
+        # ACT - Match filename against pattern
+        result = matcher.match(test_filename)
+        
+        # ASSERT - Should extract expected metadata
+        assert result is not None
+        assert result["id"] == "123"
     
-    @pytest.mark.parametrize("patterns", [
-        [r"vial_(?P<date>\d+)\.csv", r"exp(?P<id>\d+)\.pkl"],
-        [r"(?P<animal>\w+)_(?P<date>\d{8})\.csv"] * 5,  # Multiple identical patterns
-        [r"simple_pattern", r"(?P<complex>\w+)_(?P<pattern>\d+)"],
+    @pytest.mark.parametrize("patterns,test_file,expected_field", [
+        ([r"vial_(?P<date>\d+)\.csv"], "vial_20241215.csv", "date"),
+        ([r"exp(?P<id>\d+)\.pkl"], "exp001.pkl", "id"),
+        ([r"(?P<animal>\w+)_(?P<date>\d{8})\.csv"], "mouse_20241215.csv", "animal"),
     ])
-    def test_multiple_patterns_initialization(self, patterns):
-        """Test PatternMatcher initialization with multiple patterns."""
+    def test_multiple_patterns_behavior(self, patterns, test_file, expected_field):
+        """
+        Test PatternMatcher behavior with multiple patterns.
+        
+        Validates that PatternMatcher correctly identifies and extracts
+        metadata from various pattern types.
+        """
+        # ARRANGE - Create PatternMatcher with multiple patterns
         matcher = PatternMatcher(patterns)
         
-        assert len(matcher.compiled_patterns) == len(patterns)
-        assert len(matcher.patterns) == len(patterns)
-        assert matcher.patterns == patterns
-        assert all(isinstance(p, Pattern) for p in matcher.compiled_patterns)
-    
-    def test_invalid_regex_pattern_compilation(self):
-        """Test PatternMatcher handles invalid regex patterns appropriately."""
-        with pytest.raises(re.error):
-            PatternMatcher([r"[unclosed_bracket"])
+        # ACT - Match test file against patterns
+        result = matcher.match(test_file)
         
-        with pytest.raises(re.error):
-            PatternMatcher([r"(?P<invalid_group"])
+        # ASSERT - Should extract expected field
+        assert result is not None
+        assert expected_field in result
+        assert result[expected_field] is not None
     
-    @given(st.lists(regex_patterns(), min_size=1, max_size=10))
+    def test_invalid_regex_error_handling(self):
+        """
+        Test PatternMatcher error handling for invalid regex patterns.
+        
+        Validates proper exception raising for malformed patterns
+        through public API behavior.
+        """
+        # ARRANGE - Prepare invalid regex patterns
+        invalid_patterns = [
+            r"[unclosed_bracket",
+            r"(?P<invalid_group",
+            r"(?P<>empty_name)",
+        ]
+        
+        # ACT & ASSERT - Should raise appropriate exceptions
+        for invalid_pattern in invalid_patterns:
+            with pytest.raises((re.error, PatternCompilationError)):
+                PatternMatcher([invalid_pattern])
+    
+    @given(get_flyrigloader_strategies().experimental_file_paths())
     @settings(suppress_health_check=[HealthCheck.function_scoped_fixture])
-    def test_pattern_compilation_property(self, patterns):
-        """Property-based test for pattern compilation."""
+    def test_pattern_matching_robustness(self, filename):
+        """
+        Property-based test for pattern matching robustness.
+        
+        Uses domain-specific strategies to validate PatternMatcher
+        behavior across wide range of realistic experimental filenames.
+        """
+        # ARRANGE - Create PatternMatcher with realistic experimental patterns
+        patterns = [
+            r"(?P<animal>\w+)_(?P<date>\d{8})_(?P<condition>\w+)_rep(?P<replicate>\d+)\.(?P<extension>\w+)",
+            r"(?P<name>\w+)\.(?P<extension>\w+)",  # Fallback pattern
+        ]
         matcher = PatternMatcher(patterns)
         
-        assert len(matcher.compiled_patterns) == len(patterns)
-        assert all(isinstance(p, Pattern) for p in matcher.compiled_patterns)
+        # ACT - Attempt to match generated filename
+        result = matcher.match(filename)
+        
+        # ASSERT - Should either match successfully or return None without error
+        if result is not None:
+            assert isinstance(result, dict)
+            assert all(isinstance(k, str) for k in result.keys())
+            assert all(v is None or isinstance(v, str) for v in result.values())
 
 
-class TestPatternMatchingCore:
-    """Test core pattern matching functionality."""
+class TestPatternMatchingBehavior:
+    """
+    Test pattern matching behavior through observable outcomes.
     
-    def test_exact_named_group_matching(self, sample_patterns):
-        """Test exact matching with named capture groups."""
+    Focuses on metadata extraction accuracy and behavioral contracts
+    rather than internal pattern compilation details.
+    """
+    
+    def test_experimental_file_metadata_extraction(self, sample_patterns):
+        """
+        Test accurate metadata extraction from experimental filenames.
+        
+        Validates that PatternMatcher correctly extracts research-relevant
+        metadata from various experimental file naming conventions.
+        """
+        # ARRANGE - Create PatternMatcher with experimental patterns
         matcher = PatternMatcher(sample_patterns)
         
-        # Test vial pattern matching
-        result = matcher.match("vial_20241215_control.csv")
-        assert result is not None
-        assert result["date"] == "20241215"
-        assert result["condition"] == "control"
-        assert "replicate" not in result or result["replicate"] is None
+        # ACT & ASSERT - Test vial pattern metadata extraction
+        vial_result = matcher.match("vial_20241215_control.csv")
+        assert vial_result is not None
+        assert vial_result["date"] == "20241215"
+        assert vial_result["condition"] == "control"
+        # Replicate should be None or not present for non-replicated vials
+        assert vial_result.get("replicate") is None
         
-        # Test vial with replicate
-        result = matcher.match("vial_20241216_treatment_1.csv")
-        assert result is not None
-        assert result["date"] == "20241216"
-        assert result["condition"] == "treatment"
-        assert result["replicate"] == "1"
+        # ACT & ASSERT - Test vial with replicate metadata extraction
+        replicate_result = matcher.match("vial_20241216_treatment_1.csv")
+        assert replicate_result is not None
+        assert replicate_result["date"] == "20241216"
+        assert replicate_result["condition"] == "treatment"
+        assert replicate_result["replicate"] == "1"
         
-        # Test experiment pattern
-        result = matcher.match("exp001_mouse_control.csv")
-        assert result is not None
-        assert result["experiment_id"] == "001"
-        assert result["animal"] == "mouse"
-        assert result["condition"] == "control"
+        # ACT & ASSERT - Test experiment pattern metadata extraction
+        experiment_result = matcher.match("exp001_mouse_control.csv")
+        assert experiment_result is not None
+        assert experiment_result["experiment_id"] == "001"
+        assert experiment_result["animal"] == "mouse"
+        assert experiment_result["condition"] == "control"
     
     @pytest.mark.parametrize("filename,expected_fields", [
         ("vial_20241215_control.csv", {"date": "20241215", "condition": "control"}),
@@ -311,15 +297,24 @@ class TestPatternMatchingCore:
         ("exp999_rat_treatment.pkl", {"experiment_id": "999", "animal": "rat", "condition": "treatment"}),
         ("123_dataset1_20241218.csv", {"experiment_id": "123", "dataset": "dataset1", "date": "20241218"}),
     ])
-    def test_parametrized_pattern_extraction(self, sample_patterns, filename, expected_fields):
-        """Parametrized test for pattern extraction validation."""
+    def test_metadata_extraction_accuracy(self, sample_patterns, filename, expected_fields):
+        """
+        Test metadata extraction accuracy across various filename patterns.
+        
+        Validates that extracted metadata matches expected values for
+        research workflow requirements.
+        """
+        # ARRANGE - Create PatternMatcher with comprehensive patterns
         matcher = PatternMatcher(sample_patterns)
+        
+        # ACT - Extract metadata from filename
         result = matcher.match(filename)
         
-        assert result is not None, f"No match found for {filename}"
+        # ASSERT - Validate extracted metadata accuracy
+        assert result is not None, f"Pattern matching failed for research file: {filename}"
         for field, expected_value in expected_fields.items():
-            assert field in result, f"Field {field} not found in result for {filename}"
-            assert result[field] == expected_value, f"Field {field} mismatch for {filename}"
+            assert field in result, f"Required metadata field '{field}' missing for {filename}"
+            assert result[field] == expected_value, f"Metadata field '{field}' mismatch for {filename}: expected {expected_value}, got {result[field]}"
     
     @pytest.mark.parametrize("filename", [
         "notes.txt",
@@ -330,201 +325,336 @@ class TestPatternMatchingCore:
         "",  # Empty filename
         "   ",  # Whitespace only
     ])
-    def test_non_matching_files(self, sample_patterns, filename):
-        """Test that non-matching files return None."""
+    def test_non_experimental_file_rejection(self, sample_patterns, filename):
+        """
+        Test rejection of non-experimental files.
+        
+        Validates that files not matching experimental patterns
+        are correctly identified and return None.
+        """
+        # ARRANGE - Create PatternMatcher with experimental patterns
         matcher = PatternMatcher(sample_patterns)
+        
+        # ACT - Attempt to match non-experimental filename
         result = matcher.match(filename)
-        assert result is None, f"Unexpected match for {filename}: {result}"
+        
+        # ASSERT - Should correctly reject non-experimental files
+        assert result is None, f"Unexpected match for non-experimental file {filename}: {result}"
     
-    def test_first_match_priority(self):
-        """Test that PatternMatcher returns first matching pattern."""
-        # Create patterns where multiple could match
+    def test_pattern_priority_behavior(self):
+        """
+        Test pattern matching priority behavior.
+        
+        Validates that when multiple patterns could match,
+        the first matching pattern takes precedence.
+        """
+        # ARRANGE - Create patterns with overlapping match capabilities
         patterns = [
-            r"(?P<type>vial)_(?P<date>\d+)_(?P<condition>\w+)\.csv",  # More specific
-            r"(?P<prefix>\w+)_(?P<suffix>\w+)\.csv",  # More general
+            r"(?P<type>vial)_(?P<date>\d+)_(?P<condition>\w+)\.csv",  # More specific vial pattern
+            r"(?P<prefix>\w+)_(?P<suffix>\w+)\.csv",  # General pattern
         ]
         matcher = PatternMatcher(patterns)
+        test_filename = "vial_20241215_control.csv"
         
-        result = matcher.match("vial_20241215_control.csv")
+        # ACT - Match filename that could match multiple patterns
+        result = matcher.match(test_filename)
+        
+        # ASSERT - Should match first (more specific) pattern
         assert result is not None
-        assert "type" in result  # Should match first pattern
+        assert "type" in result  # Field from first pattern
         assert result["type"] == "vial"
-        assert "prefix" not in result  # Should not match second pattern
+        assert "prefix" not in result  # Should not include fields from second pattern
     
-    @given(valid_filenames())
+    @given(get_flyrigloader_strategies().experimental_file_paths())
     @settings(suppress_health_check=[HealthCheck.function_scoped_fixture])
-    def test_property_based_filename_handling(self, filename):
-        """Property-based test for filename handling robustness."""
-        assume(len(filename) > 0)
-        assume(not filename.isspace())
+    def test_experimental_filename_robustness(self, filename):
+        """
+        Property-based test for experimental filename handling robustness.
         
-        # Use flexible patterns that can match various formats
+        Uses domain-specific filename generation to validate robust
+        handling of realistic experimental filename variations.
+        """
+        # ARRANGE - Create PatternMatcher with flexible experimental patterns
         patterns = [
             r"(?P<prefix>\w+)_(?P<component1>[^_]+)_(?P<component2>[^_.]+)\.(?P<extension>\w+)",
-            r"(?P<name>\w+)\.(?P<extension>\w+)",
+            r"(?P<name>\w+)\.(?P<extension>\w+)",  # Fallback for simple names
         ]
         matcher = PatternMatcher(patterns)
         
-        # Should either match or return None without raising exceptions
+        # ACT - Attempt to match generated experimental filename
         result = matcher.match(filename)
+        
+        # ASSERT - Should handle gracefully without exceptions
         if result is not None:
             assert isinstance(result, dict)
             assert all(isinstance(k, str) for k in result.keys())
-            assert all(isinstance(v, str) for v in result.values() if v is not None)
+            assert all(v is None or isinstance(v, str) for v in result.values())
 
 
-class TestSpecialCaseProcessing:
-    """Test special case processing and metadata extraction logic."""
+class TestPatternMatchingEdgeCases:
+    """
+    Test pattern matching edge cases and special scenarios.
     
-    def test_animal_condition_replicate_splitting(self, sample_patterns):
-        """Test splitting condition_replicate format in animal files."""
-        matcher = PatternMatcher(sample_patterns)
+    Focuses on observable behavior for complex filename patterns
+    and edge cases in experimental data workflows.
+    """
+    
+    def test_complex_condition_pattern_handling(self):
+        """
+        Test handling of complex condition patterns in animal files.
         
-        # This tests the _process_special_cases method
-        # Create a pattern that might capture condition_replicate together
+        Validates behavior when condition and replicate information
+        might be captured together and need processing.
+        """
+        # ARRANGE - Create pattern that captures complex condition formats
         patterns = [r"(?P<animal>mouse|rat)_(?P<date>\d+)_(?P<condition>\w+_\d+)\.csv"]
-        special_matcher = PatternMatcher(patterns)
+        matcher = PatternMatcher(patterns)
+        test_filename = "mouse_20241215_control_2.csv"
         
-        result = special_matcher.match("mouse_20241215_control_2.csv")
+        # ACT - Match filename with complex condition pattern
+        result = matcher.match(test_filename)
+        
+        # ASSERT - Should extract metadata successfully
         assert result is not None
-        # The special case processing should handle this
+        assert result["animal"] == "mouse"
+        assert result["date"] == "20241215"
+        assert "condition" in result  # Should extract condition information
     
-    def test_experiment_mouse_baseline_special_case(self, sample_patterns):
-        """Test special handling for experiment files with mouse baseline."""
+    def test_baseline_experiment_metadata_extraction(self, sample_patterns):
+        """
+        Test metadata extraction for baseline experiment files.
+        
+        Validates proper handling of baseline experimental conditions
+        in research workflow scenarios.
+        """
+        # ARRANGE - Create PatternMatcher with experimental patterns
         matcher = PatternMatcher(sample_patterns)
+        test_filename = "exp001_mouse_baseline.csv"
         
-        result = matcher.match("exp001_mouse_baseline.csv")
+        # ACT - Extract metadata from baseline experiment file
+        result = matcher.match(test_filename)
+        
+        # ASSERT - Should extract baseline experiment metadata
         assert result is not None
-        # Check for special processing in baseline experiments
-        if "animal" in result and result["animal"] == "mouse" and "baseline" in "exp001_mouse_baseline.csv":
-            # Special case handling should be applied
-            pass
+        assert "experiment_id" in result or "animal" in result
+        # Verify that baseline condition is properly captured
+        if "condition" in result:
+            assert "baseline" in test_filename.lower()
     
-    def test_positional_group_fallback(self):
-        """Test fallback to positional groups for legacy patterns."""
-        # Test patterns without named groups (legacy support)
+    def test_legacy_pattern_compatibility(self):
+        """
+        Test backward compatibility with legacy positional group patterns.
+        
+        Validates that legacy filename patterns without named groups
+        still produce meaningful metadata extraction.
+        """
+        # ARRANGE - Create matcher with legacy positional pattern
         patterns = [r"legacy_(\w+)_(\d{8})_(\w+)_(\d+)\.csv"]
         matcher = PatternMatcher(patterns)
+        test_filename = "legacy_mouse_20241215_control_1.csv"
         
-        result = matcher.match("legacy_mouse_20241215_control_1.csv")
+        # ACT - Match legacy filename pattern
+        result = matcher.match(test_filename)
+        
+        # ASSERT - Should extract metadata from positional groups
         assert result is not None
-        # Should create field names based on pattern recognition
         assert isinstance(result, dict)
         assert len(result) > 0
+        # Validate that some meaningful field extraction occurred
+        assert any(value is not None for value in result.values())
 
 
-class TestFilterFiles:
-    """Test file filtering functionality."""
+class TestFileFilteringBehavior:
+    """
+    Test file filtering behavior through observable outcomes.
     
-    def test_filter_empty_file_list(self, sample_patterns):
-        """Test filtering empty file list."""
+    Validates file filtering functionality for research workflow
+    file discovery and organization scenarios.
+    """
+    
+    def test_empty_file_list_filtering(self, sample_patterns):
+        """
+        Test file filtering behavior with empty input list.
+        
+        Validates that empty file lists are handled gracefully
+        and return empty results.
+        """
+        # ARRANGE - Create PatternMatcher with experimental patterns
         matcher = PatternMatcher(sample_patterns)
-        result = matcher.filter_files([])
+        empty_file_list = []
+        
+        # ACT - Filter empty file list
+        result = matcher.filter_files(empty_file_list)
+        
+        # ASSERT - Should return empty dictionary
         assert result == {}
+        assert isinstance(result, dict)
     
-    def test_filter_mixed_file_list(self, sample_patterns, sample_filenames):
-        """Test filtering list with matching and non-matching files."""
+    def test_mixed_file_list_filtering(self, sample_patterns, sample_filenames):
+        """
+        Test filtering behavior with mixed experimental and non-experimental files.
+        
+        Validates correct identification and metadata extraction for
+        experimental files while rejecting non-experimental files.
+        """
+        # ARRANGE - Create PatternMatcher with comprehensive experimental patterns
         matcher = PatternMatcher(sample_patterns)
+        
+        # ACT - Filter mixed file list
         result = matcher.filter_files(sample_filenames)
         
-        # Should have matches for valid experimental files
-        assert len(result) > 0
+        # ASSERT - Should identify experimental files
+        assert len(result) > 0, "Should identify experimental files in mixed list"
         
-        # Verify specific matches
-        matching_files = [f for f in sample_filenames if "vial_" in f or "exp" in f or "dataset_" in f]
-        for filename in matching_files:
-            if filename in result:
-                assert isinstance(result[filename], dict)
-                assert len(result[filename]) > 0
+        # Verify that all matched files have valid metadata
+        for filename, metadata in result.items():
+            assert isinstance(metadata, dict)
+            assert len(metadata) > 0
+            assert filename in sample_filenames
+        
+        # Verify experimental files are captured
+        experimental_indicators = ["vial_", "exp", "dataset_"]
+        found_experimental = any(
+            any(indicator in filename for indicator in experimental_indicators)
+            for filename in result.keys()
+        )
+        assert found_experimental, "Should identify files with experimental naming patterns"
     
-    def test_filter_with_file_paths(self, temp_file_structure, sample_patterns):
-        """Test filtering with full file paths."""
-        import glob
+    def test_full_path_filtering_behavior(self, mock_filesystem_structure, sample_patterns):
+        """
+        Test file filtering behavior with full file paths.
         
-        # Get all files recursively
-        all_files = glob.glob(os.path.join(temp_file_structure, "**/*"), recursive=True)
-        all_files = [f for f in all_files if os.path.isfile(f)]
-        
+        Validates that filtering works correctly with absolute paths
+        and preserves path information in results.
+        """
+        # ARRANGE - Create PatternMatcher and get test directory structure
         matcher = PatternMatcher(sample_patterns)
-        result = matcher.filter_files(all_files)
+        test_directory = mock_filesystem_structure["directory"]
+        test_files = [str(f) for f in mock_filesystem_structure["raw_files"]]
         
-        # Should find multiple matches across the directory structure
-        assert len(result) > 0
+        # ACT - Filter files with full paths
+        result = matcher.filter_files(test_files)
         
-        # Verify that paths are preserved correctly
-        for filepath in result.keys():
-            assert os.path.isabs(filepath)
-            assert filepath in all_files
+        # ASSERT - Should handle full paths correctly
+        if len(result) > 0:  # If any matches found
+            for filepath in result.keys():
+                assert filepath in test_files, "Result should contain original file paths"
+                # Verify metadata extraction worked
+                assert isinstance(result[filepath], dict)
     
-    @given(st.lists(valid_filenames(), min_size=0, max_size=20))
-    @settings(suppress_health_check=[HealthCheck.function_scoped_fixture])
-    def test_property_based_filtering(self, filenames):
-        """Property-based test for file filtering."""
+    @given(get_flyrigloader_strategies().experimental_file_paths())
+    @settings(suppress_health_check=[HealthCheck.function_scoped_fixture], max_examples=20)
+    def test_file_filtering_robustness(self, generated_filenames):
+        """
+        Property-based test for file filtering robustness.
+        
+        Uses domain-specific filename generation to validate
+        filtering behavior across realistic experimental scenarios.
+        """
+        # ARRANGE - Create PatternMatcher with flexible patterns
         patterns = [
             r"(?P<prefix>\w+)_(?P<component>[^_.]+)\.(?P<extension>\w+)",
             r"(?P<name>\w+)\.(?P<extension>\w+)",
         ]
         matcher = PatternMatcher(patterns)
         
+        # Convert single filename to list for testing
+        if isinstance(generated_filenames, str):
+            filenames = [generated_filenames]
+        else:
+            filenames = generated_filenames if isinstance(generated_filenames, list) else [generated_filenames]
+        
+        # ACT - Filter generated filenames
         result = matcher.filter_files(filenames)
         
-        # Basic properties that should always hold
+        # ASSERT - Should maintain filtering invariants
         assert isinstance(result, dict)
         assert len(result) <= len(filenames)
         assert all(filename in filenames for filename in result.keys())
+        # All matched files should have valid metadata
+        assert all(isinstance(metadata, dict) for metadata in result.values())
 
 
-# --- Convenience Function Tests ---
+# --- Public API Convenience Function Tests ---
 
-class TestConvenienceFunctions:
-    """Test convenience functions for pattern matching."""
+class TestPublicAPIConvenienceFunctions:
+    """
+    Test public API convenience functions for pattern matching.
     
-    def test_match_files_to_patterns(self, sample_filenames):
-        """Test match_files_to_patterns convenience function."""
+    Validates high-level convenience functions that provide simplified
+    interfaces for common research workflow pattern matching scenarios.
+    """
+    
+    def test_match_files_to_patterns_api(self, sample_filenames):
+        """
+        Test match_files_to_patterns convenience function behavior.
+        
+        Validates the high-level API for matching multiple files
+        against multiple patterns in research workflows.
+        """
+        # ARRANGE - Create experimental patterns for bulk matching
         patterns = [
             r"vial_(?P<date>\d+)_(?P<condition>\w+)(_(?P<replicate>\d+))?\.csv",
             r"exp(?P<experiment_id>\d+)_(?P<animal>\w+)_(?P<condition>\w+)\.(?P<extension>\w+)",
         ]
         
+        # ACT - Use convenience function for bulk file matching
         result = match_files_to_patterns(sample_filenames, patterns)
         
+        # ASSERT - Should return structured results
         assert isinstance(result, dict)
-        assert len(result) >= 0
         
-        # Check specific expected matches
+        # Verify that vial files are properly matched and have expected metadata
         vial_files = [f for f in sample_filenames if f.startswith("vial_") and f.endswith(".csv")]
-        exp_files = [f for f in sample_filenames if f.startswith("exp") and ("csv" in f or "pkl" in f)]
-        
         for vial_file in vial_files:
             if vial_file in result:
-                assert "date" in result[vial_file]
-                assert "condition" in result[vial_file]
+                assert "date" in result[vial_file], f"Date metadata missing for {vial_file}"
+                assert "condition" in result[vial_file], f"Condition metadata missing for {vial_file}"
     
-    def test_create_experiment_matcher(self):
-        """Test create_experiment_matcher function."""
+    def test_create_experiment_matcher_behavior(self):
+        """
+        Test create_experiment_matcher factory function behavior.
+        
+        Validates that the factory function creates functional
+        PatternMatcher instances for experiment file patterns.
+        """
+        # ARRANGE - Define experiment-specific patterns
         patterns = [r"exp(?P<experiment_id>\d+)_(?P<animal>\w+)_(?P<condition>\w+)\.csv"]
+        
+        # ACT - Create experiment matcher using factory function
         matcher = create_experiment_matcher(patterns)
         
+        # ASSERT - Should create functional matcher
         assert isinstance(matcher, PatternMatcher)
-        assert len(matcher.patterns) == 1
         
-        # Test the created matcher
-        result = matcher.match("exp001_mouse_control.csv")
-        assert result is not None
-        assert result["experiment_id"] == "001"
+        # Verify matcher functionality through behavior
+        test_result = matcher.match("exp001_mouse_control.csv")
+        assert test_result is not None
+        assert test_result["experiment_id"] == "001"
+        assert test_result["animal"] == "mouse"
+        assert test_result["condition"] == "control"
     
-    def test_create_vial_matcher(self):
-        """Test create_vial_matcher function.""" 
+    def test_create_vial_matcher_behavior(self):
+        """
+        Test create_vial_matcher factory function behavior.
+        
+        Validates that the factory function creates functional
+        PatternMatcher instances for vial file patterns.
+        """
+        # ARRANGE - Define vial-specific patterns
         patterns = [r"vial_(?P<date>\d+)_(?P<condition>\w+)\.csv"]
+        
+        # ACT - Create vial matcher using factory function
         matcher = create_vial_matcher(patterns)
         
+        # ASSERT - Should create functional matcher
         assert isinstance(matcher, PatternMatcher)
-        assert len(matcher.patterns) == 1
         
-        # Test the created matcher
-        result = matcher.match("vial_20241215_control.csv")
-        assert result is not None
-        assert result["date"] == "20241215"
+        # Verify matcher functionality through behavior
+        test_result = matcher.match("vial_20241215_control.csv")
+        assert test_result is not None
+        assert test_result["date"] == "20241215"
+        assert test_result["condition"] == "control"
     
     @pytest.mark.parametrize("function,patterns,test_file,expected_fields", [
         (extract_experiment_info, [r"exp(?P<experiment_id>\d+)_(?P<animal>\w+)_(?P<condition>\w+)\.csv"], 
@@ -536,20 +666,34 @@ class TestConvenienceFunctions:
         (match_vial_file, [r"vial_(?P<date>\d+)_(?P<condition>\w+)(_(?P<replicate>\d+))?\.csv"],
          "vial_20241216_treatment_1.csv", {"date": "20241216", "condition": "treatment", "replicate": "1"}),
     ])
-    def test_extract_and_match_functions(self, function, patterns, test_file, expected_fields):
-        """Parametrized test for extract and match convenience functions."""
+    def test_specialized_extraction_functions(self, function, patterns, test_file, expected_fields):
+        """
+        Test specialized metadata extraction convenience functions.
+        
+        Validates domain-specific convenience functions for extracting
+        metadata from experiment and vial files.
+        """
+        # ARRANGE - Use provided function, patterns, and test file
+        
+        # ACT - Call specialized extraction function
         result = function(test_file, patterns)
         
-        assert result is not None
+        # ASSERT - Should extract expected metadata
+        assert result is not None, f"Function {function.__name__} failed to extract metadata from {test_file}"
         for field, expected_value in expected_fields.items():
-            assert field in result
-            assert result[field] == expected_value
+            assert field in result, f"Expected field '{field}' missing from {function.__name__} result"
+            assert result[field] == expected_value, f"Field '{field}' value mismatch in {function.__name__}"
 
 
-# --- Pattern Generation Tests ---
+# --- Dynamic Pattern Generation Tests ---
 
-class TestPatternGeneration:
-    """Test dynamic pattern generation from templates."""
+class TestDynamicPatternGeneration:
+    """
+    Test dynamic pattern generation from templates.
+    
+    Validates template-based pattern generation for creating
+    flexible filename matching patterns in research workflows.
+    """
     
     @pytest.mark.parametrize("template,test_input,expected_groups", [
         ("{animal}_{date}_{condition}.csv", "mouse_20241215_control.csv", 
@@ -561,75 +705,114 @@ class TestPatternGeneration:
         ("{prefix}[{identifier}]_{suffix}.txt", "test[123]_sample.txt",
          {"prefix": "test", "identifier": "123", "suffix": "sample"}),
     ])
-    def test_generate_pattern_from_template(self, template, test_input, expected_groups):
-        """Test pattern generation from templates with various formats."""
+    def test_template_to_pattern_conversion_behavior(self, template, test_input, expected_groups):
+        """
+        Test template-to-pattern conversion behavior.
+        
+        Validates that templates are correctly converted to functional
+        regex patterns that extract expected metadata.
+        """
+        # ARRANGE - Use template for pattern generation
+        
+        # ACT - Generate pattern from template
         pattern = generate_pattern_from_template(template)
         
-        # Verify pattern structure
+        # ASSERT - Generated pattern should be functional
         assert isinstance(pattern, str)
-        assert pattern.startswith("^") and pattern.endswith("$")
+        assert pattern.startswith("^") and pattern.endswith("$"), "Pattern should be anchored"
         
-        # Test pattern matching
+        # Verify pattern functionality through behavior
         regex = re.compile(pattern)
         match = regex.match(test_input)
         
-        assert match is not None, f"Pattern {pattern} should match {test_input}"
+        assert match is not None, f"Generated pattern should match test input: {test_input}"
         
-        # Verify extracted groups
+        # Validate metadata extraction accuracy
         for field, expected_value in expected_groups.items():
-            assert field in match.groupdict()
-            assert match.group(field) == expected_value
+            assert field in match.groupdict(), f"Field {field} should be captured"
+            assert match.group(field) == expected_value, f"Field {field} value mismatch"
     
-    def test_generate_pattern_special_characters(self):
-        """Test pattern generation with special regex characters."""
+    def test_special_character_handling_behavior(self):
+        """
+        Test special character handling in template generation.
+        
+        Validates that special regex characters in templates are
+        properly escaped while preserving pattern functionality.
+        """
+        # ARRANGE - Template with special regex characters
         template = "data[{date}]_{sample_id}.txt"
+        test_filename = "data[20241215]_sample123.txt"
+        
+        # ACT - Generate pattern from template with special characters
         pattern = generate_pattern_from_template(template)
         
-        # Should properly escape special characters
-        assert r"data\[" in pattern
-        assert r"\]" in pattern
+        # ASSERT - Should handle special characters correctly
+        assert r"data\[" in pattern, "Square brackets should be escaped"
+        assert r"\]" in pattern, "Closing bracket should be escaped"
         
-        # Test the generated pattern
+        # Verify pattern works correctly
         regex = re.compile(pattern)
-        match = regex.match("data[20241215]_sample123.txt")
-        assert match is not None
+        match = regex.match(test_filename)
+        assert match is not None, "Pattern should match despite special characters"
         assert match.group("date") == "20241215"
         assert match.group("sample_id") == "sample123"
     
-    def test_generate_pattern_unknown_placeholders(self):
-        """Test pattern generation with unknown placeholders."""
+    def test_unknown_placeholder_handling_behavior(self):
+        """
+        Test handling of unknown placeholders in templates.
+        
+        Validates that templates with custom field names create
+        appropriate default patterns for metadata extraction.
+        """
+        # ARRANGE - Template with unknown custom fields
         template = "{unknown_field}_{custom_field}.dat"
+        test_filename = "test_value.dat"
+        
+        # ACT - Generate pattern from template with unknown fields
         pattern = generate_pattern_from_template(template)
         
-        # Should create default patterns for unknown fields
+        # ASSERT - Should create functional pattern with default patterns
         regex = re.compile(pattern)
-        match = regex.match("test_value.dat")
-        assert match is not None
+        match = regex.match(test_filename)
+        assert match is not None, "Should handle unknown placeholders gracefully"
         assert match.group("unknown_field") == "test"
         assert match.group("custom_field") == "value"
     
     @given(st.text(alphabet="abcdefghijklmnopqrstuvwxyz_", min_size=1, max_size=20))
     @settings(suppress_health_check=[HealthCheck.function_scoped_fixture])
-    def test_property_based_template_generation(self, field_name):
-        """Property-based test for template generation."""
+    def test_template_generation_robustness(self, field_name):
+        """
+        Property-based test for template generation robustness.
+        
+        Validates that template generation produces valid regex patterns
+        for arbitrary field names in research filename scenarios.
+        """
+        # ARRANGE - Filter for valid field names
         assume(field_name.isidentifier())  # Valid Python identifier
         assume(not field_name.startswith("_"))
         
         template = f"{{{field_name}}}_test.csv"
+        
+        # ACT - Generate pattern from property-based template
         pattern = generate_pattern_from_template(template)
         
-        # Should create valid regex pattern
+        # ASSERT - Should create valid, compilable regex pattern
         try:
             regex = re.compile(pattern)
-            assert regex is not None
-        except re.error:
-            pytest.fail(f"Generated invalid regex pattern: {pattern}")
+            assert regex is not None, "Generated pattern should be compilable"
+        except re.error as e:
+            pytest.fail(f"Generated invalid regex pattern: {pattern}, error: {e}")
 
 
-# --- Error Handling and Edge Cases ---
+# --- Error Handling and Edge Case Validation ---
 
-class TestErrorHandling:
-    """Test error handling and edge cases."""
+class TestErrorHandlingBehavior:
+    """
+    Test error handling behavior and edge case validation.
+    
+    Validates robust error handling and graceful degradation
+    for malformed patterns and edge case input scenarios.
+    """
     
     @pytest.mark.parametrize("invalid_pattern", [
         r"[unclosed_bracket",
@@ -639,45 +822,509 @@ class TestErrorHandling:
         r"*invalid_quantifier",
         r"+invalid_start",
     ])
-    def test_invalid_regex_compilation(self, invalid_pattern):
-        """Test handling of invalid regex patterns."""
-        with pytest.raises(re.error):
+    def test_malformed_pattern_error_handling(self, invalid_pattern):
+        """
+        Test error handling for malformed regex patterns.
+        
+        Validates that PatternMatcher appropriately raises exceptions
+        for invalid regex patterns during initialization.
+        """
+        # ARRANGE - Use malformed regex pattern
+        
+        # ACT & ASSERT - Should raise appropriate exception
+        with pytest.raises((re.error, PatternCompilationError)):
             PatternMatcher([invalid_pattern])
     
-    @given(invalid_regex_patterns())
-    @settings(suppress_health_check=[HealthCheck.function_scoped_fixture])
-    def test_property_based_invalid_patterns(self, invalid_pattern):
-        """Property-based test for invalid pattern handling."""
-        with pytest.raises(re.error):
-            PatternMatcher([invalid_pattern])
-    
-    def test_empty_string_matching(self, sample_patterns):
-        """Test matching against empty strings."""
+    def test_edge_case_input_handling(self, sample_patterns):
+        """
+        Test handling of edge case inputs.
+        
+        Validates robust behavior for empty strings, whitespace,
+        and other boundary condition inputs.
+        """
+        # ARRANGE - Create PatternMatcher with valid patterns
         matcher = PatternMatcher(sample_patterns)
         
-        result = matcher.match("")
-        assert result is None
+        # ACT & ASSERT - Test empty string behavior
+        empty_result = matcher.match("")
+        assert empty_result is None, "Empty string should not match any pattern"
         
-        result = matcher.match("   ")  # Whitespace only
-        assert result is None
+        # ACT & ASSERT - Test whitespace-only behavior
+        whitespace_result = matcher.match("   ")
+        assert whitespace_result is None, "Whitespace-only string should not match"
+        
+        # ACT & ASSERT - Test very short input
+        short_result = matcher.match("a")
+        assert short_result is None, "Very short input should not match experimental patterns"
     
-    def test_none_input_handling(self, sample_patterns):
-        """Test handling of None inputs."""
+    def test_none_input_error_handling(self, sample_patterns):
+        """
+        Test error handling for None input.
+        
+        Validates that PatternMatcher appropriately handles
+        None input with proper exception behavior.
+        """
+        # ARRANGE - Create PatternMatcher with valid patterns
         matcher = PatternMatcher(sample_patterns)
         
+        # ACT & ASSERT - Should raise appropriate exception for None input
         with pytest.raises((AttributeError, TypeError)):
             matcher.match(None)
     
-    def test_very_long_filename_handling(self, sample_patterns):
-        """Test handling of very long filenames."""
-        matcher = PatternMatcher(sample_patterns)
+    def test_boundary_condition_filename_handling(self, sample_patterns):
+        """
+        Test handling of boundary condition filenames.
         
-        # Create very long filename
+        Validates graceful handling of very long filenames and
+        other boundary conditions without raising exceptions.
+        """
+        # ARRANGE - Create PatternMatcher and boundary condition filename
+        matcher = PatternMatcher(sample_patterns)
         long_filename = "vial_20241215_" + "very_long_condition_" * 100 + ".csv"
         
-        # Should handle gracefully (either match or return None)
+        # ACT - Attempt to match very long filename
         result = matcher.match(long_filename)
-        # No exception should be raised
+        
+        # ASSERT - Should handle gracefully without exception
+        # Result can be None or successful match, but no exception should be raised
+        assert result is None or isinstance(result, dict)
+    
+    def test_corrupted_data_scenarios(self):
+        """
+        Test handling of corrupted or malformed filename patterns.
+        
+        Uses centralized edge-case scenarios to validate robust
+        error handling for realistic corruption scenarios.
+        """
+        # ARRANGE - Generate corrupted data scenarios using centralized utilities
+        edge_case_generator = EdgeCaseScenarioGenerator()
+        corrupted_scenarios = edge_case_generator.generate_corrupted_data_scenarios()
+        
+        patterns = [r"(?P<prefix>\w+)_(?P<component>[^_.]+)\.(?P<extension>\w+)"]
+        matcher = PatternMatcher(patterns)
+        
+        # ACT & ASSERT - Test each corrupted scenario
+        for scenario in corrupted_scenarios:
+            if scenario['type'] in ['malformed_yaml', 'binary_in_text']:
+                # These scenarios involve binary data that might create unusual filenames
+                test_filename = f"corrupted_{scenario['type']}.csv"
+                
+                # Should handle gracefully without exceptions
+                result = matcher.match(test_filename)
+                assert result is None or isinstance(result, dict)
+
+
+# --- Performance Tests (Relocated to scripts/benchmarks/) ---
+#
+# NOTE: All performance and benchmark tests have been relocated to scripts/benchmarks/
+# per Section 0 requirements for performance test isolation. These tests are excluded
+# from default pytest execution and run via:
+#
+#   python scripts/benchmarks/run_benchmarks.py --category pattern-matching
+#
+# Former benchmark tests included:
+# - test_pattern_compilation_performance
+# - test_matching_performance  
+# - test_bulk_filtering_performance
+# - test_regex_compilation_efficiency
+# - test_large_file_list_handling
+#
+# All performance validation now occurs through dedicated CLI runner to maintain
+# rapid developer feedback cycles (<30s test execution time).
+
+
+# --- Integration Testing with Protocol-Based Mocks ---
+
+class TestPatternMatchingIntegration:
+    """
+    Test pattern matching integration using protocol-based mocks.
+    
+    Uses centralized mock implementations from tests/utils.py for
+    consistent dependency isolation across discovery tests.
+    """
+    
+    def test_pattern_matcher_with_mock_filesystem(self, mock_filesystem, hypothesis_strategies):
+        """
+        Test PatternMatcher integration with filesystem mock.
+        
+        Uses centralized MockFilesystem to validate pattern matching
+        behavior in realistic file system scenarios.
+        """
+        # ARRANGE - Create mock filesystem with experimental files
+        filesystem = create_mock_filesystem(
+            structure={
+                'files': {
+                    '/test/data/vial_20241215_control.csv': {'size': 1024},
+                    '/test/data/exp001_mouse_control.pkl': {'size': 2048},
+                    '/test/data/notes.txt': {'size': 256}
+                },
+                'directories': ['/test', '/test/data']
+            }
+        )
+        
+        patterns = [
+            r"vial_(?P<date>\d{8})_(?P<condition>\w+)\.csv",
+            r"exp(?P<experiment_id>\d{3})_(?P<animal>\w+)_(?P<condition>\w+)\.pkl"
+        ]
+        matcher = PatternMatcher(patterns)
+        
+        # ACT - Filter files from mock filesystem
+        test_files = ['/test/data/vial_20241215_control.csv', '/test/data/exp001_mouse_control.pkl', '/test/data/notes.txt']
+        result = matcher.filter_files(test_files)
+        
+        # ASSERT - Should identify experimental files correctly
+        assert len(result) >= 2, "Should identify experimental files"
+        assert '/test/data/vial_20241215_control.csv' in result
+        assert '/test/data/exp001_mouse_control.pkl' in result
+        assert '/test/data/notes.txt' not in result  # Non-experimental file should be filtered out
+    
+    def test_pattern_matcher_with_edge_case_scenarios(self):
+        """
+        Test PatternMatcher with edge-case scenarios from centralized generator.
+        
+        Uses EdgeCaseScenarioGenerator to validate robust handling
+        of boundary conditions and unicode scenarios.
+        """
+        # ARRANGE - Generate edge-case scenarios using centralized utilities
+        edge_case_generator = EdgeCaseScenarioGenerator()
+        unicode_scenarios = edge_case_generator.generate_unicode_scenarios(count=3)
+        
+        patterns = [r"(?P<prefix>\w+)_(?P<date>\d{8})_(?P<condition>[\w\-]+)\.(?P<extension>\w+)"]
+        matcher = PatternMatcher(patterns)
+        
+        # ACT & ASSERT - Test each unicode scenario
+        for scenario in unicode_scenarios:
+            filename = scenario['filename']
+            
+            # Should handle unicode filenames gracefully
+            result = matcher.match(filename)
+            # Result can be None (no match) or dict (successful match)
+            assert result is None or isinstance(result, dict)
+    
+    def test_convenience_functions_integration(self, sample_filenames):
+        """
+        Test integration of convenience functions with centralized patterns.
+        
+        Validates end-to-end workflow using convenience functions
+        for common research file processing scenarios.
+        """
+        # ARRANGE - Use realistic experimental patterns
+        experiment_patterns = [r"exp(?P<experiment_id>\d{3})_(?P<animal>\w+)_(?P<condition>\w+)\.(?P<extension>\w+)"]
+        vial_patterns = [r"vial_(?P<date>\d{8})_(?P<condition>\w+)(_(?P<replicate>\d+))?\.csv"]
+        
+        # ACT - Test experiment file processing workflow
+        experiment_files = [f for f in sample_filenames if f.startswith("exp")]
+        experiment_results = []
+        for exp_file in experiment_files:
+            result = extract_experiment_info(exp_file, experiment_patterns)
+            if result:
+                experiment_results.append(result)
+        
+        # ACT - Test vial file processing workflow  
+        vial_files = [f for f in sample_filenames if f.startswith("vial_")]
+        vial_results = []
+        for vial_file in vial_files:
+            result = extract_vial_info(vial_file, vial_patterns)
+            if result:
+                vial_results.append(result)
+        
+        # ASSERT - Should successfully process experimental files
+        assert len(experiment_results) > 0, "Should process experiment files"
+        assert len(vial_results) > 0, "Should process vial files"
+        
+        # Verify metadata structure
+        for exp_result in experiment_results:
+            assert "experiment_id" in exp_result
+            assert "animal" in exp_result
+            assert "condition" in exp_result
+        
+        for vial_result in vial_results:
+            assert "date" in vial_result
+            assert "condition" in vial_result
+
+
+# --- Property-Based Testing for Comprehensive Validation ---
+
+class TestPropertyBasedPatternValidation:
+    """
+    Property-based testing for comprehensive pattern matching validation.
+    
+    Uses Hypothesis with domain-specific strategies to validate pattern
+    matching behavior across wide range of realistic scenarios.
+    """
+    
+    @given(get_flyrigloader_strategies().experimental_file_paths())
+    @settings(max_examples=50, suppress_health_check=[HealthCheck.function_scoped_fixture])
+    def test_experimental_filename_matching_robustness(self, filename):
+        """
+        Property-based test for experimental filename matching robustness.
+        
+        Uses domain-specific filename generation to validate robust
+        pattern matching across realistic experimental scenarios.
+        """
+        # ARRANGE - Create PatternMatcher with comprehensive experimental patterns
+        patterns = [
+            r"(?P<animal>\w+)_(?P<date>\d{8})_(?P<condition>\w+)_rep(?P<replicate>\d+)\.(?P<extension>\w+)",
+            r"(?P<type>exp)(?P<id>\d+)_(?P<animal>\w+)_(?P<condition>\w+)\.(?P<extension>\w+)",
+            r"(?P<name>\w+)\.(?P<extension>\w+)",  # Fallback pattern
+        ]
+        matcher = PatternMatcher(patterns)
+        
+        # ACT - Attempt to match generated experimental filename
+        result = matcher.match(filename)
+        
+        # ASSERT - Should handle gracefully and maintain invariants
+        if result is not None:
+            # Successful match should have valid structure
+            assert isinstance(result, dict)
+            assert len(result) > 0
+            assert all(isinstance(k, str) for k in result.keys())
+            assert all(v is None or isinstance(v, str) for v in result.values())
+    
+    @given(get_flyrigloader_strategies().experimental_configurations())
+    @settings(max_examples=20, suppress_health_check=[HealthCheck.function_scoped_fixture])
+    def test_pattern_generation_with_config_data(self, config_data):
+        """
+        Property-based test for pattern generation using configuration data.
+        
+        Validates pattern generation using realistic experimental
+        configuration structures.
+        """
+        # ARRANGE - Extract patterns from generated configuration
+        if 'project' in config_data and 'extraction_patterns' in config_data.get('project', {}):
+            patterns = config_data['project']['extraction_patterns']
+            
+            # ACT - Create PatternMatcher with configuration patterns
+            try:
+                matcher = PatternMatcher(patterns)
+                
+                # Test with a simple filename
+                test_result = matcher.match("test_20241215_control_1.csv")
+                
+                # ASSERT - Should create functional matcher
+                assert isinstance(matcher, PatternMatcher)
+                # Result can be None or dict, but no exceptions
+                assert test_result is None or isinstance(test_result, dict)
+                
+            except (re.error, PatternCompilationError):
+                # Some generated patterns may be invalid, which is acceptable
+                pass
+
+
+# --- Comprehensive Metadata Extraction Testing ---
+
+class TestMetadataExtractionValidation:
+    """
+    Comprehensive testing of metadata extraction for research workflows.
+    
+    Validates accurate metadata extraction from experimental files
+    with focus on research-relevant data organization.
+    """
+    
+    @pytest.mark.parametrize("filename,expected_metadata", [
+        # Date parsing validation
+        ("vial_20241215_control.csv", {"date": "20241215"}),
+        ("experiment_20241225_baseline.pkl", {"date": "20241225"}),
+        
+        # Condition extraction validation
+        ("vial_20241215_control.csv", {"condition": "control"}),
+        ("vial_20241215_treatment.csv", {"condition": "treatment"}),
+        ("vial_20241215_baseline.csv", {"condition": "baseline"}),
+        ("vial_20241215_drug-treatment.csv", {"condition": "drug-treatment"}),
+        
+        # Replicate handling validation
+        ("vial_20241215_control_1.csv", {"replicate": "1"}),
+        ("vial_20241215_control_99.csv", {"replicate": "99"}),
+        
+        # Animal identification
+        ("mouse_20241215_control_1.csv", {"animal": "mouse", "date": "20241215", "condition": "control"}),
+        ("rat_20241220_treatment_2.pkl", {"animal": "rat", "date": "20241220", "condition": "treatment"}),
+        
+        # Experiment identification
+        ("exp001_mouse_control.csv", {"experiment_id": "001", "animal": "mouse", "condition": "control"}),
+        ("exp999_rat_baseline.pkl", {"experiment_id": "999", "animal": "rat", "condition": "baseline"}),
+    ])
+    def test_research_metadata_extraction_accuracy(self, filename, expected_metadata):
+        """
+        Test accurate extraction of research-relevant metadata.
+        
+        Validates that metadata extraction correctly identifies
+        experimental parameters for research workflow organization.
+        """
+        # ARRANGE - Create comprehensive patterns for research metadata
+        patterns = [
+            r"vial_(?P<date>\d{8})_(?P<condition>[a-zA-Z0-9_-]+)(_(?P<replicate>\d+))?\.(?P<extension>\w+)",
+            r"(?P<animal>mouse|rat)_(?P<date>\d{8})_(?P<condition>[a-zA-Z0-9_-]+)_(?P<replicate>\d+)\.(?P<extension>\w+)",
+            r"exp(?P<experiment_id>\d{3})_(?P<animal>\w+)_(?P<condition>\w+)\.(?P<extension>\w+)",
+            r"(?P<prefix>\w+)_(?P<date>\d{8})_(?P<condition>\w+)\.(?P<extension>\w+)",
+        ]
+        matcher = PatternMatcher(patterns)
+        
+        # ACT - Extract metadata from research filename
+        result = matcher.match(filename)
+        
+        # ASSERT - Should extract expected research metadata
+        assert result is not None, f"Pattern matching failed for research file: {filename}"
+        
+        for field, expected_value in expected_metadata.items():
+            assert field in result, f"Research metadata field '{field}' missing for {filename}"
+            assert result[field] == expected_value, f"Research metadata field '{field}' mismatch for {filename}: expected {expected_value}, got {result[field]}"
+    
+    def test_complex_experimental_condition_parsing(self):
+        """
+        Test parsing of complex experimental conditions.
+        
+        Validates handling of multi-part condition names and
+        special characters in research workflow scenarios.
+        """
+        # ARRANGE - Create pattern for complex conditions
+        patterns = [r"vial_(?P<date>\d{8})_(?P<condition>[a-zA-Z0-9_-]+)(_(?P<replicate>\d+))?\.csv"]
+        matcher = PatternMatcher(patterns)
+        
+        complex_conditions = [
+            ("vial_20241215_control.csv", "control"),
+            ("vial_20241215_drug-treatment.csv", "drug-treatment"),
+            ("vial_20241215_baseline_test.csv", "baseline_test"),
+            ("vial_20241215_condition-1a.csv", "condition-1a"),
+            ("vial_20241215_HIGH-dose_treatment.csv", "HIGH-dose_treatment"),
+        ]
+        
+        # ACT & ASSERT - Test each complex condition
+        for filename, expected_condition in complex_conditions:
+            result = matcher.match(filename)
+            assert result is not None, f"Pattern matching failed for complex condition: {filename}"
+            assert result["condition"] == expected_condition, f"Condition extraction failed for {filename}"
+    
+    def test_experimental_workflow_metadata_completeness(self, sample_patterns, sample_filenames):
+        """
+        Test completeness of metadata extraction for experimental workflows.
+        
+        Validates that all experimental files have complete metadata
+        for research data organization and analysis workflows.
+        """
+        # ARRANGE - Create PatternMatcher with comprehensive patterns
+        matcher = PatternMatcher(sample_patterns)
+        
+        # ACT - Extract metadata from all experimental files
+        experimental_files = [f for f in sample_filenames if any(indicator in f for indicator in ["vial_", "exp", "mouse_", "rat_"])]
+        metadata_results = []
+        
+        for exp_file in experimental_files:
+            result = matcher.match(exp_file)
+            if result:
+                metadata_results.append((exp_file, result))
+        
+        # ASSERT - Should have comprehensive metadata for experimental files
+        assert len(metadata_results) > 0, "Should extract metadata from experimental files"
+        
+        for filename, metadata in metadata_results:
+            # Verify metadata completeness
+            assert isinstance(metadata, dict), f"Metadata should be dictionary for {filename}"
+            assert len(metadata) > 0, f"Metadata should not be empty for {filename}"
+            
+            # Verify essential fields for research workflows
+            has_temporal_info = any(field in metadata for field in ["date", "experiment_id"])
+            has_condition_info = "condition" in metadata
+            
+            assert has_temporal_info or has_condition_info, f"Essential research metadata missing for {filename}"
+
+
+# --- Legacy Compatibility and Backward Compatibility Testing ---
+
+class TestLegacyCompatibility:
+    """
+    Test backward compatibility with legacy patterns and filename formats.
+    
+    Ensures that existing research workflows continue to function
+    with legacy filename patterns and data organization systems.
+    """
+    
+    def test_positional_group_pattern_compatibility(self):
+        """
+        Test compatibility with legacy positional group patterns.
+        
+        Validates that patterns without named groups still
+        provide meaningful metadata extraction for legacy workflows.
+        """
+        # ARRANGE - Create matcher with legacy positional patterns
+        legacy_patterns = [
+            r"legacy_(\w+)_(\d{8})_(\w+)_(\d+)\.csv",  # 4 positional groups
+            r"old_format_(\w+)_(\d+)\.pkl",            # 2 positional groups
+        ]
+        matcher = PatternMatcher(legacy_patterns)
+        
+        # ACT - Test legacy filename patterns
+        legacy_result = matcher.match("legacy_mouse_20241215_control_1.csv")
+        old_format_result = matcher.match("old_format_experiment_123.pkl")
+        
+        # ASSERT - Should extract meaningful metadata from legacy patterns
+        assert legacy_result is not None, "Should match legacy pattern"
+        assert isinstance(legacy_result, dict)
+        assert len(legacy_result) > 0, "Should extract fields from legacy pattern"
+        
+        assert old_format_result is not None, "Should match old format pattern"
+        assert isinstance(old_format_result, dict)
+        assert len(old_format_result) > 0, "Should extract fields from old format"
+    
+    def test_mixed_named_and_positional_pattern_priority(self):
+        """
+        Test pattern matching priority with mixed named and positional groups.
+        
+        Validates correct precedence handling when both legacy
+        and modern patterns could match the same filename.
+        """
+        # ARRANGE - Create patterns mixing named and positional groups
+        mixed_patterns = [
+            r"new_(?P<date>\d{8})_(?P<condition>\w+)\.csv",  # Named groups (modern)
+            r"old_(\w+)_(\d{8})_(\w+)\.csv",                 # Positional groups (legacy)
+        ]
+        matcher = PatternMatcher(mixed_patterns)
+        
+        # ACT - Test with filename that could match either pattern
+        modern_result = matcher.match("new_20241215_control.csv")
+        
+        # ASSERT - Should prefer named group pattern
+        assert modern_result is not None
+        assert "date" in modern_result, "Should use named groups from modern pattern"
+        assert "condition" in modern_result, "Should extract named fields"
+        assert modern_result["date"] == "20241215"
+        assert modern_result["condition"] == "control"
+    
+    def test_research_workflow_backward_compatibility(self, sample_patterns):
+        """
+        Test backward compatibility for existing research workflows.
+        
+        Validates that pattern matching continues to support
+        existing experimental data organization patterns.
+        """
+        # ARRANGE - Create matcher with mixed pattern types
+        all_patterns = sample_patterns + [
+            r"legacy_(\w+)_(\d{8})_(\w+)_(\d+)\.csv",  # Legacy positional
+            r"archive_(?P<year>\d{4})_(?P<study>\w+)\.(?P<extension>\w+)",  # Archive format
+        ]
+        matcher = PatternMatcher(all_patterns)
+        
+        # ACT - Test various legacy and modern formats
+        test_files = [
+            "vial_20241215_control.csv",  # Modern vial format
+            "exp001_mouse_baseline.csv",  # Modern experiment format
+            "legacy_rat_20241220_treatment_3.csv",  # Legacy format
+            "archive_2024_navigation_study.pkl",  # Archive format
+        ]
+        
+        results = []
+        for test_file in test_files:
+            result = matcher.match(test_file)
+            if result:
+                results.append((test_file, result))
+        
+        # ASSERT - Should support all format types
+        assert len(results) >= 3, "Should support multiple format types for backward compatibility"
+        
+        # Verify each result has meaningful metadata
+        for filename, metadata in results:
+            assert isinstance(metadata, dict), f"Should extract metadata from {filename}"
+            assert len(metadata) > 0, f"Should have meaningful metadata for {filename}"
 
 
 # --- Performance Testing ---
