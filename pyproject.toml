@@ -27,12 +27,16 @@ dev = [
     "hypothesis>=6.131.9",
     "pytest-xdist>=3.7.0",
     "pytest-timeout>=2.3.0",
+    "pytest-rerunfailures>=13.0",
+    "pytest-rerunfailures>=13.0",
     
     # Code Quality & Pre-commit Infrastructure
     "black>=24.3.0",
     "isort>=5.12.0",
     "mypy>=1.8.0",
     "flake8>=7.0.0",
+    "flake8-pytest-style>=2.1.0",
+    "flake8-pytest-style>=2.1.0",
     "pre-commit>=3.6.0",
 ]
 
@@ -45,6 +49,15 @@ python_functions = ["test_*"]
 addopts = [
     "--strict-markers",
     "--strict-config",
+    # Parallel execution with standardized 4-worker setup
+    "-n", "4",
+    # Selective test execution for rapid developer feedback
+    "-m", "not performance and not benchmark and not network and not slow",
+    # Parallel execution with standardized 4-worker setup
+    "-n", "4",
+    # Selective test execution for rapid developer feedback
+    "-m", "not performance and not benchmark and not network and not slow",
+    # Coverage configuration
     "--cov=src/flyrigloader",
     "--cov-report=html:htmlcov",
     "--cov-report=xml:coverage.xml",
@@ -52,27 +65,124 @@ addopts = [
     "--cov-fail-under=90",
     "--cov-branch",
     "--cov-context=test",
+    # Performance benchmark configuration (excluded by default)
     "--benchmark-min-rounds=5",
     "--benchmark-disable-gc",
+    # Test execution management
     "--timeout=30",
-    "--durations=10"
+    "--durations=10",
+    # Flaky test handling
+    "--reruns=2",
+    "--reruns-delay=1",
+    # Flaky test handling
+    "--reruns=2",
+    "--reruns-delay=1"
 ]
 
-# Define custom markers
+# Define custom markers for comprehensive test categorization
 markers = [
-    "api: mark tests that test the API",
-    "performance: mark tests that measure performance",
-    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
-    "unit: marks tests as unit tests",
-    "integration: marks tests as integration tests",
-    "benchmark: marks tests as performance benchmarks",
-    "property_based: marks tests that use property-based testing"
+    # Core test categorization
+    "unit: marks tests as unit tests - isolated component testing with mocked dependencies",
+    "integration: marks tests as integration tests - cross-module interaction validation", 
+    "api: marks tests that test the API - public interface validation",
+    "    "property_based: marks tests that use property-based testing",
+    "network: marks tests requiring network connectivity - external service dependencies (excluded by default)" - hypothesis-driven edge case discovery",
+    
+    # Performance and execution time markers (excluded by default)
+    "performance: marks tests as performance-related - timing and resource usage validation (excluded by default)",
+    "benchmark: marks tests as performance benchmarks - SLA validation and regression detection (excluded by default)",
+    "slow: marks tests as slow - execution time >30 seconds (excluded by default)",
+    
+    # External dependency markers for selective test execution
+    "    "network: marks tests requiring network connectivity - external service dependencies (excluded by default)",
+    "data_loading: marks tests as data loading tests - pickle file loading and deserialization",
+    "file_discovery: marks tests as file discovery tests - filesystem traversal and pattern matching",
+    "schema_validation: marks tests as schema validation tests - Pydantic model and type checking",
+    "configuration: marks tests as configuration tests - YAML parsing and validation",
+    "transformation: marks tests as transformation tests - DataFrame manipulation and processing"",
+    
+    # Data and I/O specific markers for flyrigloader domain
+    "data_loading: marks tests as data loading tests - pickle file loading and deserialization",
+    "file_discovery: marks tests as file discovery tests - filesystem traversal and pattern matching",
+    "schema_validation: marks tests as schema validation tests - Pydantic model and type checking",
+    "configuration: marks tests as configuration tests - YAML parsing and validation",
+    "    "transformation: marks tests as transformation tests - DataFrame manipulation and processing",
+    "requires_numpy: marks tests requiring NumPy - array processing and mathematical operations",
+    "requires_pandas: marks tests requiring Pandas - DataFrame operations and data manipulation",
+    "platform_specific: marks tests that are platform-dependent - OS-specific functionality",
+    "edge_case: marks tests as edge case validation - boundary condition testing",
+    "error_handling: marks tests as error handling validation - exception and failure scenarios",
+    "security: marks tests as security-focused - input validation and safety checks"",
+    
+    # Environment and platform markers
+    "requires_numpy: marks tests requiring NumPy - array processing and mathematical operations",
+    "requires_pandas: marks tests requiring Pandas - DataFrame operations and data manipulation",
+    "platform_specific: marks tests that are platform-dependent - OS-specific functionality",
+    
+    # Test infrastructure markers
+    "edge_case: marks tests as edge case validation - boundary condition testing",
+    "error_handling: marks tests as error handling validation - exception and failure scenarios",
+    "security: marks tests as security-focused - input validation and safety checks"
 ]
 filterwarnings = [
     "error",
     "ignore::UserWarning",
-    "ignore::DeprecationWarning"
+    "ignore::DeprecationWarning",
+    "ignore::DeprecationWarning:distutils.*",
+    "ignore::DeprecationWarning:imp.*",
+    # NumPy and Pandas specific warning suppressions
+    "ignore::DeprecationWarning:numpy.*",
+    "ignore::FutureWarning:pandas.*",
+    "ignore::pd.errors.PerformanceWarning",
+    # Pytest and testing framework warnings
+    "ignore::pytest.PytestUnraisableExceptionWarning",
+    "ignore::pytest.PytestConfigWarning",
+    # Loguru specific warnings in test environments
+    "ignore::UserWarning:loguru.*",
+    # Allow warnings in hypothesis property-based testing
+    "ignore::hypothesis.errors.NonInteractiveExampleWarning",
+    "ignore::DeprecationWarning:distutils.*",
+    "ignore::DeprecationWarning:imp.*",
+    # NumPy and Pandas specific warning suppressions
+    "    "ignore::DeprecationWarning",
+    "ignore::DeprecationWarning:distutils.*",
+    "ignore::DeprecationWarning:imp.*",
+    "ignore::DeprecationWarning:numpy.*",
+    "ignore::FutureWarning:pandas.*",
+    "ignore::pd.errors.PerformanceWarning",
+    "ignore::pytest.PytestUnraisableExceptionWarning",
+    "ignore::pytest.PytestConfigWarning",
+    "ignore::UserWarning:loguru.*",
+    "ignore::hypothesis.errors.NonInteractiveExampleWarning":numpy.*",
+    "ignore::FutureWarning:pandas.*",
+    "ignore::pd.errors.PerformanceWarning",
+    # Pytest and testing framework warnings
+    "ignore::pytest.PytestUnraisableExceptionWarning",
+    "ignore::pytest.PytestConfigWarning",
+    # Loguru specific warnings in test environments
+    "ignore::UserWarning:loguru.*",
+    # Allow warnings in hypothesis property-based testing
+    "ignore::hypothesis.errors.NonInteractiveExampleWarning"
 ]
+
+# Test execution strategies documentation
+# 
+# Default execution (rapid feedback): 
+#   pytest
+#   Excludes: performance, benchmark, network, slow tests
+#   Target: <30 seconds execution time
+#
+# Network testing:
+#   pytest --run-network -n 2
+#   Includes network-dependent tests with reduced parallelism
+#
+# Full validation:
+#   pytest --runslow --run-network
+#   Includes all test categories
+#
+# Performance validation:
+#   python scripts/benchmarks/run_benchmarks.py
+#   Dedicated CLI runner for benchmark execution
 
 [tool.coverage.run]
 source = ["src/flyrigloader"]
@@ -106,3 +216,49 @@ directory = "htmlcov"
 
 [tool.coverage.xml]
 output = "coverage.xml"
+
+[tool.flake8]
+# Enhanced pytest style configuration for AAA patterns and naming conventions
+extend-ignore = ["E203", "W503"]
+max-line-length = 100
+per-file-ignores = [
+    "tests/*:PT009,PT027"  # Allow longer parametrize names and fixtures in tests
+]
+
+# pytest-style plugin configuration for enforcing testing standards
+pytest-fixture-no-parentheses = true
+pytest-mark-no-parentheses = true
+pytest-parametrize-names-type = "tuple"
+pytest-parametrize-values-type = "tuple"
+pytest-parametrize-values-wrong-type = "list"
+
+# Pytest style enforcement rules
+select = [
+    "E",      # pycodestyle errors
+    "W",      # pycodestyle warnings  
+    "F",      # pyflakes
+    "PT",     # flake8-pytest-style
+]
+
+[tool.flake8]
+# Enhanced pytest style configuration for AAA patterns and naming conventions
+extend-ignore = ["E203", "W503"]
+max-line-length = 100
+per-file-ignores = [
+    "tests/*:PT009,PT027"  # Allow longer parametrize names and fixtures in tests
+]
+
+# pytest-style plugin configuration for enforcing testing standards
+pytest-fixture-no-parentheses = true
+pytest-mark-no-parentheses = true
+pytest-parametrize-names-type = "tuple"
+pytest-parametrize-values-type = "tuple"
+pytest-parametrize-values-wrong-type = "list"
+
+# Pytest style enforcement rules
+select = [
+    "E",      # pycodestyle errors
+    "W",      # pycodestyle warnings  
+    "F",      # pyflakes
+    "PT",     # flake8-pytest-style
+]
