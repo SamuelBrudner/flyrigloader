@@ -155,20 +155,20 @@ class DefaultDependencyProvider:
         """Get configuration provider with lazy loading."""
         if self._config_module is None:
             logger.debug("Loading configuration module dependencies")
-            from flyrigloader.config.yaml_config import (
-                load_config,
-                get_ignore_patterns,
-                get_mandatory_substrings,
-                get_dataset_info,
-                get_experiment_info
-            )
+            from flyrigloader.config import yaml_config as _yaml_config
+
+            _load_config = _yaml_config.load_config
+            _get_ignore_patterns = _yaml_config.get_ignore_patterns
+            _get_mandatory_substrings = _yaml_config.get_mandatory_substrings
+            _get_dataset_info = _yaml_config.get_dataset_info
+            _get_experiment_info = _yaml_config.get_experiment_info
             
             class ConfigModule:
-                load_config = staticmethod(load_config)
-                get_ignore_patterns = staticmethod(get_ignore_patterns)
-                get_mandatory_substrings = staticmethod(get_mandatory_substrings)
-                get_dataset_info = staticmethod(get_dataset_info)
-                get_experiment_info = staticmethod(get_experiment_info)
+                load_config = staticmethod(_load_config)
+                get_ignore_patterns = staticmethod(_get_ignore_patterns)
+                get_mandatory_substrings = staticmethod(_get_mandatory_substrings)
+                get_dataset_info = staticmethod(_get_dataset_info)
+                get_experiment_info = staticmethod(_get_experiment_info)
             
             self._config_module = ConfigModule()
         return self._config_module
