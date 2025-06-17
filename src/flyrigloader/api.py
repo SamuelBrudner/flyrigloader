@@ -178,16 +178,13 @@ class DefaultDependencyProvider:
         """Get discovery provider with lazy loading."""
         if self._discovery_module is None:
             logger.debug("Loading discovery module dependencies")
-            from flyrigloader.config.discovery import (
-                discover_files_with_config,
-                discover_experiment_files,
-                discover_dataset_files
-            )
-            
+            import importlib
+            discovery_mod = importlib.import_module("flyrigloader.config.discovery")
+
             class DiscoveryModule:
-                discover_files_with_config = staticmethod(discover_files_with_config)
-                discover_experiment_files = staticmethod(discover_experiment_files)
-                discover_dataset_files = staticmethod(discover_dataset_files)
+                discover_files_with_config = staticmethod(discovery_mod.discover_files_with_config)
+                discover_experiment_files = staticmethod(discovery_mod.discover_experiment_files)
+                discover_dataset_files = staticmethod(discovery_mod.discover_dataset_files)
             
             self._discovery_module = DiscoveryModule()
         return self._discovery_module

@@ -2,7 +2,7 @@
 FlyRigLoader - Tools for managing and controlling fly rigs for neuroscience experiments.
 """
 
-__version__ = "0.1.0"
+__version__ = "0.1.1"
 
 import sys
 import os
