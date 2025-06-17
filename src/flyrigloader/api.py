@@ -11,6 +11,17 @@ from pathlib import Path
 import copy
 from typing import Dict, List, Any, Optional, Union, Protocol, Callable
 from abc import ABC, abstractmethod
+import pandas as pd
+from flyrigloader.io.pickle import read_pickle_any_format as _read_pickle_any_format
+
+# Re-export helper for convenience
+read_pickle_any_format = _read_pickle_any_format
+
+__all__ = [
+    "process_experiment_data",
+    "read_pickle_any_format",
+    "FlyRigLoaderError",
+]
 from flyrigloader import logger
 
 
@@ -18,6 +29,10 @@ MISSING_DATA_DIR_ERROR = (
     "No data directory specified. Either provide base_directory parameter "
     "or ensure 'major_data_directory' is set in config."
 )
+
+
+class FlyRigLoaderError(Exception):
+    """Custom exception for flyrigloader user-visible failures."""
 
 
 class ConfigProvider(Protocol):
@@ -308,7 +323,7 @@ def _validate_config_parameters(
             "pre-loaded configuration dictionary."
         )
         logger.error(error_msg)
-        raise ValueError(error_msg)
+        raise FlyRigLoaderError(error_msg)
     
     if config_path is not None and config is not None:
         error_msg = (
@@ -318,7 +333,7 @@ def _validate_config_parameters(
             "configuration dictionary, not both."
         )
         logger.error(error_msg)
-        raise ValueError(error_msg)
+        raise FlyRigLoaderError(error_msg)
     
     logger.debug(f"Config parameter validation successful for {operation_name}")
 
@@ -361,14 +376,14 @@ def _load_and_validate_config(
                 "Please ensure the file exists and the path is correct."
             )
             logger.error(error_msg)
-            raise FileNotFoundError(error_msg) from e
+            raise FlyRigLoaderError(error_msg) from e
         except Exception as e:
             error_msg = (
                 f"Failed to load configuration for {operation_name} from {config_path}: {e}. "
                 "Please check the file format and syntax."
             )
             logger.error(error_msg)
-            raise ValueError(error_msg) from e
+            raise FlyRigLoaderError(error_msg) from e
     else:
         logger.debug(f"Using pre-loaded configuration for {operation_name}")
         config_dict = copy.deepcopy(config)
@@ -380,7 +395,7 @@ def _load_and_validate_config(
             "Configuration must be a valid dictionary structure."
         )
         logger.error(error_msg)
-        raise ValueError(error_msg)
+        raise FlyRigLoaderError(error_msg)
     
     logger.debug(f"Configuration validation successful for {operation_name}")
     return config_dict
@@ -429,7 +444,7 @@ def _resolve_base_directory(
             "project:\n  directories:\n    major_data_directory: /path/to/data"
         )
         logger.error(error_msg)
-        raise ValueError(error_msg)
+        raise FlyRigLoaderError(error_msg)
     
     # Convert to Path for validation
     base_path = Path(base_directory)
@@ -513,7 +528,7 @@ def load_experiment_files(
             "experiment_name must be a non-empty string representing the experiment identifier."
         )
         logger.error(error_msg)
-        raise ValueError(error_msg)
+        raise FlyRigLoaderError(error_msg)
     
     # Load and validate configuration with enhanced error handling
     config_dict = _load_and_validate_config(config_path, config, operation_name, _deps)
@@ -624,7 +639,7 @@ def load_dataset_files(
             "dataset_name must be a non-empty string representing the dataset identifier."
         )
         logger.error(error_msg)
-        raise ValueError(error_msg)
+        raise FlyRigLoaderError(error_msg)
     
     # Load and validate configuration with enhanced error handling
     config_dict = _load_and_validate_config(config_path, config, operation_name, _deps)
@@ -719,7 +734,7 @@ def get_experiment_parameters(
             "experiment_name must be a non-empty string representing the experiment identifier."
         )
         logger.error(error_msg)
-        raise ValueError(error_msg)
+        raise FlyRigLoaderError(error_msg)
     
     # Load and validate configuration with enhanced error handling
     config_dict = _load_and_validate_config(config_path, config, operation_name, _deps)
@@ -791,7 +806,7 @@ def get_dataset_parameters(
             "dataset_name must be a non-empty string representing the dataset identifier."
         )
         logger.error(error_msg)
-        raise ValueError(error_msg)
+        raise FlyRigLoaderError(error_msg)
     
     # Load and validate configuration with enhanced error handling
     config_dict = _load_and_validate_config(config_path, config, operation_name, _deps)
@@ -821,12 +836,13 @@ def get_dataset_parameters(
 
 def process_experiment_data(
     data_path: Union[str, Path],
-    column_config_path: Optional[Union[str, Path, Dict[str, Any], ColumnConfigDict]] = None,
+    *,
+    column_config_path: Optional[Union[str, Path, Dict[str, Any]]] = None,
     metadata: Optional[Dict[str, Any]] = None,
     _deps: Optional[DefaultDependencyProvider] = None
-) -> Any:
+) -> pd.DataFrame:
     """
-    Process experimental data using column configuration with enhanced testability.
+    Process experimental data and return a pandas DataFrame with a guaranteed `file_path` column that stores the absolute source path.
     
     This function supports comprehensive dependency injection for testing scenarios
     through the _deps parameter, enabling pytest.monkeypatch patterns.
@@ -839,7 +855,7 @@ def process_experiment_data(
         _deps: Optional dependency provider for testing injection (internal parameter)
         
     Returns:
-        DataFrame with processed experimental data
+        pd.DataFrame: Processed experimental data. Always contains a `file_path` column with the absolute path to the source pickle.
         
     Raises:
         FileNotFoundError: If the data or config file doesn't exist
@@ -860,7 +876,7 @@ def process_experiment_data(
             "data_path must be a non-empty string or Path object pointing to the data file."
         )
         logger.error(error_msg)
-        raise ValueError(error_msg)
+        raise FlyRigLoaderError(error_msg)
     
     # Convert to Path for validation
     data_path_obj = Path(data_path)
@@ -870,7 +886,7 @@ def process_experiment_data(
             "Please ensure the file exists and the path is correct."
         )
         logger.error(error_msg)
-        raise FileNotFoundError(error_msg)
+        raise FlyRigLoaderError(error_msg)
     
     # Log metadata information
     if metadata:
@@ -895,7 +911,7 @@ def process_experiment_data(
             "Please check the file format and ensure it's a valid pickle file."
         )
         logger.error(error_msg)
-        raise ValueError(error_msg) from e
+        raise FlyRigLoaderError(error_msg) from e
     
     # Create DataFrame using column configuration with enhanced error handling
     try:
@@ -906,15 +922,19 @@ def process_experiment_data(
             metadata=metadata
         )
         
-        # Log success information
-        if hasattr(result, 'shape'):
-            logger.info(f"Successfully created DataFrame with shape: {result.shape}")
-            if hasattr(result, 'columns'):
-                logger.debug(f"DataFrame columns: {list(result.columns)}")
+        # Ensure we return a pandas DataFrame
+        if isinstance(result, dict):
+            df = pd.DataFrame(result)
         else:
-            logger.info(f"Successfully processed data, result type: {type(result).__name__}")
-        
-        return result
+            df = result if isinstance(result, pd.DataFrame) else pd.DataFrame(result)
+
+        # Add absolute file path column for downstream joins
+        df["file_path"] = str(data_path_obj.resolve())
+
+        logger.info(f"Successfully created DataFrame with shape: {df.shape}")
+        logger.debug(f"DataFrame columns: {list(df.columns)}")
+
+        return df
         
     except Exception as e:
         error_msg = (
@@ -922,7 +942,7 @@ def process_experiment_data(
             "Please check the column configuration and data structure compatibility."
         )
         logger.error(error_msg)
-        raise ValueError(error_msg) from e
+        raise FlyRigLoaderError(error_msg) from e
 
 
 def get_default_column_config(
@@ -971,7 +991,7 @@ def get_default_column_config(
             "Please ensure the default configuration file exists and is valid."
         )
         logger.error(error_msg)
-        raise ValueError(error_msg) from e
+        raise FlyRigLoaderError(error_msg) from e
 
 
 #
@@ -1020,7 +1040,7 @@ def get_file_statistics(
             "path must be a non-empty string or Path object."
         )
         logger.error(error_msg)
-        raise ValueError(error_msg)
+        raise FlyRigLoaderError(error_msg)
     
     try:
         result = _deps.utils.get_file_stats(path)
@@ -1032,14 +1052,14 @@ def get_file_statistics(
             "Please ensure the file exists and the path is correct."
         )
         logger.error(error_msg)
-        raise FileNotFoundError(error_msg) from e
+        raise FlyRigLoaderError(error_msg) from e
     except Exception as e:
         error_msg = (
             f"Failed to get file statistics for {operation_name} from {path}: {e}. "
             "Please check the file path and permissions."
         )
         logger.error(error_msg)
-        raise ValueError(error_msg) from e
+        raise FlyRigLoaderError(error_msg) from e
 
 
 def ensure_dir_exists(
@@ -1074,7 +1094,7 @@ def ensure_dir_exists(
             "path must be a non-empty string or Path object."
         )
         logger.error(error_msg)
-        raise ValueError(error_msg)
+        raise FlyRigLoaderError(error_msg)
     
     try:
         result = _deps.utils.ensure_directory_exists(path)
@@ -1086,7 +1106,7 @@ def ensure_dir_exists(
             "Please check the path and permissions."
         )
         logger.error(error_msg)
-        raise ValueError(error_msg) from e
+        raise FlyRigLoaderError(error_msg) from e
 
 
 def check_if_file_exists(
@@ -1121,7 +1141,7 @@ def check_if_file_exists(
             "path must be a non-empty string or Path object."
         )
         logger.error(error_msg)
-        raise ValueError(error_msg)
+        raise FlyRigLoaderError(error_msg)
     
     try:
         result = _deps.utils.check_file_exists(path)
@@ -1133,7 +1153,7 @@ def check_if_file_exists(
             "Please check the path format."
         )
         logger.error(error_msg)
-        raise ValueError(error_msg) from e
+        raise FlyRigLoaderError(error_msg) from e
 
 
 def get_path_relative_to(
@@ -1170,7 +1190,7 @@ def get_path_relative_to(
             "path must be a non-empty string or Path object."
         )
         logger.error(error_msg)
-        raise ValueError(error_msg)
+        raise FlyRigLoaderError(error_msg)
     
     if not base_dir:
         error_msg = (
@@ -1178,7 +1198,7 @@ def get_path_relative_to(
             "base_dir must be a non-empty string or Path object."
         )
         logger.error(error_msg)
-        raise ValueError(error_msg)
+        raise FlyRigLoaderError(error_msg)
     
     try:
         result = _deps.utils.get_relative_path(path, base_dir)
@@ -1190,14 +1210,14 @@ def get_path_relative_to(
             "Please ensure the path is within the specified base directory."
         )
         logger.error(error_msg)
-        raise ValueError(error_msg) from e
+        raise FlyRigLoaderError(error_msg) from e
     except Exception as e:
         error_msg = (
             f"Failed to get relative path for {operation_name}: {e}. "
             "Please check the path formats."
         )
         logger.error(error_msg)
-        raise ValueError(error_msg) from e
+        raise FlyRigLoaderError(error_msg) from e
 
 
 def get_path_absolute(
@@ -1234,7 +1254,7 @@ def get_path_absolute(
             "path must be a non-empty string or Path object."
         )
         logger.error(error_msg)
-        raise ValueError(error_msg)
+        raise FlyRigLoaderError(error_msg)
     
     if not base_dir:
         error_msg = (
@@ -1242,7 +1262,7 @@ def get_path_absolute(
             "base_dir must be a non-empty string or Path object."
         )
         logger.error(error_msg)
-        raise ValueError(error_msg)
+        raise FlyRigLoaderError(error_msg)
     
     try:
         result = _deps.utils.get_absolute_path(path, base_dir)
@@ -1254,7 +1274,7 @@ def get_path_absolute(
             "Please check the path formats."
         )
         logger.error(error_msg)
-        raise ValueError(error_msg) from e
+        raise FlyRigLoaderError(error_msg) from e
 
 
 def get_common_base_dir(
@@ -1289,7 +1309,7 @@ def get_common_base_dir(
             "paths must be a list of path strings or Path objects."
         )
         logger.error(error_msg)
-        raise ValueError(error_msg)
+        raise FlyRigLoaderError(error_msg)
     
     if not paths:
         logger.debug("Empty paths list provided, returning None")
@@ -1303,7 +1323,7 @@ def get_common_base_dir(
                 "All paths must be non-empty strings or Path objects."
             )
             logger.error(error_msg)
-            raise ValueError(error_msg)
+            raise FlyRigLoaderError(error_msg)
     
     try:
         result = _deps.utils.find_common_base_directory(paths)
@@ -1318,7 +1338,7 @@ def get_common_base_dir(
             "Please check the path formats."
         )
         logger.error(error_msg)
-        raise ValueError(error_msg) from e
+        raise FlyRigLoaderError(error_msg) from e
 
 
 # Test-specific entry points for comprehensive testing scenarios
