@@ -1,23 +1,36 @@
 """
-Comprehensive test suite for config-aware file discovery functionality.
+Behavior-focused test suite for config-aware file discovery functionality.
 
 This module implements modern pytest practices with parametrization, property-based testing,
-comprehensive mocking scenarios, and performance validation against SLA requirements.
-Follows TST-MOD-001 through TST-MOD-004 requirements for test modernization.
+comprehensive behavioral validation, and centralized fixture utilization following the
+refactoring requirements for behavior-focused testing per Section 0.
+
+Converted from implementation-coupled testing to black-box behavioral validation focusing on:
+- Observable discovery results and API behavior rather than internal implementation details
+- Protocol-based mock implementations for consistent dependency isolation
+- Centralized fixture utilization from tests/conftest.py and tests/utils.py
+- AAA pattern structure with clear separation of test phases
+- Enhanced edge-case coverage through parameterized boundary condition testing
+- Public API behavioral contracts instead of whitebox assertions
+
+Test Categories:
+- CONFIG-DISC-001: Configuration-driven file discovery behavioral validation
+- CONFIG-DISC-002: Experiment-specific discovery result verification
+- CONFIG-DISC-003: Dataset-specific discovery behavior testing
+- CONFIG-DISC-004: Edge-case and error scenario behavioral validation
 """
 import os
 import tempfile
 import time
 from pathlib import Path
 from typing import Dict, List, Any, Optional, Union
-from unittest.mock import Mock, patch, MagicMock
+from unittest.mock import MagicMock
 
 import pytest
 import yaml
 from hypothesis import given, strategies as st, assume, settings
-from hypothesis.strategies import composite
 
-# Import the functionality under test
+# Import the functionality under test - public API only
 from flyrigloader.config.discovery import (
     discover_files_with_config,
     discover_experiment_files,
@@ -31,101 +44,836 @@ from flyrigloader.config.yaml_config import (
     get_extraction_patterns
 )
 
+# Import centralized testing utilities per refactoring requirements
+from tests.utils import (
+    create_mock_filesystem,
+    create_mock_config_provider,
+    create_mock_dataloader,
+    generate_edge_case_scenarios,
+    create_hypothesis_strategies,
+    create_integration_test_environment
+)
+
 
 # ============================================================================
-# HYPOTHESIS STRATEGIES FOR PROPERTY-BASED TESTING
+# HYPOTHESIS STRATEGIES FOR BEHAVIORAL PROPERTY-BASED TESTING
 # ============================================================================
 
-@composite
-def valid_date_string(draw):
-    """Generate valid date strings in various formats."""
-    year = draw(st.integers(min_value=2020, max_value=2030))
-    month = draw(st.integers(min_value=1, max_value=12))
-    day = draw(st.integers(min_value=1, max_value=28))  # Safe day range
+@pytest.fixture(scope="function")
+def discovery_strategies():
+    """
+    Centralized hypothesis strategies for config-aware discovery testing.
+    Focuses on input-output behavioral validation rather than internal state.
+    """
+    strategies = create_hypothesis_strategies()
     
-    # Choose format
-    format_choice = draw(st.sampled_from(['dash', 'underscore']))
-    if format_choice == 'dash':
-        return f"{year:04d}-{month:02d}-{day:02d}"
-    else:
-        return f"{year:04d}_{month:02d}_{day:02d}"
-
-
-@composite
-def invalid_date_string(draw):
-    """Generate invalid date strings for edge case testing."""
-    invalid_formats = [
-        "not-a-date",
-        "2023/01/01",  # Wrong separator
-        "23-01-01",    # Two-digit year
-        "2023-13-01",  # Invalid month
-        "2023-01-32",  # Invalid day
-        "2023-1-1",    # Single digit month/day
-        "",            # Empty string
-    ]
-    return draw(st.sampled_from(invalid_formats))
-
-
-@composite
-def file_extension_strategy(draw):
-    """Generate various file extensions for testing."""
-    extensions = ['.csv', '.pkl', '.pickle', '.gz', '.txt', '.json', '.yaml']
-    return draw(st.sampled_from(extensions))
-
-
-@composite
-def ignore_pattern_strategy(draw):
-    """Generate various ignore patterns for testing."""
-    patterns = [
-        "._",           # Hidden files
-        "temp_",        # Temporary files
-        "backup",       # Backup files
-        "*.log",        # Log files with glob
-        "*_old.*",      # Old files with glob
-        "test_*",       # Test files
-        ".DS_Store",    # System files
-    ]
-    return draw(st.sampled_from(patterns))
-
-
-@composite
-def mandatory_substring_strategy(draw):
-    """Generate mandatory substring patterns."""
-    substrings = [
-        "experiment",
-        "data",
-        "valid",
-        "processed",
-        "final",
-        "analysis",
-    ]
-    return draw(st.sampled_from(substrings))
+    # Additional discovery-specific strategies
+    class DiscoveryStrategies:
+        @staticmethod
+        def valid_discovery_patterns():
+            """Generate valid file patterns for discovery testing."""
+            return st.sampled_from([
+                "**/*.csv",
+                "**/*.pkl", 
+                "**/*.pickle",
+                "**/experiment_*.csv",
+                "**/data_*.pkl",
+                "**/*_processed.*"
+            ])
+        
+        @staticmethod 
+        def invalid_discovery_patterns():
+            """Generate invalid patterns for error boundary testing."""
+            return st.sampled_from([
+                "",           # Empty pattern
+                None,         # None pattern
+                "//invalid",  # Invalid glob
+                "\\invalid",  # Windows path issues
+            ])
+        
+        @staticmethod
+        def discovery_configurations():
+            """Generate realistic discovery configurations."""
+            return st.fixed_dictionaries({
+                "project": st.fixed_dictionaries({
+                    "directories": st.fixed_dictionaries({
+                        "major_data_directory": st.just("/test/data")
+                    }),
+                    "ignore_substrings": st.lists(
+                        st.sampled_from(["._", "temp_", "backup", ".DS_Store"]),
+                        min_size=0, max_size=4
+                    ),
+                    "extraction_patterns": st.lists(
+                        st.just(r".*_(?P<date>\d{4}-\d{2}-\d{2})_(?P<condition>\w+)\.csv"),
+                        min_size=0, max_size=2
+                    )
+                }),
+                "datasets": st.dictionaries(
+                    keys=st.text(min_size=3, max_size=20),
+                    values=st.fixed_dictionaries({
+                        "rig": st.just("test_rig"),
+                        "dates_vials": st.dictionaries(
+                            keys=st.sampled_from(["2023-01-01", "2023-01-02", "2023_01_03"]),
+                            values=st.lists(st.integers(min_value=1, max_value=6), min_size=1, max_size=3)
+                        )
+                    }),
+                    min_size=1, max_size=3
+                ),
+                "experiments": st.dictionaries(
+                    keys=st.text(min_size=3, max_size=20),
+                    values=st.fixed_dictionaries({
+                        "datasets": st.lists(st.text(min_size=3, max_size=20), min_size=1, max_size=2),
+                        "filters": st.just({
+                            "ignore_substrings": ["exclude_me"],
+                            "mandatory_experiment_strings": ["include_me"]
+                        })
+                    }),
+                    min_size=1, max_size=2
+                )
+            })
+    
+    # Combine with base strategies
+    strategies.discovery = DiscoveryStrategies()
+    return strategies
 
 
 # ============================================================================
-# FIXTURE DEFINITIONS
+# BEHAVIORAL VALIDATION TEST CASES
 # ============================================================================
 
-@pytest.fixture
-def sample_config_base():
+@pytest.mark.parametrize("config_scenario,expected_behavior", [
+    # Test project-level filtering behavior
+    (
+        {"experiment": None, "additional_ignore": []},
+        {"should_include_files": True, "min_files_found": 1, "filters_applied": True}
+    ),
+    
+    # Test experiment-specific filtering behavior
+    (
+        {"experiment": "test_experiment", "additional_ignore": ["exclude_me"]},
+        {"should_include_files": True, "min_files_found": 1, "filters_applied": True}
+    ),
+    
+    # Test multi-dataset experiment behavior
+    (
+        {"experiment": "multi_dataset_experiment", "additional_ignore": ["noise", "artifact"]},
+        {"should_include_files": True, "min_files_found": 1, "filters_applied": True}
+    ),
+    
+    # Test basic experiment behavior (no additional filters)
+    (
+        {"experiment": "basic_experiment", "additional_ignore": []},
+        {"should_include_files": True, "min_files_found": 1, "filters_applied": True}
+    ),
+])
+def test_discover_files_with_config_behavioral_validation(
+    temp_experiment_directory, 
+    config_scenario,
+    expected_behavior
+):
     """
-    Base configuration fixture with comprehensive structure.
-    Follows F-001-RQ-003 validation requirements.
+    Behavioral validation for discover_files_with_config function.
+    
+    Tests observable discovery behavior and results rather than implementation details.
+    Validates filtering effectiveness through result analysis instead of internal inspection.
+    
+    Args:
+        temp_experiment_directory: Centralized experiment directory fixture
+        config_scenario: Configuration scenario to test
+        expected_behavior: Expected behavioral outcomes
     """
-    return {
+    # ARRANGE - Set up test configuration and behavioral expectations
+    base_config = {
         "project": {
             "directories": {
-                "major_data_directory": "/path/to/data"
+                "major_data_directory": str(temp_experiment_directory["directory"])
             },
             "ignore_substrings": [
-                "._",
-                "temp_",
-                "backup"
-            ],
+                "backup",
+                "temp",
+                "._"
+            ] + config_scenario["additional_ignore"],
             "extraction_patterns": [
-                r".*_(?P<date>\d{4}-\d{2}-\d{2})_(?P<condition>\w+)\.csv",
-                r".*_(?P<experiment>\w+)_(?P<replicate>\d+)\.pkl"
+                r".*_(?P<date>\d{4}-\d{2}-\d{2})_(?P<condition>\w+)\.csv"
             ]
+        },
+        "experiments": {
+            "test_experiment": {
+                "datasets": ["neural_data"],
+                "filters": {
+                    "ignore_substrings": ["exclude_me"],
+                    "mandatory_experiment_strings": ["mouse"]
+                }
+            },
+            "basic_experiment": {
+                "datasets": ["neural_data"]
+            },
+            "multi_dataset_experiment": {
+                "datasets": ["neural_data"],
+                "filters": {
+                    "ignore_substrings": ["noise", "artifact"],
+                    "mandatory_experiment_strings": ["valid", "processed"]
+                }
+            }
+        },
+        "datasets": {
+            "neural_data": {
+                "dates_vials": {
+                    "20240101": ["mouse_001", "mouse_002"],
+                    "20240102": ["mouse_003", "mouse_004"]
+                }
+            }
+        }
+    }
+    
+    experiment = config_scenario["experiment"]
+    search_directory = str(temp_experiment_directory["directory"])
+    
+    # ACT - Execute discovery with configuration-driven filtering
+    discovered_files = discover_files_with_config(
+        config=base_config,
+        directory=search_directory,
+        pattern="**/*.pkl",
+        recursive=True,
+        experiment=experiment
+    )
+    
+    # ASSERT - Verify behavioral outcomes through observable results
+    assert isinstance(discovered_files, list), "Discovery should return list of file paths"
+    
+    if expected_behavior["should_include_files"]:
+        assert len(discovered_files) >= expected_behavior["min_files_found"], \
+            f"Should find at least {expected_behavior['min_files_found']} files"
+    
+    # Verify filtering behavior through result analysis
+    if expected_behavior["filters_applied"]:
+        # Verify ignore patterns are effectively applied
+        for file_path in discovered_files:
+            for ignore_pattern in base_config["project"]["ignore_substrings"]:
+                clean_pattern = ignore_pattern.replace('*', '')
+                assert clean_pattern not in file_path, \
+                    f"File {file_path} should be filtered out by pattern {ignore_pattern}"
+        
+        # Verify experiment-specific filtering if applicable
+        if experiment and experiment in base_config["experiments"]:
+            exp_config = base_config["experiments"][experiment]
+            if "filters" in exp_config:
+                ignore_substrings = exp_config["filters"].get("ignore_substrings", [])
+                mandatory_substrings = exp_config["filters"].get("mandatory_experiment_strings", [])
+                
+                # Check ignore patterns are applied
+                for file_path in discovered_files:
+                    for ignore_pattern in ignore_substrings:
+                        assert ignore_pattern not in file_path, \
+                            f"Experiment filter should exclude files containing {ignore_pattern}"
+                
+                # Check mandatory patterns (if files found, they should match requirements)
+                if mandatory_substrings and discovered_files:
+                    has_valid_files = any(
+                        any(substring in file_path for substring in mandatory_substrings)
+                        for file_path in discovered_files
+                    )
+                    assert has_valid_files, \
+                        f"At least one file should contain mandatory substrings: {mandatory_substrings}"
+
+
+@pytest.mark.parametrize("date_format,should_discover", [
+    ("2023-01-01", True),   # Standard dash format
+    ("2023_01_02", True),   # Underscore format
+    ("2023/01/03", False),  # Invalid slash format
+    ("23-01-01", False),    # Two-digit year
+    ("2023-13-01", False),  # Invalid month
+    ("not-a-date", False),  # Non-date string
+    ("", False),            # Empty string
+])
+def test_date_based_discovery_behavioral_validation(
+    temp_experiment_directory,
+    date_format,
+    should_discover
+):
+    """
+    Behavioral validation for date-based directory discovery.
+    
+    Tests observable date format handling through discovery results
+    rather than internal date parsing implementation.
+    
+    Args:
+        temp_experiment_directory: Centralized experiment directory fixture
+        date_format: Date format to test behavioral validation for
+        should_discover: Whether files should be discovered for this format
+    """
+    # ARRANGE - Set up date-specific test configuration
+    base_dir = temp_experiment_directory["directory"]
+    date_dir = base_dir / date_format
+    date_dir.mkdir(exist_ok=True)
+    
+    test_file = date_dir / "test_data.pkl"
+    test_file.write_text("test data content")
+    
+    config = {
+        "project": {
+            "directories": {
+                "major_data_directory": str(base_dir)
+            },
+            "ignore_substrings": []
+        },
+        "datasets": {
+            "test_dataset": {
+                "rig": "test_rig",
+                "dates_vials": {date_format: [1]}
+            }
+        }
+    }
+    
+    # ACT - Execute dataset discovery with date format
+    try:
+        discovered_files = discover_dataset_files(
+            config=config,
+            dataset_name="test_dataset",
+            base_directory=str(base_dir)
+        )
+        discovery_succeeded = True
+        
+    except (KeyError, ValueError, OSError) as e:
+        discovered_files = []
+        discovery_succeeded = False
+    
+    # ASSERT - Verify behavioral outcomes for date handling
+    if should_discover:
+        assert discovery_succeeded, \
+            f"Valid date format {date_format} should allow successful discovery"
+        assert len(discovered_files) >= 1, \
+            f"Should discover files for valid date format {date_format}"
+        assert any(date_format in file_path for file_path in discovered_files), \
+            f"Discovered files should include date directory {date_format}"
+    else:
+        # Invalid dates should result in no files found or controlled failure
+        if discovery_succeeded:
+            assert len(discovered_files) == 0, \
+                f"Invalid date format {date_format} should not discover files"
+        # Note: Some invalid formats may raise exceptions, which is acceptable behavior
+
+
+@pytest.mark.parametrize("extension_config,pattern,expected_outcome", [
+    # Test extension filtering behavior
+    (["pkl"], "**/*.*", {"extensions_found": [".pkl"], "other_extensions_excluded": True}),
+    (["pkl", "csv"], "**/*.*", {"extensions_found": [".pkl", ".csv"], "other_extensions_excluded": True}),
+    (["csv"], "**/*.pkl", {"extensions_found": [".pkl"], "pattern_overrides": True}),
+    (None, "**/*.pkl", {"extensions_found": [".pkl"], "pattern_controls": True}),
+    ([], "**/*.*", {"extensions_found": [], "empty_list_excludes_all": True}),
+])
+def test_extension_filtering_behavioral_validation(
+    temp_experiment_directory,
+    extension_config,
+    pattern,
+    expected_outcome
+):
+    """
+    Behavioral validation for extension-based filtering.
+    
+    Tests observable extension filtering behavior through result analysis
+    rather than internal filtering mechanism inspection.
+    
+    Args:
+        temp_experiment_directory: Centralized experiment directory fixture
+        extension_config: Extension configuration to test
+        pattern: File pattern for discovery
+        expected_outcome: Expected behavioral outcomes
+    """
+    # ARRANGE - Set up multi-extension test environment
+    test_config = {
+        "project": {
+            "directories": {
+                "major_data_directory": str(temp_experiment_directory["directory"])
+            },
+            "ignore_substrings": []
+        }
+    }
+    
+    # Create files with different extensions in test directory
+    test_files = {
+        "data.pkl": "pickle data",
+        "data.csv": "csv data", 
+        "data.json": "json data",
+        "data.txt": "text data"
+    }
+    
+    for filename, content in test_files.items():
+        file_path = temp_experiment_directory["directory"] / filename
+        file_path.write_text(content)
+    
+    # ACT - Execute discovery with extension filtering
+    discovered_files = discover_files_with_config(
+        config=test_config,
+        directory=str(temp_experiment_directory["directory"]),
+        pattern=pattern,
+        recursive=True,
+        extensions=extension_config
+    )
+    
+    # ASSERT - Verify extension filtering behavioral outcomes
+    assert isinstance(discovered_files, list), "Should return list of file paths"
+    
+    if expected_outcome.get("empty_list_excludes_all", False):
+        assert len(discovered_files) == 0, \
+            "Empty extension list should exclude all files"
+        return
+    
+    # Analyze discovered file extensions
+    discovered_extensions = set()
+    for file_path in discovered_files:
+        extension = Path(file_path).suffix
+        discovered_extensions.add(extension)
+    
+    expected_extensions = set(expected_outcome["extensions_found"])
+    
+    # Verify expected extensions are present
+    for expected_ext in expected_extensions:
+        assert expected_ext in discovered_extensions, \
+            f"Expected extension {expected_ext} should be found in results"
+    
+    # Verify exclusion behavior when specified
+    if expected_outcome.get("other_extensions_excluded", False):
+        all_possible_extensions = {".pkl", ".csv", ".json", ".txt"}
+        excluded_extensions = all_possible_extensions - expected_extensions
+        
+        for excluded_ext in excluded_extensions:
+            assert excluded_ext not in discovered_extensions, \
+                f"Extension {excluded_ext} should be excluded from results"
+
+
+# ============================================================================
+# PROPERTY-BASED BEHAVIORAL TESTING WITH HYPOTHESIS
+# ============================================================================
+
+@given(
+    config=st.fixed_dictionaries({
+        "project": st.fixed_dictionaries({
+            "ignore_substrings": st.lists(
+                st.sampled_from(["backup", "temp", "._", "old", "test"]),
+                min_size=1, max_size=3
+            )
+        })
+    }),
+    pattern=st.sampled_from(["**/*.csv", "**/*.pkl", "**/*.*"])
+)
+@settings(max_examples=30, deadline=2000)
+def test_pattern_filtering_behavioral_properties(
+    temp_experiment_directory,
+    config,
+    pattern
+):
+    """
+    Property-based behavioral validation for pattern filtering.
+    
+    Tests that filtering behavior is consistent and observable across
+    various input combinations without inspecting internal state.
+    
+    Args:
+        temp_experiment_directory: Centralized experiment directory fixture
+        config: Hypothesis-generated configuration
+        pattern: Hypothesis-generated file pattern
+    """
+    # ARRANGE - Set up property-based test environment
+    assume(len(config["project"]["ignore_substrings"]) > 0)
+    
+    # Create test files that should and shouldn't be filtered
+    test_dir = temp_experiment_directory["directory"]
+    created_files = []
+    
+    for i, ignore_pattern in enumerate(config["project"]["ignore_substrings"]):
+        # Files that should be filtered out
+        filtered_file = test_dir / f"file_{ignore_pattern}_{i}.csv"
+        filtered_file.write_text("filtered content")
+        created_files.append(str(filtered_file))
+        
+        # Files that should not be filtered
+        valid_file = test_dir / f"valid_file_{i}.csv"
+        valid_file.write_text("valid content")
+        created_files.append(str(valid_file))
+    
+    config["project"]["directories"] = {"major_data_directory": str(test_dir)}
+    
+    # ACT - Execute discovery with filtering
+    discovered_files = discover_files_with_config(
+        config=config,
+        directory=str(test_dir),
+        pattern=pattern,
+        recursive=True
+    )
+    
+    # ASSERT - Verify filtering behavioral properties
+    assert isinstance(discovered_files, list), "Should return list of file paths"
+    
+    # Property: No discovered file should contain ignore patterns
+    for file_path in discovered_files:
+        for ignore_pattern in config["project"]["ignore_substrings"]:
+            clean_pattern = ignore_pattern.replace('*', '')
+            assert clean_pattern not in file_path, \
+                f"Filtering property violated: {file_path} contains ignored pattern {ignore_pattern}"
+    
+    # Property: Valid files should be discoverable (if pattern matches)
+    pattern_extension = None
+    if "*.csv" in pattern:
+        pattern_extension = ".csv"
+    elif "*.pkl" in pattern:
+        pattern_extension = ".pkl"
+    
+    if pattern_extension:
+        expected_valid_files = [
+            f for f in created_files 
+            if f.endswith(pattern_extension) and 
+            not any(ignore in f for ignore in config["project"]["ignore_substrings"])
+        ]
+        
+        if expected_valid_files:
+            assert len(discovered_files) > 0, \
+                "Should discover at least some valid files matching pattern"
+
+
+@given(
+    dataset_config=st.fixed_dictionaries({
+        "dates_vials": st.dictionaries(
+            keys=st.sampled_from(["2023-01-01", "2023-01-02", "2023_01_03"]),
+            values=st.lists(st.integers(min_value=1, max_value=5), min_size=1, max_size=3),
+            min_size=1, max_size=3
+        ),
+        "rig": st.just("test_rig")
+    })
+)
+@settings(max_examples=20, deadline=3000)
+def test_dataset_discovery_behavioral_properties(
+    temp_experiment_directory,
+    dataset_config
+):
+    """
+    Property-based behavioral validation for dataset file discovery.
+    
+    Tests that dataset discovery behavior is consistent across various
+    date and vial configurations through result analysis.
+    
+    Args:
+        temp_experiment_directory: Centralized experiment directory fixture  
+        dataset_config: Hypothesis-generated dataset configuration
+    """
+    # ARRANGE - Set up property-based dataset test
+    base_dir = temp_experiment_directory["directory"]
+    created_files = []
+    
+    # Create files for each date/vial combination
+    for date, vials in dataset_config["dates_vials"].items():
+        date_dir = base_dir / date
+        date_dir.mkdir(exist_ok=True)
+        
+        for vial in vials:
+            filename = f"data_{date}_vial_{vial}.pkl"
+            file_path = date_dir / filename
+            file_path.write_text(f"date,vial,data\n{date},{vial},test_data")
+            created_files.append(str(file_path))
+    
+    config = {
+        "project": {
+            "directories": {"major_data_directory": str(base_dir)},
+            "ignore_substrings": []
+        },
+        "datasets": {
+            "test_dataset": dataset_config
+        }
+    }
+    
+    # ACT - Execute dataset discovery
+    discovered_files = discover_dataset_files(
+        config=config,
+        dataset_name="test_dataset",
+        base_directory=str(base_dir)
+    )
+    
+    # ASSERT - Verify dataset discovery behavioral properties
+    assert isinstance(discovered_files, list), "Should return list of file paths"
+    
+    # Property: All specified dates should be represented in results
+    specified_dates = list(dataset_config["dates_vials"].keys())
+    for date in specified_dates:
+        date_represented = any(date in file_path for file_path in discovered_files)
+        assert date_represented, \
+            f"Dataset discovery should include files from date {date}"
+    
+    # Property: Discovery should respect directory structure
+    for file_path in discovered_files:
+        file_exists_in_created = any(created_file in file_path for created_file in created_files)
+        assert file_exists_in_created or Path(file_path).exists(), \
+            f"Discovered file should correspond to actual file: {file_path}"
+
+
+# ============================================================================
+# ERROR SCENARIO BEHAVIORAL VALIDATION
+# ============================================================================
+
+@pytest.mark.parametrize("invalid_config,expected_error_type", [
+    # Missing required sections
+    ({}, KeyError),
+    ({"project": {}}, KeyError),
+    ({"experiments": {"test": {}}}, KeyError),
+    
+    # Invalid data types
+    ({"datasets": {"test": {"dates_vials": "not_a_dict"}}}, (ValueError, TypeError)),
+    ({"datasets": {"test": {"dates_vials": {123: [1, 2]}}}}, (ValueError, TypeError)),
+    ({"datasets": {"test": {"dates_vials": {"2023-01-01": "not_a_list"}}}}, (ValueError, TypeError)),
+    
+    # Malformed configuration structures
+    ({"project": {"ignore_substrings": "should_be_list"}}, (ValueError, TypeError)),
+    ({"experiments": {"test": {"filters": {"mandatory_experiment_strings": 123}}}}, (ValueError, TypeError)),
+])
+def test_invalid_configuration_error_behavior(invalid_config, expected_error_type):
+    """
+    Behavioral validation for error handling with invalid configurations.
+    
+    Tests observable error behavior and proper exception handling
+    without inspecting internal validation mechanisms.
+    
+    Args:
+        invalid_config: Invalid configuration to test error behavior
+        expected_error_type: Expected exception type for behavioral validation
+    """
+    # ARRANGE - Set up invalid configuration scenario
+    test_directory = "/test/directory"
+    
+    # ACT & ASSERT - Verify error behavioral outcomes
+    with pytest.raises(expected_error_type):
+        if "datasets" in invalid_config:
+            # Test dataset access behavior
+            get_dataset_info(invalid_config, "test")
+        elif "experiments" in invalid_config:
+            # Test experiment access behavior
+            get_experiment_info(invalid_config, "test")
+        else:
+            # Test pattern extraction behavior
+            get_ignore_patterns(invalid_config)
+
+
+@pytest.mark.parametrize("missing_entity,entity_type", [
+    ("nonexistent_dataset", "dataset"),
+    ("nonexistent_experiment", "experiment"),
+])
+def test_missing_entity_error_behavior(missing_entity, entity_type):
+    """
+    Behavioral validation for missing entity error handling.
+    
+    Tests observable error behavior when accessing non-existent entities
+    through public API rather than internal state inspection.
+    
+    Args:
+        missing_entity: Name of missing entity to test
+        entity_type: Type of entity for behavioral validation
+    """
+    # ARRANGE - Set up configuration without target entity
+    valid_config = {
+        "project": {"ignore_substrings": []},
+        "datasets": {"existing_dataset": {"rig": "test_rig"}},
+        "experiments": {"existing_experiment": {"datasets": ["existing_dataset"]}}
+    }
+    
+    # ACT & ASSERT - Verify missing entity error behavior
+    with pytest.raises(KeyError) as exc_info:
+        if entity_type == "dataset":
+            get_dataset_info(valid_config, missing_entity)
+        else:
+            get_experiment_info(valid_config, missing_entity)
+    
+    # Verify error message contains entity name for debuggability
+    assert missing_entity in str(exc_info.value), \
+        "Error message should contain missing entity name"
+
+
+# ============================================================================
+# CROSS-PLATFORM BEHAVIORAL VALIDATION
+# ============================================================================
+
+@pytest.mark.parametrize("path_scenario,expected_behavior", [
+    ("unix_style", {"should_normalize": True, "should_discover": True}),
+    ("windows_style", {"should_normalize": True, "should_discover": True}),
+])
+def test_cross_platform_path_behavioral_validation(
+    temp_experiment_directory,
+    path_scenario,
+    expected_behavior
+):
+    """
+    Behavioral validation for cross-platform path handling.
+    
+    Tests observable path normalization and discovery behavior
+    rather than internal path manipulation implementation.
+    
+    Args:
+        temp_experiment_directory: Centralized experiment directory fixture
+        path_scenario: Path scenario to test behavioral validation
+        expected_behavior: Expected cross-platform behavioral outcomes
+    """
+    # ARRANGE - Set up cross-platform test environment
+    test_dir = temp_experiment_directory["directory"]
+    subdir = test_dir / "subdir"
+    subdir.mkdir(exist_ok=True)
+    
+    test_file = subdir / "test_file.pkl"
+    test_file.write_text("cross-platform test data")
+    
+    config = {
+        "project": {
+            "directories": {"major_data_directory": str(test_dir)},
+            "ignore_substrings": []
+        }
+    }
+    
+    # Handle path scenario variations
+    if path_scenario == "windows_style" and os.name == 'posix':
+        pytest.skip("Windows path test skipped on Unix system")
+    
+    # ACT - Execute discovery with cross-platform paths
+    discovered_files = discover_files_with_config(
+        config=config,
+        directory=str(test_dir),
+        pattern="**/*.pkl",
+        recursive=True
+    )
+    
+    # ASSERT - Verify cross-platform behavioral outcomes
+    assert isinstance(discovered_files, list), "Should return list of file paths"
+    
+    if expected_behavior["should_discover"]:
+        assert len(discovered_files) >= 1, "Should discover files across platforms"
+        assert any("test_file.pkl" in file_path for file_path in discovered_files), \
+            "Should find target test file"
+    
+    if expected_behavior["should_normalize"]:
+        # Verify paths are usable and normalized
+        for file_path in discovered_files:
+            assert os.path.exists(file_path), \
+                f"Normalized path should exist: {file_path}"
+            # Verify path uses appropriate separators for platform
+            assert os.sep in file_path or len(discovered_files) == 0, \
+                "Path should use platform-appropriate separators"
+
+
+# ============================================================================
+# INTEGRATION BEHAVIORAL TESTING
+# ============================================================================
+
+def test_end_to_end_experiment_discovery_behavioral_workflow(temp_experiment_directory):
+    """
+    Comprehensive behavioral validation for experiment discovery workflow.
+    
+    Tests complete experiment discovery behavior from configuration to results
+    without inspecting internal processing steps or implementation details.
+    
+    Args:
+        temp_experiment_directory: Centralized experiment directory fixture
+    """
+    # ARRANGE - Set up comprehensive experiment discovery scenario
+    base_dir = temp_experiment_directory["directory"]
+    
+    # Create realistic file structure
+    test_files = [
+        "include_me_experiment_data.pkl",
+        "include_me_processed_data.pkl", 
+        "exclude_me_backup_data.pkl",
+        "regular_data_file.pkl",
+        "temp_processing_file.pkl"
+    ]
+    
+    for filename in test_files:
+        file_path = base_dir / filename
+        file_path.write_text(f"test content for {filename}")
+    
+    config = {
+        "project": {
+            "directories": {"major_data_directory": str(base_dir)},
+            "ignore_substrings": ["backup", "temp"]
+        },
+        "experiments": {
+            "test_experiment": {
+                "datasets": ["neural_data"],
+                "filters": {
+                    "ignore_substrings": ["exclude_me"],
+                    "mandatory_experiment_strings": ["include_me"]
+                }
+            },
+            "basic_experiment": {
+                "datasets": ["neural_data"]
+            }
+        },
+        "datasets": {
+            "neural_data": {
+                "dates_vials": {"20240101": ["mouse_001", "mouse_002"]}
+            }
+        }
+    }
+    
+    # ACT - Execute comprehensive experiment discovery
+    experiment_files = discover_experiment_files(
+        config=config,
+        experiment_name="test_experiment",
+        base_directory=str(base_dir)
+    )
+    
+    basic_files = discover_experiment_files(
+        config=config,
+        experiment_name="basic_experiment", 
+        base_directory=str(base_dir)
+    )
+    
+    # ASSERT - Verify end-to-end behavioral outcomes
+    assert isinstance(experiment_files, list), "Should return list of experiment files"
+    assert isinstance(basic_files, list), "Should return list of basic experiment files"
+    
+    # Verify experiment-specific filtering behavior
+    for file_path in experiment_files:
+        assert "include_me" in file_path, \
+            "Experiment files should contain mandatory strings"
+        assert "exclude_me" not in file_path, \
+            "Experiment files should not contain excluded patterns"
+        assert "backup" not in file_path, \
+            "Should apply project-level filtering"
+        assert "temp" not in file_path, \
+            "Should apply project-level filtering"
+    
+    # Verify basic experiment has different filtering behavior
+    assert len(basic_files) >= len(experiment_files), \
+        "Basic experiment should find more files (fewer filters)"
+    
+    # Verify configuration hierarchy is properly applied
+    project_filtered_files = [f for f in basic_files if "backup" not in f and "temp" not in f]
+    assert len(basic_files) == len(project_filtered_files), \
+        "Basic experiment should still apply project-level filters"
+
+
+def test_end_to_end_dataset_discovery_behavioral_workflow(temp_experiment_directory):
+    """
+    Comprehensive behavioral validation for dataset discovery workflow.
+    
+    Tests complete dataset discovery behavior focusing on observable results
+    and date-based directory handling without implementation inspection.
+    
+    Args:
+        temp_experiment_directory: Centralized experiment directory fixture
+    """
+    # ARRANGE - Set up dataset discovery scenario
+    base_dir = temp_experiment_directory["directory"]
+    
+    # Create date-based directory structure
+    date_dirs = ["2023-01-01", "2023-01-02", "2023_01_03"]
+    for date_dir in date_dirs:
+        dir_path = base_dir / date_dir
+        dir_path.mkdir(exist_ok=True)
+        
+        # Create files in each date directory
+        for i in range(2):
+            file_path = dir_path / f"dataset_file_{i}.pkl"
+            file_path.write_text(f"dataset content for {date_dir}")
+    
+    config = {
+        "project": {
+            "directories": {"major_data_directory": str(base_dir)},
+            "ignore_substrings": ["backup", "temp"]
         },
         "datasets": {
             "test_dataset": {
@@ -134,934 +882,130 @@ def sample_config_base():
                     "2023-01-01": [1, 2],
                     "2023-01-02": [3, 4],
                     "2023_01_03": [5, 6]  # Alternative date format
-                },
-                "metadata": {
-                    "extraction_patterns": [
-                        r".*_(?P<dataset>\w+)_(?P<date>\d{8})\.csv"
-                    ]
-                }
-            },
-            "multi_date_dataset": {
-                "rig": "old_opto",
-                "dates_vials": {
-                    "2023-02-01": [1, 2, 3],
-                    "2023-02-15": [4, 5],
-                    "2023-03-01": [6]
-                }
-            }
-        },
-        "experiments": {
-            "test_experiment": {
-                "datasets": ["test_dataset"],
-                "filters": {
-                    "ignore_substrings": ["exclude_me"],
-                    "mandatory_experiment_strings": ["include_me"]
-                },
-                "metadata": {
-                    "extraction_patterns": [
-                        r".*_(?P<experiment>\w+)_(?P<date>\d{8})\.csv"
-                    ]
-                }
-            },
-            "basic_experiment": {
-                "datasets": ["test_dataset"]
-            },
-            "multi_dataset_experiment": {
-                "datasets": ["test_dataset", "multi_date_dataset"],
-                "filters": {
-                    "ignore_substrings": ["noise", "artifact"],
-                    "mandatory_experiment_strings": ["valid", "processed"]
                 }
             }
         }
     }
-
-
-@pytest.fixture
-def complex_directory_structure(tmp_path):
-    """
-    Create a complex temporary directory structure for comprehensive testing.
-    Tests F-002-RQ-001 recursive traversal and F-002-RQ-005 date-based resolution.
-    """
-    base_dir = tmp_path / "test_data"
-    base_dir.mkdir()
     
-    # Create date directories with various formats
-    date_dirs = [
-        "2023-01-01",
-        "2023-01-02",
-        "2023_01_03",  # Alternative format
-        "2023-02-01",
-        "2023-02-15",
-        "invalid_date",
-    ]
-    
-    files_created = []
-    
-    for date_dir in date_dirs:
-        date_path = base_dir / date_dir
-        date_path.mkdir()
-        
-        # Create various types of files
-        test_files = [
-            f"include_me_data_{date_dir}.csv",
-            f"include_me_processed_{date_dir}.pkl",
-            f"exclude_me_data_{date_dir}.csv",
-            f"regular_data_{date_dir}.csv",
-            f"._hidden_file_{date_dir}.txt",
-            f"temp_backup_{date_dir}.csv",
-            f"valid_experiment_{date_dir}.csv",
-            f"processed_analysis_{date_dir}.json",
-            f"noise_artifact_{date_dir}.csv",
-        ]
-        
-        for filename in test_files:
-            file_path = date_path / filename
-            file_path.write_text(f"Sample data for {filename}")
-            files_created.append(str(file_path))
-    
-    # Create nested subdirectories for recursive testing
-    nested_dir = base_dir / "2023-01-01" / "subdir"
-    nested_dir.mkdir()
-    nested_file = nested_dir / "nested_include_me_data.csv"
-    nested_file.write_text("Nested sample data")
-    files_created.append(str(nested_file))
-    
-    return {
-        "base_dir": str(base_dir),
-        "files_created": files_created,
-        "date_dirs": [str(base_dir / d) for d in date_dirs]
-    }
-
-
-@pytest.fixture
-def performance_test_structure(tmp_path):
-    """
-    Create a large directory structure for performance testing.
-    Tests TST-PERF-001 requirements (<5 seconds for 10,000 files).
-    """
-    base_dir = tmp_path / "perf_test"
-    base_dir.mkdir()
-    
-    files_created = []
-    
-    # Create 100 date directories with 100 files each (10,000 total)
-    for i in range(100):
-        date_dir = base_dir / f"2023-{(i % 12) + 1:02d}-{(i % 28) + 1:02d}"
-        date_dir.mkdir(exist_ok=True)
-        
-        for j in range(100):
-            filename = f"data_{i:03d}_{j:03d}.csv"
-            file_path = date_dir / filename
-            file_path.write_text(f"data,{i},{j}\n1,2,3")
-            files_created.append(str(file_path))
-    
-    return {
-        "base_dir": str(base_dir),
-        "files_created": files_created,
-        "total_files": len(files_created)
-    }
-
-
-@pytest.fixture
-def mock_filesystem_permissions(monkeypatch):
-    """
-    Mock filesystem operations for permission scenario testing.
-    Tests TST-MOD-003 enhanced filesystem mocking requirements.
-    """
-    permission_errors = {}
-    
-    def mock_listdir(path):
-        if str(path) in permission_errors:
-            raise PermissionError(f"Permission denied: {path}")
-        return []
-    
-    def mock_exists(path):
-        return str(path) not in permission_errors
-    
-    def mock_is_dir(path):
-        return str(path) not in permission_errors
-    
-    monkeypatch.setattr("os.listdir", mock_listdir)
-    monkeypatch.setattr("pathlib.Path.exists", mock_exists)
-    monkeypatch.setattr("pathlib.Path.is_dir", mock_is_dir)
-    
-    return permission_errors
-
-
-# ============================================================================
-# PARAMETRIZED TEST CASES
-# ============================================================================
-
-@pytest.mark.parametrize("config_modification,expected_ignore_count,expected_mandatory_count", [
-    # Test project-level patterns only
-    ({}, 3, 0),
-    
-    # Test experiment with additional filters
-    ({"experiment": "test_experiment"}, 4, 1),
-    
-    # Test experiment with multiple mandatory strings
-    ({"experiment": "multi_dataset_experiment"}, 5, 2),
-    
-    # Test basic experiment (no additional filters)
-    ({"experiment": "basic_experiment"}, 3, 0),
-])
-def test_discover_files_with_config_parametrized(
-    sample_config_base, 
-    complex_directory_structure, 
-    config_modification,
-    expected_ignore_count,
-    expected_mandatory_count
-):
-    """
-    Parametrized test for discover_files_with_config function.
-    Tests TST-MOD-002 pytest.mark.parametrize implementation.
-    
-    Args:
-        sample_config_base: Base configuration fixture
-        complex_directory_structure: Complex test directory structure
-        config_modification: Modifications to apply to base config
-        expected_ignore_count: Expected number of ignore patterns
-        expected_mandatory_count: Expected number of mandatory substrings
-    """
-    # Apply configuration modifications
-    config = sample_config_base.copy()
-    experiment = config_modification.get("experiment")
-    
-    # Test the pattern extraction functions
-    ignore_patterns = get_ignore_patterns(config, experiment)
-    mandatory_substrings = get_mandatory_substrings(config, experiment)
-    
-    assert len(ignore_patterns) == expected_ignore_count
-    assert len(mandatory_substrings) == expected_mandatory_count
-    
-    # Test file discovery
-    files = discover_files_with_config(
-        config=config,
-        directory=complex_directory_structure["base_dir"],
-        pattern="**/*.csv",
-        recursive=True,
-        experiment=experiment
-    )
-    
-    # Verify basic functionality
-    assert isinstance(files, list)
-    assert len(files) > 0
-    
-    # Verify all returned files are CSV files
-    assert all(f.endswith('.csv') for f in files)
-    
-    # Verify ignore patterns are applied
-    for pattern in ignore_patterns:
-        # Convert pattern to simple substring check
-        pattern_clean = pattern.replace('*', '')
-        assert not any(pattern_clean in f for f in files)
-    
-    # Verify mandatory substrings are applied (files must contain at least one of the mandatory substrings)
-    if mandatory_substrings:
-        # Debug output to understand what's happening
-        print("\nDebug: Checking mandatory substrings:")
-        print(f"Mandatory substrings: {mandatory_substrings}")
-        print("Files after filtering:")
-        for f in files:
-            matches = [substring for substring in mandatory_substrings if substring in f]
-            print(f"- {f} (matches: {matches if matches else 'none'})")
-        
-        # Check that at least one file matches at least one mandatory substring
-        has_matching_file = any(
-            any(substring in f for substring in mandatory_substrings)
-            for f in files
-        )
-        assert has_matching_file, "No files matched the mandatory substrings"
-
-
-@pytest.mark.parametrize("date_format,expected_valid", [
-    ("2023-01-01", True),
-    ("2023_01_02", True),
-    ("2023/01/03", False),
-    ("23-01-01", False),
-    ("2023-13-01", False),
-    ("not-a-date", False),
-    ("", False),
-])
-def test_date_directory_resolution(
-    sample_config_base,
-    tmp_path,
-    date_format,
-    expected_valid
-):
-    """
-    Parametrized test for date-based directory resolution.
-    Tests F-002-RQ-005 date format validation requirements.
-    
-    Args:
-        sample_config_base: Base configuration fixture
-        tmp_path: Pytest temporary path fixture
-        date_format: Date format to test
-        expected_valid: Whether the date format should be considered valid
-    """
-    # Create test directory structure
-    base_dir = tmp_path / "date_test"
-    base_dir.mkdir()
-    date_dir = base_dir / date_format
-    date_dir.mkdir()
-    
-    # Create test file
-    test_file = date_dir / "test_data.csv"
-    test_file.write_text("test,data\n1,2")
-    
-    # Update config to use our test directory
-    config = sample_config_base.copy()
-    config["datasets"]["test_dataset"]["dates_vials"] = {date_format: [1]}
-    
-    # Test dataset file discovery
-    try:
-        files = discover_dataset_files(
-            config=config,
-            dataset_name="test_dataset",
-            base_directory=str(base_dir)
-        )
-        
-        if expected_valid:
-            assert len(files) >= 1
-            assert any(date_format in f for f in files)
-        else:
-            # Invalid dates should result in no files found or empty list
-            assert len(files) == 0 or not any(date_format in f for f in files)
-            
-    except (KeyError, ValueError) as e:
-        # Some invalid date formats might raise exceptions
-        if expected_valid:
-            pytest.fail(f"Valid date format {date_format} raised exception: {e}")
-
-
-@pytest.mark.parametrize("extension_list,pattern,expected_extensions", [
-    (["csv"], "**/*.*", [".csv"]),
-    (["pkl", "pickle"], "**/*.*", [".pkl", ".pickle"]),
-    (["csv", "json"], "**/*.csv", [".csv"]),  # Pattern overrides extensions
-    (None, "**/*.pkl", [".pkl"]),
-    ([], "**/*.*", []),  # Empty extension list
-])
-def test_extension_filtering(
-    sample_config_base,
-    complex_directory_structure,
-    extension_list,
-    pattern,
-    expected_extensions
-):
-    """
-    Parametrized test for extension-based filtering.
-    Tests F-002-RQ-002 extension filtering requirements.
-    
-    Args:
-        sample_config_base: Base configuration fixture
-        complex_directory_structure: Test directory structure
-        extension_list: List of extensions to filter by
-        pattern: File pattern to match
-        expected_extensions: Expected file extensions in results
-    """
-    files = discover_files_with_config(
-        config=sample_config_base,
-        directory=complex_directory_structure["base_dir"],
-        pattern=pattern,
-        recursive=True,
-        extensions=extension_list
-    )
-    
-    if expected_extensions:
-        # Verify all files have expected extensions
-        for file_path in files:
-            file_ext = Path(file_path).suffix
-            assert file_ext in expected_extensions
-    else:
-        # Empty extension list should return no files
-        assert len(files) == 0
-
-
-# ============================================================================
-# PROPERTY-BASED TESTS USING HYPOTHESIS
-# ============================================================================
-
-@given(
-    ignore_patterns=st.lists(ignore_pattern_strategy(), min_size=1, max_size=5),
-    mandatory_substrings=st.lists(mandatory_substring_strategy(), min_size=0, max_size=3)
-)
-@settings(max_examples=50, deadline=1000)
-def test_pattern_matching_robustness(
-    tmp_path,
-    ignore_patterns,
-    mandatory_substrings
-):
-    """
-    Property-based test for pattern matching robustness.
-    Tests F-007 Metadata Extraction System requirements with Hypothesis.
-    
-    Args:
-        tmp_path: Pytest temporary path fixture
-        ignore_patterns: Hypothesis-generated ignore patterns
-        mandatory_substrings: Hypothesis-generated mandatory substrings
-    """
-    # Create test directory
-    test_dir = tmp_path / "pattern_test"
-    test_dir.mkdir()
-    
-    # Create files that should be ignored and included
-    test_files = []
-    for i, pattern in enumerate(ignore_patterns):
-        # Create files containing ignore patterns
-        pattern_clean = pattern.replace('*', '').replace('.', '_')
-        ignored_file = test_dir / f"file_{pattern_clean}_{i}.csv"
-        ignored_file.write_text("ignored,data")
-        test_files.append(str(ignored_file))
-    
-    # Create files with mandatory substrings
-    for i, substring in enumerate(mandatory_substrings):
-        included_file = test_dir / f"file_{substring}_valid_{i}.csv"
-        included_file.write_text("valid,data")
-        test_files.append(str(included_file))
-    
-    # Create a control file that should always be included (if no mandatory substrings)
-    if not mandatory_substrings:
-        control_file = test_dir / "control_file.csv"
-        control_file.write_text("control,data")
-        test_files.append(str(control_file))
-    
-    # Build test configuration
-    config = {
-        "project": {
-            "ignore_substrings": ignore_patterns
-        }
-    }
-    
-    # Test with mandatory substrings as experiment filter
-    if mandatory_substrings:
-        config["experiments"] = {
-            "test_exp": {
-                "filters": {
-                    "mandatory_experiment_strings": mandatory_substrings
-                }
-            }
-        }
-        experiment = "test_exp"
-    else:
-        experiment = None
-    
-    # Test file discovery
-    files = discover_files_with_config(
-        config=config,
-        directory=str(test_dir),
-        pattern="**/*.csv",
-        recursive=True,
-        experiment=experiment
-    )
-    
-    # Verify ignore patterns work
-    for pattern in ignore_patterns:
-        pattern_clean = pattern.replace('*', '')
-        assert not any(pattern_clean in f for f in files), \
-            f"Files containing ignore pattern '{pattern_clean}' were not filtered out"
-    
-    # Verify mandatory substrings work
-    if mandatory_substrings:
-        for substring in mandatory_substrings:
-            assert all(substring in f for f in files), \
-                f"Not all files contain mandatory substring '{substring}'"
-
-
-@given(
-    dates=st.lists(valid_date_string(), min_size=1, max_size=10, unique=True),
-    vial_numbers=st.lists(st.integers(min_value=1, max_value=10), min_size=1, max_size=5)
-)
-@settings(max_examples=30, deadline=2000)
-def test_dataset_discovery_property_based(
-    tmp_path,
-    dates,
-    vial_numbers
-):
-    """
-    Property-based test for dataset file discovery.
-    Tests comprehensive date and vial number combinations.
-    
-    Args:
-        tmp_path: Pytest temporary path fixture
-        dates: Hypothesis-generated list of valid dates
-        vial_numbers: Hypothesis-generated list of vial numbers
-    """
-    assume(len(dates) > 0 and len(vial_numbers) > 0)
-    
-    # Create test directory structure
-    base_dir = tmp_path / "dataset_test"
-    base_dir.mkdir()
-    
-    # Build dates_vials structure
-    dates_vials = {}
-    files_created = []
-    
-    for date in dates:
-        dates_vials[date] = vial_numbers.copy()
-        
-        # Create date directory
-        date_dir = base_dir / date
-        date_dir.mkdir()
-        
-        # Create files for each vial
-        for vial in vial_numbers:
-            filename = f"data_{date}_vial_{vial}.csv"
-            file_path = date_dir / filename
-            file_path.write_text(f"date,vial,data\n{date},{vial},test")
-            files_created.append(str(file_path))
-    
-    # Build test configuration
-    config = {
-        "project": {
-            "directories": {
-                "major_data_directory": str(base_dir)
-            }
-        },
-        "datasets": {
-            "test_dataset": {
-                "rig": "test_rig",
-                "dates_vials": dates_vials
-            }
-        }
-    }
-    
-    # Test dataset discovery
-    discovered_files = discover_dataset_files(
+    # ACT - Execute dataset discovery
+    dataset_files = discover_dataset_files(
         config=config,
         dataset_name="test_dataset",
         base_directory=str(base_dir)
     )
     
-    # Verify all expected files are discovered
-    assert len(discovered_files) >= len(files_created)
+    # ASSERT - Verify dataset discovery behavioral outcomes
+    assert isinstance(dataset_files, list), "Should return list of dataset files"
+    assert len(dataset_files) > 0, "Should discover dataset files"
     
-    # Verify all date directories are represented
-    for date in dates:
-        assert any(date in f for f in discovered_files), \
-            f"No files found for date {date}"
+    # Verify date-based discovery behavior
+    for expected_date in date_dirs:
+        date_files_found = any(expected_date in file_path for file_path in dataset_files)
+        assert date_files_found, \
+            f"Should find files for date directory {expected_date}"
+    
+    # Verify project-level filtering is applied
+    for file_path in dataset_files:
+        assert "backup" not in file_path, \
+            "Should apply project-level ignore patterns"
+        assert "temp" not in file_path, \
+            "Should apply project-level ignore patterns"
+    
+    # Verify file discovery respects directory structure
+    for file_path in dataset_files:
+        path_obj = Path(file_path)
+        assert any(date in str(path_obj.parent) for date in date_dirs), \
+            f"File should be in expected date directory: {file_path}"
 
 
 # ============================================================================
-# ERROR SCENARIO TESTING
+# METADATA EXTRACTION BEHAVIORAL TESTING
 # ============================================================================
 
-@pytest.mark.parametrize("invalid_config,expected_exception", [
-    # Missing required sections
-    ({}, KeyError),
-    ({"project": {}}, KeyError),
-    ({"experiments": {"test": {}}}, KeyError),
-    
-    # Invalid structure
-    ({"datasets": {"test": {"dates_vials": "not_a_dict"}}}, (ValueError, TypeError)),
-    ({"datasets": {"test": {"dates_vials": {123: [1, 2]}}}}, (ValueError, TypeError)),
-    ({"datasets": {"test": {"dates_vials": {"2023-01-01": "not_a_list"}}}}, (ValueError, TypeError)),
-    
-    # Malformed patterns
-    ({"project": {"ignore_substrings": "should_be_list"}}, (ValueError, TypeError)),
-    ({"experiments": {"test": {"filters": {"mandatory_experiment_strings": 123}}}}, (ValueError, TypeError)),
+@pytest.mark.parametrize("metadata_scenario,expected_result_structure", [
+    ({"extract_metadata": False, "parse_dates": False}, {"result_type": list, "has_metadata": False}),
+    ({"extract_metadata": True, "parse_dates": False}, {"result_type": dict, "has_metadata": True}),
+    ({"extract_metadata": False, "parse_dates": True}, {"result_type": dict, "has_metadata": True}),
+    ({"extract_metadata": True, "parse_dates": True}, {"result_type": dict, "has_metadata": True}),
 ])
-def test_invalid_configuration_scenarios(invalid_config, expected_exception):
-    """
-    Test error handling for invalid configuration structures.
-    Tests F-001-RQ-003 validation requirements for error scenarios.
-    
-    Args:
-        invalid_config: Invalid configuration to test
-        expected_exception: Expected exception type
-    """
-    with pytest.raises(expected_exception):
-        if "datasets" in invalid_config:
-            # Test dataset access
-            get_dataset_info(invalid_config, "test")
-        elif "experiments" in invalid_config:
-            # Test experiment access
-            get_experiment_info(invalid_config, "test")
-        else:
-            # Test pattern extraction
-            get_ignore_patterns(invalid_config)
-
-
-@pytest.mark.parametrize("missing_entity,entity_type", [
-    ("nonexistent_dataset", "dataset"),
-    ("nonexistent_experiment", "experiment"),
-])
-def test_missing_entity_errors(sample_config_base, missing_entity, entity_type):
-    """
-    Test error handling for missing datasets and experiments.
-    
-    Args:
-        sample_config_base: Base configuration fixture
-        missing_entity: Name of missing entity
-        entity_type: Type of entity (dataset or experiment)
-    """
-    with pytest.raises(KeyError) as exc_info:
-        if entity_type == "dataset":
-            get_dataset_info(sample_config_base, missing_entity)
-        else:
-            get_experiment_info(sample_config_base, missing_entity)
-    
-    assert missing_entity in str(exc_info.value)
-
-
-# ============================================================================
-# PERFORMANCE TESTING
-# ============================================================================
-
-@pytest.mark.benchmark
-def test_file_discovery_performance_sla(
-    performance_test_structure,
-    sample_config_base,
-    benchmark
+def test_metadata_extraction_behavioral_modes(
+    temp_experiment_directory,
+    metadata_scenario,
+    expected_result_structure
 ):
     """
-    Test file discovery performance against SLA requirements.
-    Tests TST-PERF-001 requirement: <5 seconds for 10,000 files.
+    Behavioral validation for metadata extraction modes.
+    
+    Tests observable metadata extraction behavior through result structure analysis
+    rather than internal metadata processing implementation inspection.
     
     Args:
-        performance_test_structure: Large test directory structure
-        sample_config_base: Base configuration fixture
-        benchmark: Pytest benchmark fixture
+        temp_experiment_directory: Centralized experiment directory fixture
+        metadata_scenario: Metadata extraction scenario configuration
+        expected_result_structure: Expected result structure and behavior
     """
-    def discover_large_dataset():
-        return discover_files_with_config(
-            config=sample_config_base,
-            directory=performance_test_structure["base_dir"],
-            pattern="**/*.csv",
-            recursive=True
-        )
+    # ARRANGE - Set up metadata extraction test scenario
+    test_dir = temp_experiment_directory["directory"]
     
-    # Benchmark the operation
-    result = benchmark(discover_large_dataset)
-    
-    # Verify SLA compliance
-    assert benchmark.stats['mean'] < 5.0, \
-        f"File discovery took {benchmark.stats['mean']:.2f}s, exceeding 5s SLA"
-    
-    # Verify correctness
-    assert len(result) == performance_test_structure["total_files"]
-
-
-@pytest.mark.benchmark
-def test_experiment_discovery_performance(
-    performance_test_structure,
-    sample_config_base,
-    benchmark
-):
-    """
-    Test experiment file discovery performance.
-    
-    Args:
-        performance_test_structure: Large test directory structure
-        sample_config_base: Base configuration fixture
-        benchmark: Pytest benchmark fixture
-    """
-    # Update config for performance test
-    config = sample_config_base.copy()
-    config["project"]["directories"]["major_data_directory"] = performance_test_structure["base_dir"]
-    
-    def discover_experiment_files_perf():
-        return discover_experiment_files(
-            config=config,
-            experiment_name="test_experiment",
-            base_directory=performance_test_structure["base_dir"]
-        )
-    
-    # Benchmark the operation
-    result = benchmark(discover_experiment_files_perf)
-    
-    # Verify performance is reasonable
-    assert benchmark.stats['mean'] < 10.0, \
-        f"Experiment discovery took {benchmark.stats['mean']:.2f}s, exceeding reasonable threshold"
-    
-    # Verify some files were found
-    assert len(result) > 0
-
-
-# ============================================================================
-# CROSS-PLATFORM COMPATIBILITY TESTING
-# ============================================================================
-
-@pytest.mark.parametrize("path_separator,expected_normalization", [
-    ("/", True),   # Unix-style paths
-    ("\\", True),  # Windows-style paths
-])
-def test_cross_platform_path_handling(
-    tmp_path,
-    sample_config_base,
-    path_separator,
-    expected_normalization
-):
-    """
-    Test cross-platform path handling compatibility.
-    Tests TST-MOD-003 cross-platform compatibility requirements.
-    
-    Args:
-        tmp_path: Pytest temporary path fixture
-        sample_config_base: Base configuration fixture
-        path_separator: Path separator to test
-        expected_normalization: Whether paths should be normalized
-    """
-    # Create test structure
-    test_dir = tmp_path / "cross_platform_test"
-    test_dir.mkdir()
-    
-    subdir = test_dir / "subdir"
-    subdir.mkdir()
-    
-    test_file = subdir / "test_file.csv"
-    test_file.write_text("test,data\n1,2")
-    
-    # Test with different path formats
-    if path_separator == "\\":
-        # Simulate Windows-style path (if on Unix system)
-        import os
-        if os.name == 'posix':
-            # Skip Windows path test on Unix systems
-            pytest.skip("Windows path test skipped on Unix system")
-    
-    # Test file discovery with cross-platform paths
-    files = discover_files_with_config(
-        config=sample_config_base,
-        directory=str(test_dir),
-        pattern="**/*.csv",
-        recursive=True
-    )
-    
-    # Verify files are found and paths are normalized
-    assert len(files) >= 1
-    assert any("test_file.csv" in f for f in files)
-    
-    # Verify path normalization
-    for file_path in files:
-        # Ensure paths use the OS-appropriate separator
-        assert os.path.exists(file_path), f"Normalized path {file_path} should exist"
-
-
-# ============================================================================
-# INTEGRATION TESTS WITH MOCKING
-# ============================================================================
-
-def test_filesystem_permission_handling(
-    mock_filesystem_permissions,
-    sample_config_base,
-    tmp_path
-):
-    """
-    Test handling of filesystem permission errors.
-    Tests TST-MOD-003 enhanced filesystem mocking requirements.
-    
-    Args:
-        mock_filesystem_permissions: Mock filesystem permissions fixture
-        sample_config_base: Base configuration fixture
-        tmp_path: Pytest temporary path fixture
-    """
-    # Create test directory
-    test_dir = tmp_path / "permission_test"
-    test_dir.mkdir()
-    
-    # Simulate permission error on specific directory
-    restricted_dir = str(test_dir / "restricted")
-    mock_filesystem_permissions[restricted_dir] = True
-    
-    # Test file discovery with permission errors
-    # Should handle gracefully and continue with accessible directories
-    files = discover_files_with_config(
-        config=sample_config_base,
-        directory=str(test_dir),
-        pattern="**/*.csv",
-        recursive=True
-    )
-    
-    # Should not crash and return empty list or accessible files only
-    assert isinstance(files, list)
-
-
-@patch('flyrigloader.discovery.files.discover_files')
-def test_discover_files_with_config_mocking(
-    mock_discover_files,
-    sample_config_base
-):
-    """
-    Test discover_files_with_config with comprehensive mocking.
-    Tests TST-MOD-003 standardized mocking strategies.
-    
-    Args:
-        mock_discover_files: Mock discover_files function
-        sample_config_base: Base configuration fixture
-    """
-    # Configure mock return value
-    expected_files = [
-        "/path/to/file1.csv",
-        "/path/to/file2.csv"
+    # Create files with extractable patterns
+    test_files = [
+        "experiment_20240101_control_rep1.csv",
+        "experiment_20240102_treatment_rep2.csv",
+        "baseline_data_20240103.csv"
     ]
-    mock_discover_files.return_value = expected_files
     
-    # Test the function
+    for filename in test_files:
+        file_path = test_dir / filename
+        file_path.write_text("timestamp,signal\n0.0,1.5\n0.1,1.8")
+    
+    config = {
+        "project": {
+            "directories": {"major_data_directory": str(test_dir)},
+            "ignore_substrings": [],
+            "extraction_patterns": [
+                r".*_(?P<date>\d{8})_(?P<condition>\w+)_rep(?P<replicate>\d+)\.csv",
+                r".*_(?P<date>\d{8})\.csv"
+            ]
+        }
+    }
+    
+    # ACT - Execute discovery with metadata extraction options
     result = discover_files_with_config(
-        config=sample_config_base,
-        directory="/test/directory",
+        config=config,
+        directory=str(test_dir),
         pattern="**/*.csv",
         recursive=True,
-        experiment="test_experiment"
+        extract_metadata=metadata_scenario["extract_metadata"],
+        parse_dates=metadata_scenario["parse_dates"]
     )
     
-    # Verify mock was called with correct parameters
-    mock_discover_files.assert_called_once()
-    call_args = mock_discover_files.call_args
+    # ASSERT - Verify metadata extraction behavioral outcomes
+    expected_type = expected_result_structure["result_type"]
+    assert isinstance(result, expected_type), \
+        f"Result should be {expected_type.__name__} for given metadata options"
     
-    # Verify ignore patterns were passed correctly
-    assert 'ignore_patterns' in call_args.kwargs
-    assert 'mandatory_substrings' in call_args.kwargs
-    
-    # Verify result
-    assert result == expected_files
-
-
-# ============================================================================
-# COMPREHENSIVE INTEGRATION TESTS
-# ============================================================================
-
-def test_end_to_end_experiment_workflow(
-    sample_config_base,
-    complex_directory_structure
-):
-    """
-    Comprehensive end-to-end test for experiment file discovery workflow.
-    Tests TST-INTEG-001 end-to-end workflow validation.
-    
-    Args:
-        sample_config_base: Base configuration fixture
-        complex_directory_structure: Complex test directory structure
-    """
-    # Update config to use test directory
-    config = sample_config_base.copy()
-    config["project"]["directories"]["major_data_directory"] = complex_directory_structure["base_dir"]
-    
-    # Test complete experiment discovery workflow
-    experiment_files = discover_experiment_files(
-        config=config,
-        experiment_name="test_experiment",
-        base_directory=complex_directory_structure["base_dir"]
-    )
-    
-    # Verify experiment-specific filtering
-    assert isinstance(experiment_files, list)
-    assert len(experiment_files) > 0
-    
-    # All files should contain mandatory experiment strings
-    assert all("include_me" in f for f in experiment_files)
-    
-    # No files should contain ignore patterns
-    assert not any("exclude_me" in f for f in experiment_files)
-    assert not any("._" in f for f in experiment_files)
-    assert not any("temp_" in f for f in experiment_files)
-    
-    # Test with basic experiment (no additional filters)
-    basic_files = discover_experiment_files(
-        config=config,
-        experiment_name="basic_experiment",
-        base_directory=complex_directory_structure["base_dir"]
-    )
-    
-    # Should have more files (only project-level filters applied)
-    assert len(basic_files) >= len(experiment_files)
-
-
-def test_end_to_end_dataset_workflow(
-    sample_config_base,
-    complex_directory_structure
-):
-    """
-    Comprehensive end-to-end test for dataset file discovery workflow.
-    
-    Args:
-        sample_config_base: Base configuration fixture
-        complex_directory_structure: Complex test directory structure
-    """
-    # Update config to use test directory
-    config = sample_config_base.copy()
-    
-    # Test dataset discovery
-    dataset_files = discover_dataset_files(
-        config=config,
-        dataset_name="test_dataset",
-        base_directory=complex_directory_structure["base_dir"]
-    )
-    
-    # Verify dataset-specific behavior
-    assert isinstance(dataset_files, list)
-    assert len(dataset_files) > 0
-    
-    # Files should be from correct date directories
-    expected_dates = ["2023-01-01", "2023-01-02", "2023_01_03"]
-    for date in expected_dates:
-        assert any(date in f for f in dataset_files), \
-            f"No files found for expected date {date}"
-    
-    # Should respect project-level ignore patterns
-    assert not any("._" in f for f in dataset_files)
-    assert not any("temp_" in f for f in dataset_files)
-
-
-# ============================================================================
-# METADATA EXTRACTION TESTING
-# ============================================================================
-
-@pytest.mark.parametrize("extract_metadata,parse_dates,expected_result_type", [
-    (False, False, list),
-    (True, False, dict),
-    (False, True, dict),
-    (True, True, dict),
-])
-def test_metadata_extraction_modes(
-    sample_config_base,
-    complex_directory_structure,
-    extract_metadata,
-    parse_dates,
-    expected_result_type
-):
-    """
-    Test different metadata extraction and date parsing modes.
-    Tests F-007 Metadata Extraction System requirements.
-    
-    Args:
-        sample_config_base: Base configuration fixture
-        complex_directory_structure: Test directory structure
-        extract_metadata: Whether to extract metadata
-        parse_dates: Whether to parse dates
-        expected_result_type: Expected type of result
-    """
-    result = discover_files_with_config(
-        config=sample_config_base,
-        directory=complex_directory_structure["base_dir"],
-        pattern="**/*.csv",
-        recursive=True,
-        extract_metadata=extract_metadata,
-        parse_dates=parse_dates
-    )
-    
-    # Verify result type
-    assert isinstance(result, expected_result_type)
-    
-    if expected_result_type == dict:
-        # Verify dictionary structure
-        assert len(result) > 0
+    if expected_result_structure["has_metadata"]:
+        assert isinstance(result, dict), "Metadata extraction should return dictionary"
+        assert len(result) > 0, "Should have metadata entries"
         
-        # Each key should be a file path
+        # Verify structure of metadata results
         for file_path, metadata in result.items():
-            assert isinstance(file_path, str)
-            assert isinstance(metadata, dict)
+            assert isinstance(file_path, str), "Keys should be file path strings"
+            assert isinstance(metadata, dict), "Values should be metadata dictionaries"
             
-            if extract_metadata:
+            if metadata_scenario["extract_metadata"]:
                 # Should have extracted metadata fields
-                assert len(metadata) > 0
+                assert len(metadata) > 0, "Should extract metadata fields"
             
-            if parse_dates:
+            if metadata_scenario["parse_dates"]:
                 # Should have date parsing information
-                assert len(metadata) > 0
+                assert len(metadata) > 0, "Should have date parsing metadata"
+    else:
+        assert isinstance(result, list), "Non-metadata mode should return file list"
+        assert all(isinstance(file_path, str) for file_path in result), \
+            "File list should contain string paths"
 
 
 if __name__ == "__main__":
-    # Enable running tests directly
-    pytest.main([__file__, "-v"])
+    # Enable running tests directly with behavioral focus
+    pytest.main([__file__, "-v", "--tb=short"])

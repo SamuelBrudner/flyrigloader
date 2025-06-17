@@ -1,49 +1,67 @@
 """
-Shared fixtures for flyrigloader tests.
+Flyrigloader-specific fixtures for specialized neuroscience testing scenarios.
 
-This module contains pytest fixtures that are shared across multiple test files
-to reduce code duplication and ensure consistency in test data.
+This module contains pytest fixtures specifically for flyrigloader testing that cannot
+be generalized to the centralized fixture management system in tests/conftest.py.
+Following the fixture consolidation strategy from Section 0, this module now:
 
-Enhanced with comprehensive mocking scenarios for integration testing,
-advanced synthetic data generation, property-based testing support,
-and cross-platform temporary filesystem management.
+- Maintains only domain-specific fixtures unique to flyrigloader neuroscience data patterns
+- Redirects to centralized implementations from tests/conftest.py and tests/utils.py
+- Follows standardized fixture naming conventions (mock_*, temp_*, sample_*)
+- Preserves backwards compatibility during fixture consolidation transition
+- Implements flyrigloader-specific mock behaviors for experimental data structures
+
+For general testing utilities, configuration providers, and mock implementations,
+import from tests.conftest.py and tests.utils module instead.
 """
 import os
-import tempfile
-import platform
 from pathlib import Path
-from typing import Dict, Any, Optional, List, Union, Generator, Tuple, Iterator
+from typing import Dict, Any, Optional, List, Union, Tuple
 from datetime import datetime, timedelta
-import gzip
-import pickle
 
 import numpy as np
 import pandas as pd
 import pytest
 import yaml
-from unittest.mock import MagicMock, patch, mock_open
-from hypothesis import strategies as st
-from hypothesis import given, settings, assume
+
+# Import centralized testing infrastructure
+from tests.utils import (
+    create_mock_config_provider,
+    create_mock_dataloader, 
+    create_mock_filesystem,
+    MockConfigurationProvider,
+    MockDataLoading,
+    MockFilesystem
+)
+
+# Import specialized neuroscience data generators
+try:
+    from tests.conftest import test_data_generator, temp_experiment_directory
+except ImportError:
+    # Fallback for transition period
+    test_data_generator = None
+    temp_experiment_directory = None
 
 
-# --- Enhanced Configuration Fixtures ---
+# --- Flyrigloader-Specific Configuration Fixtures ---
+# Redirected from centralized MockConfigurationProvider for enhanced functionality
 
 @pytest.fixture
-def comprehensive_sample_config_dict():
+def mock_neuroscience_config_provider():
     """
-    Return a comprehensive sample configuration dictionary with all supported features.
+    Neuroscience-specific configuration provider using centralized MockConfigurationProvider.
     
-    This fixture provides the full range of configuration options including:
-    - Project directories and global settings
-    - Ignore patterns and extraction patterns
-    - Multiple rig configurations with different parameters
-    - Complex dataset definitions with filters and metadata
-    - Experiment hierarchies with nested datasets
+    Returns comprehensive flyrigloader configuration with neuroscience experiment patterns,
+    rig specifications, and behavioral data validation rules. Uses centralized mock
+    implementation with flyrigloader-specific enhancements.
     
     Returns:
-        Dict[str, Any]: Comprehensive sample configuration dictionary
+        MockConfigurationProvider: Configured provider with neuroscience data patterns
     """
-    return {
+    provider = create_mock_config_provider('comprehensive', include_errors=False)
+    
+    # Add flyrigloader-specific configuration enhancements
+    provider.add_configuration('flyrigloader_neuroscience', {
         "project": {
             "directories": {
                 "major_data_directory": "/research/data/neuroscience",
@@ -52,18 +70,10 @@ def comprehensive_sample_config_dict():
                 "processed_data_directory": "/research/processed"
             },
             "ignore_substrings": [
-                "static_horiz_ribbon",
-                "._",
-                ".DS_Store",
-                "__pycache__",
-                ".tmp",
-                "backup_",
-                "test_calibration"
+                "static_horiz_ribbon", "._", ".DS_Store", "__pycache__",
+                ".tmp", "backup_", "test_calibration"
             ],
-            "mandatory_substrings": [
-                "experiment_",
-                "data_"
-            ],
+            "mandatory_substrings": ["experiment_", "data_"],
             "extraction_patterns": [
                 r".*_(?P<date>\d{8})_(?P<condition>\w+)_(?P<replicate>\d+)\.csv",
                 r"(?P<rig>\w+)_(?P<date>\d{8})_(?P<animal_id>\w+)_(?P<trial>\d+)",
@@ -75,100 +85,42 @@ def comprehensive_sample_config_dict():
         },
         "rigs": {
             "old_opto": {
-                "sampling_frequency": 60,
-                "mm_per_px": 0.154,
-                "camera_resolution": [1024, 768],
-                "calibration_date": "2024-01-15",
-                "arena_diameter_mm": 120,
-                "led_wavelength_nm": 470
+                "sampling_frequency": 60, "mm_per_px": 0.154,
+                "camera_resolution": [1024, 768], "calibration_date": "2024-01-15",
+                "arena_diameter_mm": 120, "led_wavelength_nm": 470
             },
             "new_opto": {
-                "sampling_frequency": 60,
-                "mm_per_px": 0.1818,
-                "camera_resolution": [1280, 1024],
-                "calibration_date": "2024-06-01",
-                "arena_diameter_mm": 150,
-                "led_wavelength_nm": 470
+                "sampling_frequency": 60, "mm_per_px": 0.1818,
+                "camera_resolution": [1280, 1024], "calibration_date": "2024-06-01",
+                "arena_diameter_mm": 150, "led_wavelength_nm": 470
             },
             "high_speed_rig": {
-                "sampling_frequency": 200,
-                "mm_per_px": 0.05,
-                "camera_resolution": [2048, 2048],
-                "calibration_date": "2024-08-15",
-                "arena_diameter_mm": 200,
-                "led_wavelength_nm": 590
+                "sampling_frequency": 200, "mm_per_px": 0.05,
+                "camera_resolution": [2048, 2048], "calibration_date": "2024-08-15",
+                "arena_diameter_mm": 200, "led_wavelength_nm": 590
             }
         },
         "datasets": {
             "baseline_behavior": {
-                "rig": "old_opto",
-                "patterns": ["*baseline*", "*control*"],
-                "dates_vials": {
-                    "2024-12-20": [1, 2, 3, 4, 5],
-                    "2024-12-21": [1, 2, 3],
-                    "2024-12-22": [1, 2]
-                },
+                "rig": "old_opto", "patterns": ["*baseline*", "*control*"],
+                "dates_vials": {"2024-12-20": [1, 2, 3, 4, 5], "2024-12-21": [1, 2, 3]},
                 "metadata": {
-                    "extraction_patterns": [
-                        r".*_(?P<dataset>\w+)_(?P<date>\d{8})_(?P<vial>\d+)\.csv"
-                    ],
+                    "extraction_patterns": [r".*_(?P<dataset>\w+)_(?P<date>\d{8})_(?P<vial>\d+)\.csv"],
                     "required_fields": ["dataset", "date", "vial"],
                     "experiment_type": "baseline"
                 },
                 "filters": {
-                    "min_duration_seconds": 300,
-                    "max_duration_seconds": 3600,
+                    "min_duration_seconds": 300, "max_duration_seconds": 3600,
                     "required_columns": ["t", "x", "y"]
                 }
             },
             "optogenetic_stimulation": {
-                "rig": "new_opto",
-                "patterns": ["*opto*", "*stim*"],
-                "dates_vials": {
-                    "2024-12-18": [1, 2, 3, 4],
-                    "2024-12-19": [1, 2, 3, 4, 5, 6]
-                },
+                "rig": "new_opto", "patterns": ["*opto*", "*stim*"],
+                "dates_vials": {"2024-12-18": [1, 2, 3, 4], "2024-12-19": [1, 2, 3, 4, 5, 6]},
                 "metadata": {
-                    "extraction_patterns": [
-                        r".*_(?P<dataset>\w+)_(?P<stimulation_type>\w+)_(?P<date>\d{8})\.csv"
-                    ],
+                    "extraction_patterns": [r".*_(?P<dataset>\w+)_(?P<stimulation_type>\w+)_(?P<date>\d{8})\.csv"],
                     "required_fields": ["dataset", "stimulation_type", "date"],
                     "experiment_type": "optogenetic"
-                },
-                "filters": {
-                    "ignore_substrings": ["failed", "aborted"],
-                    "min_file_size_bytes": 10000
-                }
-            },
-            "plume_movie_navigation": {
-                "rig": "old_opto",
-                "patterns": ["*plume*", "*navigation*"],
-                "dates_vials": {
-                    "2024-10-18": [1, 3, 4, 5],
-                    "2024-10-24": [1, 2],
-                    "2024-10-25": [1, 2, 3, 4, 5, 6, 7, 8]
-                },
-                "metadata": {
-                    "extraction_patterns": [
-                        r".*_(?P<plume_type>\w+)_(?P<date>\d{8})_(?P<trial>\d+)\.csv"
-                    ],
-                    "required_fields": ["plume_type", "date", "trial"],
-                    "experiment_type": "navigation"
-                }
-            },
-            "high_resolution_tracking": {
-                "rig": "high_speed_rig",
-                "patterns": ["*highres*", "*200hz*"],
-                "dates_vials": {
-                    "2024-11-01": [1, 2, 3],
-                    "2024-11-02": [1, 2, 3, 4, 5]
-                },
-                "metadata": {
-                    "extraction_patterns": [
-                        r".*_(?P<resolution>\d+hz)_(?P<date>\d{8})_(?P<session>\d+)\.csv"
-                    ],
-                    "required_fields": ["resolution", "date", "session"],
-                    "experiment_type": "high_resolution"
                 }
             }
         },
@@ -176,66 +128,9 @@ def comprehensive_sample_config_dict():
             "baseline_control_study": {
                 "datasets": ["baseline_behavior"],
                 "metadata": {
-                    "extraction_patterns": [
-                        r".*_(?P<experiment>baseline)_(?P<date>\d{8})\.csv"
-                    ],
+                    "extraction_patterns": [r".*_(?P<experiment>baseline)_(?P<date>\d{8})\.csv"],
                     "required_fields": ["experiment", "date"],
-                    "study_type": "control",
-                    "principal_investigator": "Dr. Research",
-                    "grant_number": "NSF-123456"
-                },
-                "analysis_parameters": {
-                    "velocity_threshold": 2.0,
-                    "smoothing_window": 5,
-                    "edge_exclusion_mm": 10
-                }
-            },
-            "optogenetic_manipulation": {
-                "datasets": ["optogenetic_stimulation", "baseline_behavior"],
-                "metadata": {
-                    "extraction_patterns": [
-                        r".*_(?P<experiment>opto)_(?P<treatment>\w+)_(?P<date>\d{8})\.csv"
-                    ],
-                    "required_fields": ["experiment", "treatment", "date"],
-                    "study_type": "intervention"
-                },
-                "filters": {
-                    "ignore_substrings": ["smoke_2a", "calibration"],
-                    "mandatory_substrings": ["opto"]
-                }
-            },
-            "multi_modal_navigation": {
-                "datasets": [
-                    "plume_movie_navigation",
-                    "baseline_behavior",
-                    "high_resolution_tracking"
-                ],
-                "metadata": {
-                    "extraction_patterns": [
-                        r".*_(?P<experiment>navigation)_(?P<modality>\w+)_(?P<date>\d{8})\.csv"
-                    ],
-                    "required_fields": ["experiment", "modality", "date"],
-                    "study_type": "comparative"
-                },
-                "analysis_parameters": {
-                    "spatial_bins": 50,
-                    "temporal_resolution_ms": 16.67,
-                    "trajectory_smoothing": True
-                }
-            },
-            "longitudinal_development": {
-                "datasets": ["baseline_behavior", "optogenetic_stimulation"],
-                "metadata": {
-                    "extraction_patterns": [
-                        r".*_(?P<age_group>\w+)_(?P<date>\d{8})_(?P<timepoint>\d+)\.csv"
-                    ],
-                    "required_fields": ["age_group", "date", "timepoint"],
-                    "study_type": "longitudinal"
-                },
-                "temporal_grouping": {
-                    "timepoint_1": ["2024-10-01", "2024-10-07"],
-                    "timepoint_2": ["2024-10-15", "2024-10-21"],
-                    "timepoint_3": ["2024-11-01", "2024-11-07"]
+                    "study_type": "control", "principal_investigator": "Dr. Research"
                 }
             }
         },
@@ -249,128 +144,130 @@ def comprehensive_sample_config_dict():
                 "velocity_outlier_threshold": 3.0
             }
         }
-    }
+    })
+    
+    return provider
 
 @pytest.fixture
-def sample_config_file(comprehensive_sample_config_dict, cross_platform_temp_dir):
+def sample_neuroscience_config_dict(mock_neuroscience_config_provider):
     """
-    Create a temporary config file with comprehensive sample configuration.
+    Comprehensive neuroscience configuration dictionary for flyrigloader testing.
+    
+    Redirects to centralized MockConfigurationProvider with flyrigloader-specific
+    neuroscience experiment patterns. Maintains backwards compatibility with
+    existing test modules during fixture consolidation transition.
+    
+    Returns:
+        Dict[str, Any]: Comprehensive neuroscience configuration dictionary
+    """
+    return mock_neuroscience_config_provider.load_config('flyrigloader_neuroscience')
+
+# Backwards compatibility aliases for transition period
+@pytest.fixture  
+def comprehensive_sample_config_dict(sample_neuroscience_config_dict):
+    """Backwards compatibility alias for comprehensive_sample_config_dict."""
+    return sample_neuroscience_config_dict
+
+@pytest.fixture
+def temp_neuroscience_config_file(sample_neuroscience_config_dict, temp_experiment_directory):
+    """
+    Create temporary neuroscience configuration file using centralized temp directory.
+    
+    Uses centralized temp_experiment_directory fixture from tests/conftest.py
+    instead of duplicated cross_platform_temp_dir. Maintains flyrigloader-specific
+    neuroscience configuration structure.
     
     Args:
-        comprehensive_sample_config_dict: The comprehensive configuration data
-        cross_platform_temp_dir: Cross-platform temporary directory fixture
+        sample_neuroscience_config_dict: Neuroscience configuration data
+        temp_experiment_directory: Centralized temporary directory fixture
     
     Returns:
         str: Path to the temporary config file
     """
-    config_path = cross_platform_temp_dir / "config.yaml"
+    if temp_experiment_directory is None:
+        # Fallback for transition period
+        import tempfile
+        temp_dir = Path(tempfile.mkdtemp())
+        config_path = temp_dir / "neuroscience_config.yaml"
+    else:
+        config_path = temp_experiment_directory["directory"] / "neuroscience_config.yaml"
     
     # Write the config to the file
     with open(config_path, 'w') as f:
-        yaml.dump(comprehensive_sample_config_dict, f, default_flow_style=False)
+        yaml.dump(sample_neuroscience_config_dict, f, default_flow_style=False)
     
     return str(config_path)
 
 @pytest.fixture
-def sample_config_dict(comprehensive_sample_config_dict):
+def sample_minimal_config_dict(sample_neuroscience_config_dict):
     """
-    Return a simplified sample configuration dictionary for basic testing.
+    Simplified neuroscience configuration dictionary for basic flyrigloader testing.
     
-    This fixture provides a subset of the comprehensive configuration
-    for tests that don't need the full complexity.
+    Provides subset of comprehensive configuration for tests that don't need
+    full complexity. Focuses on essential flyrigloader configuration elements.
     
     Returns:
-        Dict[str, Any]: Simplified sample configuration dictionary
+        Dict[str, Any]: Simplified neuroscience configuration dictionary
     """
     return {
-        "project": comprehensive_sample_config_dict["project"],
+        "project": sample_neuroscience_config_dict["project"],
         "rigs": {
-            "old_opto": comprehensive_sample_config_dict["rigs"]["old_opto"]
+            "old_opto": sample_neuroscience_config_dict["rigs"]["old_opto"]
         },
         "datasets": {
-            "test_dataset": comprehensive_sample_config_dict["datasets"]["baseline_behavior"]
+            "test_dataset": sample_neuroscience_config_dict["datasets"]["baseline_behavior"]
         },
         "experiments": {
-            "test_experiment": comprehensive_sample_config_dict["experiments"]["baseline_control_study"]
+            "test_experiment": sample_neuroscience_config_dict["experiments"]["baseline_control_study"]
         }
     }
 
-# --- Cross-Platform Temporary Filesystem Fixtures ---
+# Backwards compatibility aliases for transition period
+@pytest.fixture
+def sample_config_file(temp_neuroscience_config_file):
+    """Backwards compatibility alias for sample_config_file."""
+    return temp_neuroscience_config_file
+
+@pytest.fixture  
+def sample_config_dict(sample_minimal_config_dict):
+    """Backwards compatibility alias for sample_config_dict."""
+    return sample_minimal_config_dict
+
+# --- Flyrigloader-Specific Temporary Filesystem Fixtures ---
+# Redirected to centralized temp_experiment_directory with neuroscience enhancements
 
 @pytest.fixture
-def cross_platform_temp_dir():
+def temp_neuroscience_filesystem(temp_experiment_directory):
     """
-    Create a cross-platform temporary directory with proper cleanup.
+    Neuroscience-specific filesystem structure using centralized temp directory.
     
-    This fixture handles platform-specific considerations for Windows, Linux, and macOS:
-    - Uses appropriate temporary directory locations per OS
-    - Ensures proper permissions across platforms
-    - Handles long path limitations on Windows
-    - Provides proper cleanup even on test failures
+    Enhances centralized temp_experiment_directory with flyrigloader-specific
+    neuroscience data organization patterns. Removes duplicate cross-platform
+    temporary directory implementation in favor of centralized approach.
     
     Returns:
-        Path: Cross-platform temporary directory path
+        Dict[str, Path]: Neuroscience experiment filesystem structure
     """
-    import shutil
-    
-    # Create platform-appropriate temporary directory
-    if platform.system() == "Windows":
-        # Use shorter paths to avoid Windows MAX_PATH limitations
-        temp_base = Path(tempfile.gettempdir()) / "flyrig_test"
-        temp_base.mkdir(exist_ok=True)
-        temp_dir = tempfile.mkdtemp(dir=temp_base, prefix="test_")
+    if temp_experiment_directory is None:
+        # Fallback for transition period
+        import tempfile
+        import shutil
+        temp_dir = Path(tempfile.mkdtemp(prefix="flyrigloader_neuroscience_"))
+        base_dir = temp_dir
+        # Minimal cleanup function for fallback
+        import atexit
+        atexit.register(lambda: shutil.rmtree(temp_dir, ignore_errors=True))
     else:
-        # Unix-like systems (Linux, macOS) can handle longer paths
-        temp_dir = tempfile.mkdtemp(prefix="flyrigloader_test_")
+        base_dir = temp_experiment_directory["directory"]
     
-    temp_path = Path(temp_dir)
-    
-    try:
-        # Ensure the directory is writable
-        test_file = temp_path / "write_test.tmp"
-        test_file.write_text("test")
-        test_file.unlink()
-        
-        yield temp_path
-    finally:
-        # Comprehensive cleanup with error handling
-        try:
-            if temp_path.exists():
-                shutil.rmtree(temp_path, ignore_errors=True)
-        except Exception:
-            # On Windows, files might be locked; try again with onerror handler
-            if platform.system() == "Windows":
-                def handle_remove_readonly(func, path, exc):
-                    import stat
-                    os.chmod(path, stat.S_IWRITE)
-                    func(path)
-                
-                try:
-                    shutil.rmtree(temp_path, onerror=handle_remove_readonly)
-                except Exception:
-                    pass  # Best effort cleanup
-
-@pytest.fixture
-def temp_filesystem_structure(cross_platform_temp_dir):
-    """
-    Create a realistic temporary filesystem structure for integration testing.
-    
-    This fixture creates a directory structure that mimics a real research
-    data organization with multiple experiments, datasets, and file types.
-    
-    Returns:
-        Dict[str, Path]: Dictionary mapping logical names to filesystem paths
-    """
-    base_dir = cross_platform_temp_dir
-    
-    # Create directory structure
+    # Create neuroscience-specific directory structure
     structure = {
-        "data_root": base_dir / "research_data",
-        "experiments": base_dir / "research_data" / "experiments",
-        "baselines": base_dir / "research_data" / "experiments" / "baseline",
-        "optogenetics": base_dir / "research_data" / "experiments" / "optogenetics",
-        "navigation": base_dir / "research_data" / "experiments" / "navigation",
-        "batch_files": base_dir / "batch_definitions",
+        "data_root": base_dir / "neuroscience_data",
+        "experiments": base_dir / "neuroscience_data" / "experiments",
+        "baselines": base_dir / "neuroscience_data" / "experiments" / "baseline",
+        "optogenetics": base_dir / "neuroscience_data" / "experiments" / "optogenetics",
+        "navigation": base_dir / "neuroscience_data" / "experiments" / "navigation",
+        "rigs": base_dir / "neuroscience_data" / "rigs",
         "configs": base_dir / "configs",
         "processed": base_dir / "processed_data"
     }
@@ -379,177 +276,190 @@ def temp_filesystem_structure(cross_platform_temp_dir):
     for dir_path in structure.values():
         dir_path.mkdir(parents=True, exist_ok=True)
     
-    # Create sample data files
+    # Create flyrigloader-specific sample data files
     sample_files = {
-        # Baseline experiment files
+        # Baseline neuroscience experiment files
         "baseline_file_1": structure["baselines"] / "baseline_20241220_control_1.csv",
         "baseline_file_2": structure["baselines"] / "baseline_20241221_control_2.csv",
         
-        # Optogenetic experiment files  
+        # Optogenetic stimulation experiment files  
         "opto_file_1": structure["optogenetics"] / "opto_stim_20241218_treatment_1.csv",
         "opto_file_2": structure["optogenetics"] / "opto_stim_20241219_treatment_2.csv",
         
-        # Navigation experiment files
+        # Navigation behavior experiment files
         "nav_file_1": structure["navigation"] / "plume_navigation_20241025_trial_1.csv",
         "nav_file_2": structure["navigation"] / "plume_navigation_20241025_trial_2.csv",
         
-        # Ignore pattern test files (should be filtered out)
+        # Rig-specific files
+        "rig_config_1": structure["rigs"] / "old_opto_calibration.yaml",
+        "rig_config_2": structure["rigs"] / "new_opto_calibration.yaml",
+        
+        # Files to be ignored by flyrigloader patterns
         "ignored_file_1": structure["baselines"] / "static_horiz_ribbon_calibration.csv",
         "ignored_file_2": structure["optogenetics"] / "._temp_file.csv",
         
         # Configuration file
-        "config_file": structure["configs"] / "experiment_config.yaml"
+        "config_file": structure["configs"] / "neuroscience_experiment_config.yaml"
     }
     
-    # Create sample CSV content
-    sample_csv_content = """t,x,y,signal
-0.0,10.5,20.3,0.1
-0.016,10.6,20.2,0.2
-0.032,10.7,20.1,0.3
-0.048,10.8,20.0,0.4
+    # Neuroscience-specific CSV content with trajectory data
+    neuroscience_csv_content = """t,x,y,signal,dtheta
+0.0,60.5,62.3,0.1,0.05
+0.016,60.6,62.2,0.15,0.02
+0.032,60.7,62.1,0.12,-0.01
+0.048,60.8,62.0,0.18,0.03
+0.064,60.9,61.9,0.14,-0.02
 """
     
-    # Write sample files
+    # Write sample files with neuroscience data patterns
     for file_key, file_path in sample_files.items():
         if file_path.suffix == ".csv":
-            file_path.write_text(sample_csv_content)
+            file_path.write_text(neuroscience_csv_content)
         elif file_path.suffix == ".yaml":
-            file_path.write_text("# Sample config file")
+            file_path.write_text("# Neuroscience experiment config file")
     
     return {**structure, **sample_files}
 
-
-# --- Column Configuration Fixtures ---
+# Backwards compatibility aliases for transition period
+@pytest.fixture
+def cross_platform_temp_dir(temp_neuroscience_filesystem):
+    """Backwards compatibility alias redirecting to neuroscience filesystem."""
+    return temp_neuroscience_filesystem["data_root"].parent
 
 @pytest.fixture
-def sample_column_config_file():
+def temp_filesystem_structure(temp_neuroscience_filesystem):
+    """Backwards compatibility alias for temp_filesystem_structure.""" 
+    return temp_neuroscience_filesystem
+
+
+# --- Flyrigloader-Specific Column Configuration Fixtures ---
+
+@pytest.fixture
+def sample_flyrigloader_column_config():
     """
-    Create a temporary column config file.
+    Flyrigloader-specific column configuration for neuroscience data structures.
+    
+    Defines column schema for typical flyrigloader experimental data including
+    trajectory data, signal channels, and metadata fields specific to 
+    neuroscience experiments.
     
     Returns:
-        str: Path to the temporary column config file
+        Dict[str, Any]: Column configuration dictionary
     """
-    # Create a temporary configuration file
-    temp_file = tempfile.NamedTemporaryFile(suffix='.yaml', mode='w', delete=False)
-    config_path = temp_file.name
-    
-    # Define test configuration
-    test_config = {
+    return {
         'columns': {
             't': {
-                'type': 'numpy.ndarray',
-                'dimension': 1,
-                'required': True,
-                'description': 'Time values'
+                'type': 'numpy.ndarray', 'dimension': 1, 'required': True,
+                'description': 'Time values in seconds'
             },
             'x': {
-                'type': 'numpy.ndarray',
-                'dimension': 1,
-                'required': True,
-                'description': 'X position'
+                'type': 'numpy.ndarray', 'dimension': 1, 'required': True,
+                'description': 'X position in mm'
             },
             'y': {
-                'type': 'numpy.ndarray',
-                'dimension': 1,
-                'required': True,
-                'description': 'Y position'
+                'type': 'numpy.ndarray', 'dimension': 1, 'required': True,
+                'description': 'Y position in mm'
             },
             'dtheta': {
-                'type': 'numpy.ndarray',
-                'dimension': 1,
-                'required': False,
-                'description': 'Change in heading',
-                'alias': 'dtheta_smooth'
+                'type': 'numpy.ndarray', 'dimension': 1, 'required': False,
+                'description': 'Change in heading angle', 'alias': 'dtheta_smooth'
             },
             'signal': {
-                'type': 'numpy.ndarray',
-                'dimension': 1,
-                'required': False,
-                'description': 'Signal values',
-                'default_value': None
+                'type': 'numpy.ndarray', 'dimension': 1, 'required': False,
+                'description': 'Single channel signal values', 'default_value': None
             },
             'signal_disp': {
-                'type': 'numpy.ndarray',
-                'dimension': 2,
-                'required': False,
-                'description': 'Signal display data',
+                'type': 'numpy.ndarray', 'dimension': 2, 'required': False,
+                'description': 'Multi-channel signal display data',
                 'special_handling': 'transform_to_match_time_dimension'
             },
             'date': {
-                'type': 'string',
-                'required': False,
-                'is_metadata': True,
-                'description': 'Experiment date'
+                'type': 'string', 'required': False, 'is_metadata': True,
+                'description': 'Experiment date (YYYYMMDD)'
             },
             'exp_name': {
-                'type': 'string',
-                'required': False,
-                'is_metadata': True,
-                'description': 'Experiment name'
+                'type': 'string', 'required': False, 'is_metadata': True,
+                'description': 'Experiment name identifier'
             },
             'rig': {
-                'type': 'string',
-                'required': False,
-                'is_metadata': True,
-                'description': 'Rig identifier'
+                'type': 'string', 'required': False, 'is_metadata': True,
+                'description': 'Rig identifier (old_opto, new_opto, etc.)'
             },
             'fly_id': {
-                'type': 'string',
-                'required': False,
-                'is_metadata': True,
-                'description': 'Fly ID'
+                'type': 'string', 'required': False, 'is_metadata': True,
+                'description': 'Individual animal identifier'
             }
         },
         'special_handlers': {
             'transform_to_match_time_dimension': '_handle_signal_disp'
         }
     }
-    
-    yaml.dump(test_config, temp_file)
-    temp_file.close()
-    
-    yield config_path
-    
-    # Clean up
-    os.unlink(config_path)
 
-
-# --- Advanced Synthetic Experimental Data Generation Fixtures ---
-
-@pytest.fixture
-def realistic_time_series_params():
+@pytest.fixture  
+def temp_flyrigloader_column_config_file(sample_flyrigloader_column_config, temp_neuroscience_filesystem):
     """
-    Parameters for generating realistic experimental time series data.
+    Create temporary flyrigloader column configuration file.
+    
+    Uses centralized temp filesystem and flyrigloader-specific column schema.
+    Maintains backwards compatibility with existing column config file expectations.
     
     Returns:
-        Dict: Parameters for synthetic data generation
+        str: Path to the temporary column config file
+    """
+    config_path = temp_neuroscience_filesystem["configs"] / "flyrigloader_columns.yaml"
+    
+    with open(config_path, 'w') as f:
+        yaml.dump(sample_flyrigloader_column_config, f, default_flow_style=False)
+    
+    return str(config_path)
+
+# Backwards compatibility alias for transition period
+@pytest.fixture
+def sample_column_config_file(temp_flyrigloader_column_config_file):
+    """Backwards compatibility alias for sample_column_config_file."""
+    return temp_flyrigloader_column_config_file
+
+
+# --- Flyrigloader-Specific Neuroscience Data Generation ---
+# Enhanced with centralized test_data_generator and neuroscience patterns
+
+@pytest.fixture
+def sample_neuroscience_time_series_params():
+    """
+    Parameters for generating realistic neuroscience experimental time series data.
+    
+    Defines parameters specific to flyrigloader neuroscience experiments including
+    sampling frequencies typical of behavioral recording systems and arena specifications.
+    
+    Returns:
+        Dict: Neuroscience-specific parameters for synthetic data generation
     """
     return {
-        "sampling_frequency": 60.0,  # Hz
-        "duration_seconds": 300.0,   # 5 minutes
-        "arena_diameter_mm": 120.0,
-        "center_bias": 0.3,          # Tendency to stay near center
-        "movement_noise": 0.1,       # Movement smoothness
-        "velocity_max": 15.0,        # mm/s maximum velocity
-        "signal_channels": 16,       # Number of signal channels
-        "signal_noise_level": 0.05   # Signal-to-noise ratio
+        "sampling_frequency": 60.0,  # Hz - typical behavioral tracking rate
+        "duration_seconds": 300.0,   # 5 minutes - standard experiment duration
+        "arena_diameter_mm": 120.0,  # Standard circular arena
+        "center_bias": 0.3,          # Fly tendency to stay near center
+        "movement_noise": 0.1,       # Biological movement smoothness
+        "velocity_max": 15.0,        # mm/s maximum realistic fly velocity
+        "signal_channels": 16,       # Multi-channel neural/calcium imaging
+        "signal_noise_level": 0.05,  # Realistic signal-to-noise ratio
+        "experimental_conditions": ["control", "optogenetic", "baseline"],
+        "rig_types": ["old_opto", "new_opto", "high_speed_rig"]
     }
 
 @pytest.fixture
-def synthetic_trajectory_generator():
+def mock_neuroscience_trajectory_generator(test_data_generator):
     """
-    Factory function for generating realistic synthetic fly trajectories.
+    Neuroscience-specific trajectory generator using centralized test data infrastructure.
     
-    This fixture generates biologically plausible movement patterns including:
-    - Brownian motion with drift toward center
-    - Realistic velocity profiles
-    - Arena boundary constraints
-    - Temporally correlated movement patterns
+    Enhances centralized test_data_generator with flyrigloader-specific neuroscience
+    trajectory patterns including realistic fly movement behaviors, arena constraints,
+    and biologically plausible velocity profiles.
     
     Returns:
-        Callable: Function that generates trajectory data
+        Callable: Function that generates neuroscience trajectory data
     """
-    def generate_trajectory(
+    def generate_neuroscience_trajectory(
         n_timepoints: int = 1000,
         sampling_freq: float = 60.0,
         arena_diameter: float = 120.0,
@@ -558,7 +468,7 @@ def synthetic_trajectory_generator():
         seed: Optional[int] = None
     ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
         """
-        Generate a realistic fly trajectory.
+        Generate realistic neuroscience fly trajectory with biological constraints.
         
         Args:
             n_timepoints: Number of time points to generate
@@ -574,63 +484,71 @@ def synthetic_trajectory_generator():
         if seed is not None:
             np.random.seed(seed)
         
-        # Initialize time array
+        # Use centralized data generator if available
+        if test_data_generator is not None:
+            # Generate base experimental matrix and extract trajectory
+            base_matrix = test_data_generator.generate_experimental_matrix(
+                rows=n_timepoints, cols=3, data_type="behavioral"
+            )
+            if base_matrix is not None:
+                # Extract time, x, y and apply neuroscience constraints
+                dt = 1.0 / sampling_freq
+                time = np.arange(n_timepoints) * dt
+                
+                # Apply arena constraints to base trajectory
+                x_pos = (base_matrix[:, 1] - 0.5) * arena_diameter
+                y_pos = (base_matrix[:, 2] - 0.5) * arena_diameter
+                
+                # Apply center bias and boundary constraints
+                arena_radius = arena_diameter / 2.0
+                for i in range(1, n_timepoints):
+                    current_radius = np.sqrt(x_pos[i]**2 + y_pos[i]**2)
+                    if current_radius > arena_radius:
+                        # Constrain to arena boundaries
+                        x_pos[i] *= arena_radius / current_radius * 0.95
+                        y_pos[i] *= arena_radius / current_radius * 0.95
+                
+                return time, x_pos, y_pos
+        
+        # Fallback implementation for transition period
         dt = 1.0 / sampling_freq
         time = np.arange(n_timepoints) * dt
-        
-        # Initialize position at arena center
         arena_radius = arena_diameter / 2.0
-        x_pos = np.zeros(n_timepoints)
-        y_pos = np.zeros(n_timepoints)
         
-        # Generate correlated random walk with center bias
-        for i in range(1, n_timepoints):
-            # Current distance from center
-            current_radius = np.sqrt(x_pos[i-1]**2 + y_pos[i-1]**2)
-            
-            # Center bias force (stronger near edges)
-            bias_strength = center_bias * (current_radius / arena_radius)**2
-            center_force_x = -bias_strength * x_pos[i-1] / max(current_radius, 0.1)
-            center_force_y = -bias_strength * y_pos[i-1] / max(current_radius, 0.1)
-            
-            # Random movement component
-            random_x = np.random.normal(0, movement_noise)
-            random_y = np.random.normal(0, movement_noise)
-            
-            # Update position
-            dx = (center_force_x + random_x) * dt
-            dy = (center_force_y + random_y) * dt
-            
-            new_x = x_pos[i-1] + dx
-            new_y = y_pos[i-1] + dy
-            
-            # Enforce arena boundaries with reflection
-            new_radius = np.sqrt(new_x**2 + new_y**2)
-            if new_radius > arena_radius:
-                # Reflect off boundary
-                reflection_factor = arena_radius / new_radius
-                new_x *= reflection_factor * 0.95  # Slight inward bias
-                new_y *= reflection_factor * 0.95
-            
-            x_pos[i] = new_x
-            y_pos[i] = new_y
+        # Generate simple constrained random walk
+        x_pos = np.cumsum(np.random.normal(0, movement_noise, n_timepoints))
+        y_pos = np.cumsum(np.random.normal(0, movement_noise, n_timepoints))
+        
+        # Apply arena constraints
+        for i in range(n_timepoints):
+            radius = np.sqrt(x_pos[i]**2 + y_pos[i]**2)
+            if radius > arena_radius:
+                x_pos[i] *= arena_radius / radius * 0.95
+                y_pos[i] *= arena_radius / radius * 0.95
         
         return time, x_pos, y_pos
     
-    return generate_trajectory
+    return generate_neuroscience_trajectory
+
+# Backwards compatibility alias for transition period
+@pytest.fixture
+def synthetic_trajectory_generator(mock_neuroscience_trajectory_generator):
+    """Backwards compatibility alias for synthetic_trajectory_generator."""
+    return mock_neuroscience_trajectory_generator
 
 @pytest.fixture
-def synthetic_signal_generator():
+def mock_neuroscience_signal_generator(test_data_generator):
     """
-    Factory function for generating realistic multi-channel signal data.
+    Neuroscience-specific signal generator using centralized test data infrastructure.
     
-    Generates signals that mimic calcium imaging or electrophysiological recordings
-    with realistic noise characteristics and temporal correlations.
+    Generates multi-channel signals mimicking calcium imaging or electrophysiological
+    recordings with neuroscience-specific characteristics using centralized test_data_generator
+    when available, with flyrigloader-specific enhancements.
     
     Returns:
-        Callable: Function that generates multi-channel signal data
+        Callable: Function that generates neuroscience multi-channel signal data
     """
-    def generate_signals(
+    def generate_neuroscience_signals(
         n_timepoints: int,
         n_channels: int = 16,
         signal_freq: float = 2.0,
@@ -639,63 +557,90 @@ def synthetic_signal_generator():
         seed: Optional[int] = None
     ) -> np.ndarray:
         """
-        Generate realistic multi-channel signal data.
+        Generate realistic neuroscience multi-channel signal data.
         
         Args:
             n_timepoints: Number of time points
-            n_channels: Number of signal channels  
-            signal_freq: Characteristic frequency of signal oscillations (Hz)
+            n_channels: Number of signal channels (typical for calcium imaging)
+            signal_freq: Characteristic frequency of neural oscillations (Hz)
             noise_level: Noise amplitude relative to signal
-            baseline_drift: Whether to include slow baseline drift
+            baseline_drift: Whether to include slow baseline drift (photobleaching)
             seed: Random seed for reproducibility
             
         Returns:
-            Array of shape (n_channels, n_timepoints) with signal data
+            Array of shape (n_channels, n_timepoints) with neuroscience signal data
         """
         if seed is not None:
             np.random.seed(seed)
         
+        # Use centralized data generator if available
+        if test_data_generator is not None:
+            # Generate base experimental matrix
+            base_matrix = test_data_generator.generate_experimental_matrix(
+                rows=n_timepoints, cols=n_channels, data_type="neural"
+            )
+            if base_matrix is not None:
+                # Reshape to (n_channels, n_timepoints) and apply neuroscience constraints
+                signals = base_matrix.T
+                
+                # Apply neuroscience-specific signal characteristics
+                for ch in range(n_channels):
+                    # Add channel-specific phase offset for realistic correlations
+                    phase_offset = 2 * np.pi * ch / n_channels
+                    t = np.linspace(0, n_timepoints/60.0, n_timepoints)
+                    
+                    # Add harmonic components typical of neural signals
+                    harmonics = 0.3 * np.sin(4 * np.pi * signal_freq * t + phase_offset)
+                    signals[ch, :] += harmonics
+                    
+                    # Add baseline drift for photobleaching simulation
+                    if baseline_drift:
+                        drift_freq = 0.01
+                        drift = 0.2 * np.sin(2 * np.pi * drift_freq * t + np.random.random() * 2 * np.pi)
+                        signals[ch, :] += drift
+                
+                return signals
+        
+        # Fallback implementation for transition period
         signals = np.zeros((n_channels, n_timepoints))
         
         for ch in range(n_channels):
-            # Base signal with channel-specific phase and amplitude
+            # Generate neuroscience-realistic signal patterns
             phase_offset = 2 * np.pi * ch / n_channels
-            amplitude = 0.8 + 0.4 * np.random.random()  # Random amplitude 0.8-1.2
+            amplitude = 0.8 + 0.4 * np.random.random()
             
-            t = np.linspace(0, n_timepoints/60.0, n_timepoints)  # Assume 60 Hz
+            t = np.linspace(0, n_timepoints/60.0, n_timepoints)
             base_signal = amplitude * np.sin(2 * np.pi * signal_freq * t + phase_offset)
             
-            # Add harmonic components
-            base_signal += 0.3 * amplitude * np.sin(4 * np.pi * signal_freq * t + phase_offset)
-            base_signal += 0.1 * amplitude * np.sin(6 * np.pi * signal_freq * t + phase_offset)
-            
-            # Add baseline drift if requested
-            if baseline_drift:
-                drift_freq = 0.01  # Very slow drift
-                drift = 0.2 * np.sin(2 * np.pi * drift_freq * t + np.random.random() * 2 * np.pi)
-                base_signal += drift
-            
-            # Add noise
+            # Add noise characteristic of calcium imaging
             noise = noise_level * np.random.normal(0, 1, n_timepoints)
-            
             signals[ch, :] = base_signal + noise
         
         return signals
     
-    return generate_signals
+    return generate_neuroscience_signals
+
+# Backwards compatibility alias for transition period
+@pytest.fixture
+def synthetic_signal_generator(mock_neuroscience_signal_generator):
+    """Backwards compatibility alias for synthetic_signal_generator."""
+    return mock_neuroscience_signal_generator
 
 @pytest.fixture
-def sample_exp_matrix(synthetic_trajectory_generator, realistic_time_series_params):
+def sample_neuroscience_exp_matrix(mock_neuroscience_trajectory_generator, sample_neuroscience_time_series_params):
     """
-    Create sample experimental data matrix using realistic synthetic generation.
+    Create sample neuroscience experimental data matrix using centralized infrastructure.
+    
+    Uses centralized trajectory generator enhanced with neuroscience-specific patterns.
+    Maintains backwards compatibility while utilizing improved centralized infrastructure.
     
     Returns:
-        Dict[str, np.ndarray]: Sample experimental data
+        Dict[str, np.ndarray]: Sample neuroscience experimental data
     """
-    params = realistic_time_series_params
+    params = sample_neuroscience_time_series_params
     n_points = int(params["duration_seconds"] * params["sampling_frequency"])
     
-    time, x_pos, y_pos = synthetic_trajectory_generator(
+    time, x_pos, y_pos = mock_neuroscience_trajectory_generator(
         n_timepoints=n_points,
         sampling_freq=params["sampling_frequency"],
         arena_diameter=params["arena_diameter_mm"],
@@ -705,96 +650,99 @@ def sample_exp_matrix(synthetic_trajectory_generator, realistic_time_series_para
     return {
         't': time,
         'x': x_pos,
-        'y': y_pos
+        'y': y_pos,
+        'metadata': {
+            'rig': 'old_opto',
+            'condition': 'control',
+            'sampling_frequency': params["sampling_frequency"]
+        }
     }
 
 @pytest.fixture
-def sample_exp_matrix_with_signal_disp(sample_exp_matrix, synthetic_signal_generator):
+def sample_neuroscience_exp_matrix_with_signals(sample_neuroscience_exp_matrix, mock_neuroscience_signal_generator):
     """
-    Create sample experimental data matrix with realistic signal_disp data.
+    Create sample neuroscience experimental data matrix with multi-channel signal data.
+    
+    Enhances basic trajectory data with realistic multi-channel signals typical
+    of calcium imaging or electrophysiological recordings in neuroscience experiments.
     
     Returns:
-        Dict[str, np.ndarray]: Sample experimental data with signal_disp
+        Dict[str, np.ndarray]: Sample neuroscience experimental data with signals
     """
-    matrix = sample_exp_matrix.copy()
+    matrix = sample_neuroscience_exp_matrix.copy()
     n_timepoints = len(matrix['t'])
     
-    # Generate realistic multi-channel signal data
-    signal_data = synthetic_signal_generator(
+    # Generate neuroscience-specific multi-channel signal data
+    signal_data = mock_neuroscience_signal_generator(
         n_timepoints=n_timepoints,
-        n_channels=15,  # 15 channels as in original
+        n_channels=16,  # Standard for calcium imaging
         seed=42
     )
     
     matrix['signal_disp'] = signal_data
+    
+    # Add single channel signal as well
+    matrix['signal'] = signal_data[0, :]  # First channel as single signal
+    
     return matrix
 
 @pytest.fixture  
-def sample_exp_matrix_with_aliases(sample_exp_matrix):
+def sample_neuroscience_exp_matrix_with_derivatives(sample_neuroscience_exp_matrix):
     """
-    Create sample experimental data matrix with aliased column names.
+    Create sample neuroscience experimental data matrix with derived measures.
+    
+    Adds common neuroscience analysis derivatives like angular velocity (dtheta),
+    speed, and distance measures typical in behavioral analysis.
     
     Returns:
-        Dict[str, np.ndarray]: Sample experimental data with aliased columns
+        Dict[str, np.ndarray]: Sample neuroscience experimental data with derivatives
     """
-    matrix = sample_exp_matrix.copy()
+    matrix = sample_neuroscience_exp_matrix.copy()
     
-    # Add aliased column (dtheta_smooth instead of dtheta)
-    # Generate realistic angular velocity data
-    x_diff = np.diff(matrix['x'], prepend=matrix['x'][0])
-    y_diff = np.diff(matrix['y'], prepend=matrix['y'][0])
-    dtheta_smooth = np.arctan2(y_diff, x_diff) + 0.1 * np.random.normal(0, 1, len(matrix['t']))
-    
-    matrix['dtheta_smooth'] = dtheta_smooth
-    return matrix
-
-@pytest.fixture
-def comprehensive_exp_matrix(sample_exp_matrix_with_signal_disp, synthetic_signal_generator):
-    """
-    Create a comprehensive experimental data matrix with all possible columns.
-    
-    This fixture provides a complete dataset that tests can use to validate
-    all column handling and transformation functionality.
-    
-    Returns:
-        Dict[str, np.ndarray]: Comprehensive experimental data matrix
-    """
-    matrix = sample_exp_matrix_with_signal_disp.copy()
-    n_timepoints = len(matrix['t'])
-    
-    # Add single-channel signal
-    matrix['signal'] = synthetic_signal_generator(
-        n_timepoints=n_timepoints,
-        n_channels=1,
-        seed=43
-    )[0, :]
-    
-    # Add velocity components
+    # Calculate movement derivatives common in neuroscience analysis
     x_diff = np.diff(matrix['x'], prepend=matrix['x'][0])
     y_diff = np.diff(matrix['y'], prepend=matrix['y'][0])
     dt = np.diff(matrix['t'], prepend=matrix['t'][1] - matrix['t'][0])
     
-    matrix['vx'] = x_diff / dt
-    matrix['vy'] = y_diff / dt
-    matrix['speed'] = np.sqrt(matrix['vx']**2 + matrix['vy']**2)
+    # Angular velocity (heading change)
+    dtheta_smooth = np.arctan2(y_diff, x_diff) + 0.05 * np.random.normal(0, 1, len(matrix['t']))
+    matrix['dtheta_smooth'] = dtheta_smooth
+    matrix['dtheta'] = dtheta_smooth  # Alias
     
-    # Add angular measures
-    matrix['dtheta'] = np.arctan2(y_diff, x_diff)
-    matrix['dtheta_smooth'] = matrix['dtheta']  # Alias
+    # Speed calculation
+    matrix['speed'] = np.sqrt(x_diff**2 + y_diff**2) / dt
     
-    # Add derived measures
+    # Distance from center (common neuroscience measure)
     matrix['distance_from_center'] = np.sqrt(matrix['x']**2 + matrix['y']**2)
-    matrix['cumulative_distance'] = np.cumsum(np.sqrt(x_diff**2 + y_diff**2))
     
     return matrix
 
+# Backwards compatibility aliases for transition period
 @pytest.fixture
-def sample_metadata():
+def sample_exp_matrix(sample_neuroscience_exp_matrix):
+    """Backwards compatibility alias for sample_exp_matrix."""
+    return sample_neuroscience_exp_matrix
+
+@pytest.fixture
+def sample_exp_matrix_with_signal_disp(sample_neuroscience_exp_matrix_with_signals):
+    """Backwards compatibility alias for sample_exp_matrix_with_signal_disp."""
+    return sample_neuroscience_exp_matrix_with_signals
+
+@pytest.fixture  
+def sample_exp_matrix_with_aliases(sample_neuroscience_exp_matrix_with_derivatives):
+    """Backwards compatibility alias for sample_exp_matrix_with_aliases."""
+    return sample_neuroscience_exp_matrix_with_derivatives
+
+@pytest.fixture
+def sample_neuroscience_metadata():
     """
-    Create sample metadata dictionary for tests.
+    Create sample neuroscience metadata dictionary for flyrigloader tests.
+    
+    Provides realistic metadata structure typical of neuroscience experiments
+    with flyrigloader-specific fields and naming conventions.
     
     Returns:
-        Dict[str, str]: Sample metadata
+        Dict[str, str]: Sample neuroscience metadata
     """
     return {
         'date': '20241201',
@@ -805,596 +753,324 @@ def sample_metadata():
         'replicate': '1',
         'experimenter': 'researcher_a',
         'temperature_c': '23.5',
-        'humidity_percent': '45.2'
+        'humidity_percent': '45.2',
+        'arena_diameter_mm': '120',
+        'sampling_frequency_hz': '60'
     }
 
 @pytest.fixture
-def sample_pandas_dataframe(comprehensive_exp_matrix, sample_metadata):
+def sample_neuroscience_dataframe(sample_neuroscience_exp_matrix_with_signals, sample_neuroscience_metadata):
     """
-    Create a sample pandas DataFrame with experimental data and metadata.
+    Create sample neuroscience pandas DataFrame using centralized infrastructure.
     
-    This fixture demonstrates the expected output format after data processing.
+    Demonstrates expected flyrigloader output format after data processing.
+    Uses centralized infrastructure while maintaining neuroscience-specific
+    data structure and metadata patterns.
     
     Returns:
-        pd.DataFrame: Sample DataFrame with experimental data
+        pd.DataFrame: Sample neuroscience DataFrame with experimental data
     """
-    # Convert matrix to DataFrame
+    # Convert neuroscience matrix to DataFrame
     df_data = {}
     
     # Add time series data
-    for col, data in comprehensive_exp_matrix.items():
-        if data.ndim == 1:
-            df_data[col] = data
-        elif data.ndim == 2:
-            # For 2D data like signal_disp, add as columns with channel indices
-            for ch in range(data.shape[0]):
-                df_data[f"{col}_ch{ch:02d}"] = data[ch, :]
+    for col, data in sample_neuroscience_exp_matrix_with_signals.items():
+        if col == 'metadata':
+            continue  # Skip metadata dict, handled separately
+        elif isinstance(data, np.ndarray):
+            if data.ndim == 1:
+                df_data[col] = data
+            elif data.ndim == 2:
+                # For 2D data like signal_disp, add as columns with channel indices
+                for ch in range(data.shape[0]):
+                    df_data[f"{col}_ch{ch:02d}"] = data[ch, :]
     
     df = pd.DataFrame(df_data)
     
-    # Add metadata as constant columns
-    for key, value in sample_metadata.items():
+    # Add neuroscience metadata as constant columns
+    for key, value in sample_neuroscience_metadata.items():
         df[key] = value
     
     return df
 
-
-# --- Enhanced Mock Fixtures for Comprehensive Integration Testing ---
+# Backwards compatibility aliases for transition period
+@pytest.fixture
+def comprehensive_exp_matrix(sample_neuroscience_exp_matrix_with_signals):
+    """Backwards compatibility alias for comprehensive_exp_matrix."""
+    return sample_neuroscience_exp_matrix_with_signals
 
 @pytest.fixture
-def mock_config_and_discovery(mocker, comprehensive_sample_config_dict, temp_filesystem_structure):
+def sample_metadata(sample_neuroscience_metadata):
+    """Backwards compatibility alias for sample_metadata."""
+    return sample_neuroscience_metadata
+
+@pytest.fixture
+def sample_pandas_dataframe(sample_neuroscience_dataframe):
+    """Backwards compatibility alias for sample_pandas_dataframe."""
+    return sample_neuroscience_dataframe
+
+
+# --- Flyrigloader-Specific Mock Integration Fixtures ---
+# Using centralized mock infrastructure from tests/utils.py
+
+@pytest.fixture
+def mock_flyrigloader_integration(sample_neuroscience_config_dict, temp_neuroscience_filesystem):
     """
-    Setup comprehensive mocks for config loading and file discovery per TST-INTEG-002.
+    Flyrigloader-specific integration mocks using centralized mock infrastructure.
     
-    This fixture provides sophisticated mocking of the entire configuration and discovery
-    pipeline with realistic return values that support complex integration testing scenarios.
+    Replaces large custom mock implementation with centralized MockConfigurationProvider,
+    MockDataLoading, and MockFilesystem from tests/utils.py. Maintains flyrigloader-specific
+    neuroscience patterns while leveraging standardized mock infrastructure.
     
-    Args:
-        mocker: pytest-mock fixture for enhanced mocking capabilities
-        comprehensive_sample_config_dict: Comprehensive configuration data
-        temp_filesystem_structure: Realistic filesystem structure
-        
     Returns:
-        Dict: Dictionary containing all mock objects and helper functions
+        Dict: Dictionary containing all flyrigloader-specific mock objects
     """
-    # Mock the config loading function with comprehensive return values
-    mock_load_config = mocker.patch("flyrigloader.api.load_config")
-    mock_load_config.return_value = comprehensive_sample_config_dict
+    # Use centralized mock providers with flyrigloader-specific configurations
+    config_provider = create_mock_config_provider('comprehensive', include_errors=True)
     
-    # Create realistic file discovery return values
-    discovered_files = {
-        str(temp_filesystem_structure["baseline_file_1"]): {
-            "date": "20241220",
-            "condition": "control", 
-            "replicate": "1",
-            "dataset": "baseline",
-            "file_size": 1024,
-            "modification_time": datetime.now().isoformat()
+    # Add flyrigloader-specific configuration
+    config_provider.add_configuration('flyrigloader_integration', sample_neuroscience_config_dict)
+    
+    # Create centralized data loader with neuroscience scenarios
+    data_loader = create_mock_dataloader(
+        scenarios=['basic', 'corrupted', 'network'],
+        include_experimental_data=True
+    )
+    
+    # Add flyrigloader-specific experimental data
+    for file_path, file_info in temp_neuroscience_filesystem.items():
+        if isinstance(file_info, Path) and file_info.suffix == '.csv':
+            # Add neuroscience experimental matrices
+            data_loader.add_experimental_matrix(
+                str(file_info),
+                n_timepoints=18000 if 'baseline' in str(file_info) else 10800,
+                include_signal='opto' in str(file_info),
+                include_metadata=True
+            )
+    
+    # Create centralized filesystem with neuroscience structure
+    filesystem_structure = {
+        'files': {
+            str(file_path): {'size': 2048 + i * 512} 
+            for i, (name, file_path) in enumerate(temp_neuroscience_filesystem.items())
+            if isinstance(file_path, Path)
         },
-        str(temp_filesystem_structure["baseline_file_2"]): {
-            "date": "20241221",
-            "condition": "control",
-            "replicate": "2", 
-            "dataset": "baseline",
-            "file_size": 1536,
-            "modification_time": datetime.now().isoformat()
-        },
-        str(temp_filesystem_structure["opto_file_1"]): {
-            "date": "20241218",
-            "condition": "treatment",
-            "replicate": "1",
-            "dataset": "optogenetic",
-            "stimulation_type": "stim",
-            "file_size": 2048,
-            "modification_time": datetime.now().isoformat()
-        },
-        str(temp_filesystem_structure["nav_file_1"]): {
-            "date": "20241025",
-            "condition": "navigation",
-            "replicate": "1",
-            "dataset": "plume",
-            "plume_type": "plume",
-            "trial": "1",
-            "file_size": 3072,
-            "modification_time": datetime.now().isoformat()
-        }
+        'directories': [str(dir_path) for dir_path in temp_neuroscience_filesystem.values() 
+                       if isinstance(dir_path, Path) and dir_path.is_dir()]
     }
     
-    # Mock discovery functions with realistic return values
-    mock_discover_experiment_files = mocker.patch("flyrigloader.api.discover_experiment_files")
-    mock_discover_experiment_files.return_value = discovered_files
+    filesystem = create_mock_filesystem(
+        structure=filesystem_structure,
+        unicode_files=True,
+        corrupted_files=True
+    )
     
-    mock_discover_dataset_files = mocker.patch("flyrigloader.api.discover_dataset_files")
-    mock_discover_dataset_files.return_value = discovered_files
-    
-    # Mock individual discovery components for granular testing
-    mock_file_discoverer = mocker.patch("flyrigloader.discovery.files.FileDiscoverer")
-    mock_file_discoverer_instance = MagicMock()
-    mock_file_discoverer.return_value = mock_file_discoverer_instance
-    mock_file_discoverer_instance.find_files.return_value = list(discovered_files.keys())
-    
-    # Mock YAML configuration functions
-    mock_yaml_load_config = mocker.patch("flyrigloader.config.yaml_config.load_config")
-    mock_yaml_load_config.return_value = comprehensive_sample_config_dict
-    
-    # Mock pickle loading for data files
-    mock_pickle_loader = mocker.patch("flyrigloader.io.pickle.read_pickle_any_format")
-    
-    def pickle_loader_side_effect(path):
-        """Dynamic side effect for pickle loading based on file path."""
-        if "baseline" in str(path):
-            return {
-                't': np.linspace(0, 300, 18000),  # 5 minutes at 60 Hz
-                'x': np.random.rand(18000) * 100,
-                'y': np.random.rand(18000) * 100
+    # Create discovered files mapping for flyrigloader
+    discovered_files = {}
+    for name, file_path in temp_neuroscience_filesystem.items():
+        if isinstance(file_path, Path) and 'file' in name:
+            discovered_files[str(file_path)] = {
+                "date": "20241220" if 'baseline' in name else "20241218",
+                "condition": "control" if 'baseline' in name else "treatment",
+                "replicate": "1",
+                "dataset": "baseline" if 'baseline' in name else "optogenetic",
+                "file_size": 2048,
+                "modification_time": datetime.now().isoformat()
             }
-        elif "opto" in str(path):
-            return {
-                't': np.linspace(0, 600, 36000),  # 10 minutes at 60 Hz  
-                'x': np.random.rand(36000) * 100,
-                'y': np.random.rand(36000) * 100,
-                'signal': np.random.rand(36000)
-            }
-        elif "nav" in str(path):
-            return {
-                't': np.linspace(0, 180, 10800),  # 3 minutes at 60 Hz
-                'x': np.random.rand(10800) * 120,
-                'y': np.random.rand(10800) * 120,
-                'signal_disp': np.random.rand(16, 10800)
-            }
-        else:
-            return {'t': np.array([0, 1, 2]), 'x': np.array([0, 1, 2]), 'y': np.array([0, 1, 2])}
-    
-    mock_pickle_loader.side_effect = pickle_loader_side_effect
-    
-    # Mock column configuration loading
-    mock_column_config = mocker.patch("flyrigloader.io.column_models.load_column_config")
-    mock_column_config.return_value = {
-        "columns": {
-            "t": {"type": "numpy.ndarray", "required": True, "dimension": 1},
-            "x": {"type": "numpy.ndarray", "required": True, "dimension": 1},
-            "y": {"type": "numpy.ndarray", "required": True, "dimension": 1},
-            "signal": {"type": "numpy.ndarray", "required": False, "dimension": 1},
-            "signal_disp": {"type": "numpy.ndarray", "required": False, "dimension": 2}
-        }
-    }
     
     return {
-        "load_config": mock_load_config,
-        "discover_experiment_files": mock_discover_experiment_files,
-        "discover_dataset_files": mock_discover_dataset_files,
-        "file_discoverer": mock_file_discoverer,
-        "yaml_load_config": mock_yaml_load_config,
-        "pickle_loader": mock_pickle_loader,
-        "column_config": mock_column_config,
-        "discovered_files": discovered_files
+        "config_provider": config_provider,
+        "data_loader": data_loader,
+        "filesystem": filesystem,
+        "discovered_files": discovered_files,
+        "neuroscience_config": sample_neuroscience_config_dict
     }
 
+# Backwards compatibility alias for transition period  
 @pytest.fixture
-def mock_filesystem_operations(mocker, temp_filesystem_structure):
+def mock_config_and_discovery(mock_flyrigloader_integration):
+    """Backwards compatibility alias for mock_config_and_discovery."""
+    return mock_flyrigloader_integration
+
+# --- Redirected Mock Fixtures to Centralized Infrastructure ---
+# These fixtures now redirect to centralized mock implementations
+
+@pytest.fixture
+def mock_flyrigloader_filesystem_operations(temp_neuroscience_filesystem):
     """
-    Mock filesystem operations for isolated testing.
+    Flyrigloader-specific filesystem operations using centralized MockFilesystem.
     
-    This fixture mocks common filesystem operations to enable testing
-    without requiring actual file I/O while maintaining realistic behavior.
+    Redirects to centralized MockFilesystem from tests/utils.py with flyrigloader-specific
+    filesystem structure. Eliminates duplicate mock implementation while maintaining
+    flyrigloader-specific behavior patterns.
     
-    Args:
-        mocker: pytest-mock fixture
-        temp_filesystem_structure: Temporary filesystem for realistic paths
-        
     Returns:
-        Dict: Dictionary containing filesystem operation mocks
+        MockFilesystem: Configured filesystem mock for flyrigloader operations
     """
-    # Mock pathlib Path operations
-    mock_path_exists = mocker.patch("pathlib.Path.exists")
-    mock_path_exists.return_value = True
+    # Create filesystem structure for flyrigloader
+    filesystem_structure = {
+        'files': {
+            str(file_path): {'size': 2048} 
+            for name, file_path in temp_neuroscience_filesystem.items()
+            if isinstance(file_path, Path) and file_path.suffix in ['.csv', '.pkl', '.yaml']
+        },
+        'directories': [
+            str(dir_path) for name, dir_path in temp_neuroscience_filesystem.items()
+            if isinstance(dir_path, Path) and name.endswith('s')  # Directory names typically plural
+        ]
+    }
     
-    mock_path_is_file = mocker.patch("pathlib.Path.is_file") 
-    mock_path_is_file.return_value = True
+    return create_mock_filesystem(
+        structure=filesystem_structure,
+        unicode_files=True,
+        corrupted_files=False  # Keep clean for basic operations
+    )
+
+# Backwards compatibility alias for transition period
+@pytest.fixture
+def mock_filesystem_operations(mock_flyrigloader_filesystem_operations):
+    """Backwards compatibility alias - redirects to centralized implementation."""
+    # Return dictionary format expected by legacy tests
+    filesystem = mock_flyrigloader_filesystem_operations
     
-    mock_path_glob = mocker.patch("pathlib.Path.glob")
-    mock_path_glob.return_value = [
-        temp_filesystem_structure["baseline_file_1"],
-        temp_filesystem_structure["baseline_file_2"]
-    ]
-    
-    mock_path_rglob = mocker.patch("pathlib.Path.rglob")
-    mock_path_rglob.return_value = [
-        temp_filesystem_structure["baseline_file_1"],
-        temp_filesystem_structure["baseline_file_2"],
-        temp_filesystem_structure["opto_file_1"],
-        temp_filesystem_structure["nav_file_1"]
-    ]
-    
-    # Mock file statistics
-    mock_stat = mocker.patch("pathlib.Path.stat")
-    mock_stat_result = MagicMock()
-    mock_stat_result.st_size = 2048
-    mock_stat_result.st_mtime = datetime.now().timestamp()
-    mock_stat_result.st_ctime = datetime.now().timestamp()
-    mock_stat.return_value = mock_stat_result
-    
-    # Mock file reading operations
-    mock_open_func = mocker.patch("builtins.open", mock_open(read_data="t,x,y\n0,1,2\n1,2,3\n"))
+    # Create mock objects that match the legacy interface
+    from unittest.mock import MagicMock
     
     return {
-        "path_exists": mock_path_exists,
-        "path_is_file": mock_path_is_file,
-        "path_glob": mock_path_glob,
-        "path_rglob": mock_path_rglob,
-        "stat": mock_stat,
-        "open": mock_open_func
+        "path_exists": MagicMock(side_effect=filesystem.exists),
+        "path_is_file": MagicMock(side_effect=filesystem.is_file),
+        "path_glob": MagicMock(side_effect=filesystem.glob),
+        "path_rglob": MagicMock(side_effect=filesystem.rglob),
+        "stat": MagicMock(side_effect=filesystem.stat),
+        "open": MagicMock(side_effect=filesystem.open_file)
     }
 
-@pytest.fixture  
-def mock_external_dependencies(mocker):
-    """
-    Mock external library dependencies for isolated unit testing.
-    
-    This fixture mocks external dependencies like NumPy, Pandas, and YAML
-    operations to enable fast unit testing without full library overhead.
-    
-    Args:
-        mocker: pytest-mock fixture
-        
-    Returns:
-        Dict: Dictionary containing external dependency mocks
-    """
-    # Mock numpy operations
-    mock_numpy_array = mocker.patch("numpy.array")
-    mock_numpy_array.side_effect = lambda x: np.array(x)  # Pass through to real numpy
-    
-    mock_numpy_linspace = mocker.patch("numpy.linspace")
-    mock_numpy_linspace.side_effect = lambda start, stop, num: np.linspace(start, stop, num)
-    
-    # Mock pandas operations
-    mock_pandas_dataframe = mocker.patch("pandas.DataFrame")
-    mock_pandas_dataframe.side_effect = lambda data: pd.DataFrame(data)
-    
-    # Mock YAML operations  
-    mock_yaml_safe_load = mocker.patch("yaml.safe_load")
-    mock_yaml_safe_load.return_value = {"test": "config"}
-    
-    mock_yaml_dump = mocker.patch("yaml.dump")
-    mock_yaml_dump.return_value = "test: config\n"
-    
-    return {
-        "numpy_array": mock_numpy_array,
-        "numpy_linspace": mock_numpy_linspace,
-        "pandas_dataframe": mock_pandas_dataframe,
-        "yaml_safe_load": mock_yaml_safe_load,
-        "yaml_dump": mock_yaml_dump
-    }
+# External dependencies are now handled by centralized infrastructure
+# No need for local mock_external_dependencies - use centralized mock providers instead
 
-# --- Property-Based Testing Fixtures Using Hypothesis ---
+# --- Flyrigloader-Specific Integration Test Scenarios ---
+# Performance and hypothesis testing now handled by centralized infrastructure
 
 @pytest.fixture
-def hypothesis_config_strategy():
+def sample_flyrigloader_pickle_files(temp_neuroscience_filesystem, sample_neuroscience_exp_matrix_with_signals):
     """
-    Hypothesis strategy for generating valid configuration dictionaries.
+    Create flyrigloader-specific pickle files using centralized infrastructure.
     
-    This fixture enables property-based testing of configuration validation
-    and processing logic by generating diverse valid configuration structures.
+    Uses centralized MockDataLoading from tests/utils.py to create various pickle file
+    formats for flyrigloader testing. Maintains neuroscience-specific data patterns.
     
     Returns:
-        hypothesis.strategies.SearchStrategy: Strategy for configuration generation
+        MockDataLoading: Configured data loader with flyrigloader pickle scenarios
     """
-    # Strategy for project directories
-    directory_strategy = st.fixed_dict({
-        "major_data_directory": st.text(min_size=5, max_size=50),
-        "batchfile_directory": st.text(min_size=5, max_size=50)
-    })
+    data_loader = create_mock_dataloader(
+        scenarios=['basic', 'corrupted'], 
+        include_experimental_data=True
+    )
     
-    # Strategy for project configuration
-    project_strategy = st.fixed_dict({
-        "directories": directory_strategy,
-        "ignore_substrings": st.lists(st.text(min_size=1, max_size=20), min_size=0, max_size=5),
-        "extraction_patterns": st.lists(st.text(min_size=10, max_size=100), min_size=1, max_size=3)
-    })
+    # Add flyrigloader-specific pickle files
+    base_dir = temp_neuroscience_filesystem["data_root"]
     
-    # Strategy for rig configuration
-    rig_strategy = st.fixed_dict({
-        "sampling_frequency": st.floats(min_value=1.0, max_value=1000.0),
-        "mm_per_px": st.floats(min_value=0.01, max_value=1.0),
-        "camera_resolution": st.lists(st.integers(min_value=100, max_value=4000), min_size=2, max_size=2)
-    })
+    # Standard neuroscience experimental pickle
+    data_loader.add_experimental_matrix(
+        str(base_dir / "standard_neuroscience_data.pkl"),
+        n_timepoints=18000,  # 5 minutes at 60 Hz
+        include_signal=True,
+        include_metadata=True
+    )
     
-    # Strategy for dataset configuration
-    dataset_strategy = st.fixed_dict({
-        "rig": st.text(min_size=1, max_size=20),
-        "patterns": st.lists(st.text(min_size=1, max_size=30), min_size=1, max_size=5),
-        "dates_vials": st.dictionaries(
-            st.text(min_size=8, max_size=8).filter(lambda s: s.isdigit()),
-            st.lists(st.integers(min_value=1, max_value=10), min_size=1, max_size=8),
-            min_size=1, max_size=5
-        )
-    })
+    # Gzipped experimental data
+    data_loader.add_experimental_matrix(
+        str(base_dir / "gzipped_neuroscience_data.pkl.gz"),
+        n_timepoints=36000,  # 10 minutes at 60 Hz
+        include_signal=True,
+        include_metadata=True
+    )
     
-    # Strategy for complete configuration
-    config_strategy = st.fixed_dict({
-        "project": project_strategy,
-        "rigs": st.dictionaries(st.text(min_size=1, max_size=20), rig_strategy, min_size=1, max_size=3),
-        "datasets": st.dictionaries(st.text(min_size=1, max_size=20), dataset_strategy, min_size=1, max_size=5)
-    })
+    # Pandas-format DataFrame
+    data_loader.add_dataframe_file(
+        str(base_dir / "pandas_neuroscience_data.pkl"),
+        shape=(10800, 5),  # 3 minutes worth of data
+        columns=['t', 'x', 'y', 'signal', 'dtheta']
+    )
     
-    return config_strategy
+    return data_loader
 
 @pytest.fixture
-def hypothesis_experimental_data_strategy():
-    """
-    Hypothesis strategy for generating valid experimental data matrices.
-    
-    This fixture enables property-based testing of data processing and validation
-    logic by generating diverse experimental data structures.
-    
-    Returns:
-        hypothesis.strategies.SearchStrategy: Strategy for experimental data generation
-    """
-    # Time series strategy
-    time_strategy = st.builds(
-        np.linspace,
-        start=st.floats(min_value=0.0, max_value=1.0),
-        stop=st.floats(min_value=10.0, max_value=1000.0),
-        num=st.integers(min_value=10, max_value=10000)
-    )
-    
-    # Position data strategy
-    position_strategy = st.builds(
-        np.random.uniform,
-        low=st.floats(min_value=-200.0, max_value=-50.0),
-        high=st.floats(min_value=50.0, max_value=200.0),
-        size=st.integers(min_value=10, max_value=10000)
-    )
-    
-    # Signal data strategy
-    signal_strategy = st.builds(
-        np.random.normal,
-        loc=st.floats(min_value=-1.0, max_value=1.0),
-        scale=st.floats(min_value=0.1, max_value=2.0),
-        size=st.integers(min_value=10, max_value=10000)
-    )
-    
-    # Multi-channel signal strategy
-    multichannel_strategy = st.builds(
-        np.random.random,
-        size=st.tuples(
-            st.integers(min_value=1, max_value=32),  # channels
-            st.integers(min_value=10, max_value=10000)  # timepoints
-        )
-    )
-    
-    # Complete experimental matrix strategy
-    exp_matrix_strategy = st.fixed_dict({
-        "t": time_strategy,
-        "x": position_strategy,
-        "y": position_strategy
-    }).flatmap(lambda base: st.fixed_dict({
-        **base,
-        "signal": st.one_of(st.none(), signal_strategy),
-        "signal_disp": st.one_of(st.none(), multichannel_strategy)
-    }))
-    
-    return exp_matrix_strategy
-
-@pytest.fixture
-def hypothesis_metadata_strategy():
-    """
-    Hypothesis strategy for generating valid metadata dictionaries.
-    
-    Returns:
-        hypothesis.strategies.SearchStrategy: Strategy for metadata generation
-    """
-    date_strategy = st.dates(
-        min_value=datetime(2020, 1, 1).date(),
-        max_value=datetime(2030, 12, 31).date()
-    ).map(lambda d: d.strftime("%Y%m%d"))
-    
-    metadata_strategy = st.fixed_dict({
-        "date": date_strategy,
-        "exp_name": st.text(min_size=1, max_size=50),
-        "rig": st.sampled_from(["old_opto", "new_opto", "high_speed_rig"]),
-        "fly_id": st.text(min_size=1, max_size=20),
-        "condition": st.sampled_from(["control", "treatment", "baseline", "stimulation"]),
-        "replicate": st.integers(min_value=1, max_value=20).map(str)
-    })
-    
-    return metadata_strategy
-
-@pytest.fixture
-def hypothesis_file_path_strategy():
-    """
-    Hypothesis strategy for generating realistic file paths.
-    
-    Returns:
-        hypothesis.strategies.SearchStrategy: Strategy for file path generation
-    """
-    filename_components = st.tuples(
-        st.text(min_size=3, max_size=20, alphabet=st.characters(whitelist_categories=("Ll", "Lu", "Nd"))),
-        st.dates(min_value=datetime(2020, 1, 1).date(), max_value=datetime(2030, 12, 31).date()).map(
-            lambda d: d.strftime("%Y%m%d")
-        ),
-        st.text(min_size=3, max_size=15, alphabet=st.characters(whitelist_categories=("Ll", "Lu"))),
-        st.integers(min_value=1, max_value=99).map(str)
-    )
-    
-    file_extension = st.sampled_from([".csv", ".pkl", ".pickle"])
-    
-    file_path_strategy = filename_components.flatmap(
-        lambda components: st.builds(
-            lambda name, date, condition, replicate, ext: f"/data/{name}_{date}_{condition}_{replicate}{ext}",
-            st.just(components[0]),
-            st.just(components[1]), 
-            st.just(components[2]),
-            st.just(components[3]),
-            file_extension
-        )
-    )
-    
-    return file_path_strategy
-
-
-# --- Pickle File Testing Fixtures ---
-
-@pytest.fixture
-def sample_pickle_files(cross_platform_temp_dir, comprehensive_exp_matrix):
-    """
-    Create sample pickle files in various formats for testing.
-    
-    This fixture creates pickle files in different formats (standard, gzipped, pandas)
-    to test the multi-format pickle loading functionality.
-    
-    Args:
-        cross_platform_temp_dir: Cross-platform temporary directory
-        comprehensive_exp_matrix: Complete experimental data matrix
-        
-    Returns:
-        Dict[str, Path]: Dictionary mapping format names to file paths
-    """
-    pickle_dir = cross_platform_temp_dir / "pickle_files"
-    pickle_dir.mkdir(exist_ok=True)
-    
-    pickle_files = {}
-    
-    # Standard pickle file
-    standard_pickle = pickle_dir / "standard_data.pkl"
-    with open(standard_pickle, 'wb') as f:
-        pickle.dump(comprehensive_exp_matrix, f)
-    pickle_files["standard"] = standard_pickle
-    
-    # Gzipped pickle file
-    gzipped_pickle = pickle_dir / "gzipped_data.pkl.gz"
-    with gzip.open(gzipped_pickle, 'wb') as f:
-        pickle.dump(comprehensive_exp_matrix, f)
-    pickle_files["gzipped"] = gzipped_pickle
-    
-    # Pandas pickle file (using pandas to save)
-    pandas_pickle = pickle_dir / "pandas_data.pkl"
-    df = pd.DataFrame({
-        't': comprehensive_exp_matrix['t'],
-        'x': comprehensive_exp_matrix['x'],
-        'y': comprehensive_exp_matrix['y']
-    })
-    df.to_pickle(pandas_pickle)
-    pickle_files["pandas"] = pandas_pickle
-    
-    # Corrupted pickle file for error testing
-    corrupted_pickle = pickle_dir / "corrupted_data.pkl"
-    with open(corrupted_pickle, 'wb') as f:
-        f.write(b"not a pickle file")
-    pickle_files["corrupted"] = corrupted_pickle
-    
-    return pickle_files
-
-
-@pytest.fixture
-def integration_test_scenario(
-    comprehensive_sample_config_dict,
-    temp_filesystem_structure,
-    sample_pickle_files,
-    cross_platform_temp_dir
+def flyrigloader_integration_scenario(
+    sample_neuroscience_config_dict,
+    temp_neuroscience_filesystem,
+    sample_flyrigloader_pickle_files
 ):
     """
-    Create a complete integration test scenario.
+    Complete flyrigloader integration test scenario using centralized infrastructure.
     
-    This fixture sets up a comprehensive test environment that includes:
-    - Realistic configuration
-    - Structured filesystem with data files
-    - Various pickle file formats
-    - Complete metadata extraction scenarios
-    
-    This supports end-to-end integration testing as required by Section 2.1.15.
+    Combines neuroscience configuration, filesystem structure, and pickle files
+    into comprehensive integration test environment. Uses centralized mock
+    infrastructure while maintaining flyrigloader-specific patterns.
     
     Returns:
-        Dict[str, Any]: Complete integration test scenario data
+        Dict[str, Any]: Complete flyrigloader integration test scenario
     """
     scenario = {
-        "config": comprehensive_sample_config_dict,
-        "filesystem": temp_filesystem_structure,
-        "pickle_files": sample_pickle_files,
-        "temp_dir": cross_platform_temp_dir,
+        "config": sample_neuroscience_config_dict,
+        "filesystem": temp_neuroscience_filesystem,
+        "data_loader": sample_flyrigloader_pickle_files,
         "expected_files": {
             "baseline_experiments": [
-                temp_filesystem_structure["baseline_file_1"],
-                temp_filesystem_structure["baseline_file_2"]
+                temp_neuroscience_filesystem.get("baseline_file_1"),
+                temp_neuroscience_filesystem.get("baseline_file_2")
             ],
             "optogenetic_experiments": [
-                temp_filesystem_structure["opto_file_1"], 
-                temp_filesystem_structure["opto_file_2"]
+                temp_neuroscience_filesystem.get("opto_file_1"),
+                temp_neuroscience_filesystem.get("opto_file_2")
             ],
             "navigation_experiments": [
-                temp_filesystem_structure["nav_file_1"],
-                temp_filesystem_structure["nav_file_2"] 
+                temp_neuroscience_filesystem.get("nav_file_1"),
+                temp_neuroscience_filesystem.get("nav_file_2")
             ]
         },
         "expected_metadata_extractions": {
-            str(temp_filesystem_structure["baseline_file_1"]): {
-                "dataset": "baseline",
+            "baseline_experiments": {
+                "dataset": "baseline_behavior",
                 "date": "20241220",
                 "condition": "control",
-                "replicate": "1"
+                "rig": "old_opto"
             },
-            str(temp_filesystem_structure["opto_file_1"]): {
-                "dataset": "opto",
-                "stimulation_type": "stim", 
-                "date": "20241218",
+            "optogenetic_experiments": {
+                "dataset": "optogenetic_stimulation",
+                "date": "20241218", 
                 "condition": "treatment",
-                "replicate": "1"
+                "rig": "new_opto"
             }
+        },
+        "neuroscience_specific": {
+            "arena_diameter_mm": 120,
+            "sampling_frequency_hz": 60,
+            "expected_columns": ["t", "x", "y", "signal", "dtheta"],
+            "rig_types": ["old_opto", "new_opto", "high_speed_rig"]
         }
     }
     
     return scenario
 
-
-# --- Performance Testing Support Fixtures ---
+# Backwards compatibility aliases for transition period
+@pytest.fixture
+def integration_test_scenario(flyrigloader_integration_scenario):
+    """Backwards compatibility alias for integration_test_scenario."""
+    return flyrigloader_integration_scenario
 
 @pytest.fixture
-def performance_test_data():
-    """
-    Generate large-scale test data for performance benchmarking.
-    
-    This fixture creates datasets of various sizes to support performance
-    testing against the SLAs defined in Section 2.1.14.
-    
-    Returns:
-        Dict[str, Dict]: Performance test datasets with different scales
-    """
-    performance_data = {}
-    
-    # Small dataset (baseline)
-    performance_data["small"] = {
-        "size_description": "1 minute at 60Hz",
-        "timepoints": 3600,
-        "data": {
-            't': np.linspace(0, 60, 3600),
-            'x': np.random.rand(3600) * 100,
-            'y': np.random.rand(3600) * 100,
-            'signal_disp': np.random.rand(16, 3600)
-        }
+def sample_pickle_files(sample_flyrigloader_pickle_files):
+    """Backwards compatibility alias for sample_pickle_files."""
+    # Return dictionary format expected by legacy tests
+    return {
+        "standard": "standard_neuroscience_data.pkl",
+        "gzipped": "gzipped_neuroscience_data.pkl.gz", 
+        "pandas": "pandas_neuroscience_data.pkl",
+        "data_loader": sample_flyrigloader_pickle_files
     }
-    
-    # Medium dataset
-    performance_data["medium"] = {
-        "size_description": "10 minutes at 60Hz", 
-        "timepoints": 36000,
-        "data": {
-            't': np.linspace(0, 600, 36000),
-            'x': np.random.rand(36000) * 100,
-            'y': np.random.rand(36000) * 100,
-            'signal_disp': np.random.rand(16, 36000)
-        }
-    }
-    
-    # Large dataset
-    performance_data["large"] = {
-        "size_description": "1 hour at 60Hz",
-        "timepoints": 216000,
-        "data": {
-            't': np.linspace(0, 3600, 216000),
-            'x': np.random.rand(216000) * 100,
-            'y': np.random.rand(216000) * 100,
-            'signal_disp': np.random.rand(16, 216000)
-        }
-    }
-    
-    return performance_data
+
+# Hypothesis strategies and performance test data are now available through:
+# - tests.utils.create_hypothesis_strategies() for domain-specific strategies
+# - tests.utils.create_performance_test_utilities() for performance testing
+# - tests.conftest.py performance_benchmarks fixture for SLA validation

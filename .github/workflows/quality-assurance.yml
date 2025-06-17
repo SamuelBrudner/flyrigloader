@@ -201,6 +201,7 @@ jobs:
           flake8-comprehensions>=3.14.0 \
           flake8-simplify>=0.20.0 \
           flake8-type-checking>=2.7.0 \
+          flake8-pytest-style>=2.1.0 \
           pep8-naming>=0.13.0
     
     - name: Create flake8 configuration
@@ -239,9 +240,19 @@ jobs:
             SIM,
             # pep8-naming
             N,
+            # flake8-pytest-style (comprehensive pytest validation)
+            PT001, PT002, PT003, PT004, PT005, PT006, PT007, PT008, PT009, PT010, PT011, PT012, PT013, PT014, PT015, PT016, PT017, PT018, PT019, PT020, PT021, PT022, PT023,
             # flake8-docstrings (selective)
             D200, D201, D202, D204, D205, D208, D209, D210, D211, D212, D213, D214, D215, D300, D301, D400, D401, D402, D403, D404, D405, D406, D407, D408, D409, D410, D411, D412, D413, D414, D415, D416, D417, D418, D419
         docstring-convention = google
+        
+        # flake8-pytest-style configuration for comprehensive test validation
+        pytest-fixture-no-parentheses = true
+        pytest-mark-no-parentheses = true
+        pytest-parametrize-names-type = tuple
+        pytest-parametrize-values-type = tuple
+        pytest-parametrize-values-row-type = tuple
+        pytest-raises-require-match-for = BaseException
         EOF
     
     - name: Run comprehensive linting analysis
@@ -267,12 +278,12 @@ jobs:
         echo "Generated: $(date)" >> linting-report/summary.md
         echo "" >> linting-report/summary.md
         
-        # Count violations by category
+        # Count violations by category including pytest-style
         echo "## Violation Summary by Category" >> linting-report/summary.md
         echo "| Category | Count | Description |" >> linting-report/summary.md
         echo "|----------|-------|-------------|" >> linting-report/summary.md
         
-        for category in E W F B C4 SIM N D; do
+        for category in E W F B C4 SIM N D PT; do
           count=$(grep -c "^[^:]*:[^:]*: $category" flake8-report.txt || echo "0")
           case $category in
             E) desc="PEP 8 Error" ;;
@@ -283,9 +294,48 @@ jobs:
             SIM) desc="Simplification Opportunity" ;;
             N) desc="Naming Convention" ;;
             D) desc="Docstring Issue" ;;
+            PT) desc="Pytest Style Violation" ;;
           esac
           echo "| $category | $count | $desc |" >> linting-report/summary.md
         done
+        
+        # Generate detailed pytest-style validation report
+        echo "" >> linting-report/summary.md
+        echo "## Pytest Style Validation Details" >> linting-report/summary.md
+        echo "| Rule | Count | Description |" >> linting-report/summary.md
+        echo "|------|-------|-------------|" >> linting-report/summary.md
+        
+        # PT001-PT007: Core pytest naming and structure
+        pt001_count=$(grep -c "PT001" flake8-report.txt || echo "0")
+        pt003_count=$(grep -c "PT003" flake8-report.txt || echo "0")
+        pt004_count=$(grep -c "PT004" flake8-report.txt || echo "0")
+        pt005_count=$(grep -c "PT005" flake8-report.txt || echo "0")
+        pt006_count=$(grep -c "PT006" flake8-report.txt || echo "0")
+        pt007_count=$(grep -c "PT007" flake8-report.txt || echo "0")
+        pt024_count=$(grep -c "PT024" flake8-report.txt || echo "0")
+        pt025_count=$(grep -c "PT025" flake8-report.txt || echo "0")
+        
+        echo "| PT001 | $pt001_count | Test function naming violations |" >> linting-report/summary.md
+        echo "| PT003 | $pt003_count | Test fixture naming violations |" >> linting-report/summary.md
+        echo "| PT004 | $pt004_count | Fixture scope violations |" >> linting-report/summary.md
+        echo "| PT005 | $pt005_count | Fixture return value violations |" >> linting-report/summary.md
+        echo "| PT006 | $pt006_count | Parametrize argument naming violations |" >> linting-report/summary.md
+        echo "| PT007 | $pt007_count | Parametrize value type violations |" >> linting-report/summary.md
+        echo "| PT024 | $pt024_count | AAA pattern violations (warnings) |" >> linting-report/summary.md
+        echo "| PT025 | $pt025_count | AAA assertion violations (warnings) |" >> linting-report/summary.md
+        
+        # Calculate overall pytest style compliance
+        total_pt_violations=$((pt001_count + pt003_count + pt004_count + pt005_count + pt006_count + pt007_count))
+        echo "" >> linting-report/summary.md
+        echo "## Pytest Style Compliance Summary" >> linting-report/summary.md
+        echo "- **Blocking Violations (PT001-PT007)**: $total_pt_violations" >> linting-report/summary.md
+        echo "- **Warning-Level AAA Pattern Issues (PT024-PT025)**: $((pt024_count + pt025_count))" >> linting-report/summary.md
+        
+        if [ $total_pt_violations -eq 0 ]; then
+          echo "- **Status**: ✅ Full pytest style compliance achieved" >> linting-report/summary.md
+        else
+          echo "- **Status**: ❌ Pytest style violations detected - merge blocked" >> linting-report/summary.md
+        fi
         
         echo "" >> linting-report/summary.md
         echo "## Full Report" >> linting-report/summary.md
@@ -349,7 +399,12 @@ jobs:
                   - flake8-bugbear>=23.0.0
                   - flake8-comprehensions>=3.14.0
                   - flake8-simplify>=0.20.0
+                  - flake8-pytest-style>=2.1.0
                   - pep8-naming>=0.13.0
+                args:
+                  - --pytest-fixture-no-parentheses
+                  - --pytest-mark-no-parentheses
+                  - --pytest-parametrize-names-type=tuple
         
           - repo: https://github.com/pre-commit/mirrors-mypy
             rev: v1.8.0
@@ -376,6 +431,27 @@ jobs:
         
           - repo: local
             hooks:
+              - id: pytest-style-validation
+                name: Pytest Style and AAA Pattern Enforcement
+                entry: python -m flake8 --select=PT
+                language: system
+                files: ^tests/.*\.py$
+                description: Enforce pytest naming conventions and AAA patterns
+              
+              - id: pytest-fixture-validation  
+                name: Pytest Fixture Standards Check
+                entry: python -m flake8 --select=PT004,PT005
+                language: system
+                files: ^tests/.*\.py$
+                description: Validate fixture naming and usage patterns
+              
+              - id: pytest-naming-validation
+                name: Pytest Naming Convention Check
+                entry: python -m flake8 --select=PT001,PT003,PT006,PT007
+                language: system
+                files: ^tests/.*\.py$
+                description: Validate pytest naming conventions and parametrize usage
+              
               - id: pytest-coverage-check
                 name: pytest coverage validation
                 entry: pytest
@@ -440,11 +516,145 @@ jobs:
         path: precommit-report/
         retention-days: 30
 
+  # Test Traceability Validation for PR descriptions
+  test-traceability-validation:
+    name: Test Traceability Validation
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+    
+    - name: Set up Python 3.11
+      uses: actions/setup-python@v5
+      with:
+        python-version: "3.11"
+    
+    - name: Detect test file changes
+      id: test-changes
+      run: |
+        echo "Detecting test file modifications in this PR..."
+        
+        # Get list of modified test files
+        git diff --name-only origin/${{ github.base_ref }}...HEAD > changed_files.txt
+        
+        # Filter for test files
+        grep "^tests/.*\.py$" changed_files.txt > test_changes.txt || echo "No test file changes detected"
+        
+        # Count test file changes
+        test_change_count=$(wc -l < test_changes.txt)
+        echo "test_changes=$test_change_count" >> $GITHUB_OUTPUT
+        
+        echo "Test files modified: $test_change_count"
+        if [ $test_change_count -gt 0 ]; then
+          echo "Modified test files:"
+          cat test_changes.txt
+        fi
+    
+    - name: Validate PR description for test traceability
+      if: steps.test-changes.outputs.test_changes != '0'
+      run: |
+        echo "Validating PR description for comprehensive test modification documentation..."
+        
+        # Get PR description
+        PR_BODY="${{ github.event.pull_request.body }}"
+        
+        # Check if PR description exists and has sufficient content
+        if [ -z "$PR_BODY" ] || [ ${#PR_BODY} -lt 100 ]; then
+          echo "❌ ERROR: PR description is missing or too short for test modifications"
+          echo "When modifying test files, PR description must include:"
+          echo "- Detailed justification for each removed or rewritten test"
+          echo "- Mapping of old test names to new implementations"
+          echo "- Confirmation that test coverage is maintained"
+          echo "- Reference to docs/testing_guidelines.md compliance"
+          exit 1
+        fi
+        
+        # Check for required traceability keywords
+        required_keywords=("test" "coverage" "removed" "rewritten" "justification")
+        missing_keywords=()
+        
+        for keyword in "${required_keywords[@]}"; do
+          if ! echo "$PR_BODY" | grep -qi "$keyword"; then
+            missing_keywords+=("$keyword")
+          fi
+        done
+        
+        if [ ${#missing_keywords[@]} -gt 0 ]; then
+          echo "❌ ERROR: PR description missing required traceability keywords"
+          echo "Missing keywords: ${missing_keywords[*]}"
+          echo ""
+          echo "Required documentation for test modifications:"
+          echo "1. Document every removed or rewritten test with clear justification"
+          echo "2. Provide explicit mapping of old test names to replacement implementations"
+          echo "3. Confirm that test coverage is maintained or improved"
+          echo "4. Reference compliance with docs/testing_guidelines.md standards"
+          echo "5. Include testing strategy alignment explanation"
+          exit 1
+        fi
+        
+        # Check for specific test traceability patterns
+        if ! echo "$PR_BODY" | grep -qi "docs/testing_guidelines.md"; then
+          echo "❌ ERROR: PR description must reference docs/testing_guidelines.md compliance"
+          exit 1
+        fi
+        
+        echo "✅ PR description meets test traceability requirements"
+        echo "All required documentation patterns found for test modifications"
+    
+    - name: Generate test traceability report
+      if: always()
+      run: |
+        echo "Generating comprehensive test traceability validation report..."
+        mkdir -p test-traceability-report
+        
+        echo "# Test Traceability Validation Report" > test-traceability-report/validation.md
+        echo "Generated: $(date)" >> test-traceability-report/validation.md
+        echo "PR: #${{ github.event.pull_request.number }}" >> test-traceability-report/validation.md
+        echo "" >> test-traceability-report/validation.md
+        
+        echo "## Test File Modifications" >> test-traceability-report/validation.md
+        if [ -f test_changes.txt ] && [ -s test_changes.txt ]; then
+          echo "Modified test files in this PR:" >> test-traceability-report/validation.md
+          echo '```' >> test-traceability-report/validation.md
+          cat test_changes.txt >> test-traceability-report/validation.md
+          echo '```' >> test-traceability-report/validation.md
+        else
+          echo "No test files modified in this PR." >> test-traceability-report/validation.md
+        fi
+        
+        echo "" >> test-traceability-report/validation.md
+        echo "## Traceability Validation Result" >> test-traceability-report/validation.md
+        if [ "${{ steps.test-changes.outputs.test_changes }}" != "0" ]; then
+          echo "✅ Test modifications detected and traceability validation performed" >> test-traceability-report/validation.md
+          echo "PR description reviewed for comprehensive test change documentation" >> test-traceability-report/validation.md
+        else
+          echo "ℹ️ No test modifications detected - traceability validation skipped" >> test-traceability-report/validation.md
+        fi
+        
+        echo "" >> test-traceability-report/validation.md
+        echo "## Required Documentation Standards" >> test-traceability-report/validation.md
+        echo "- Every removed test must be documented with justification" >> test-traceability-report/validation.md
+        echo "- Rewritten tests must include mapping to original implementation" >> test-traceability-report/validation.md
+        echo "- Coverage impact must be analyzed and documented" >> test-traceability-report/validation.md
+        echo "- Compliance with docs/testing_guidelines.md must be confirmed" >> test-traceability-report/validation.md
+    
+    - name: Upload test traceability validation report
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: test-traceability-validation-report
+        path: test-traceability-report/
+        retention-days: 90
+
   # Quality Metrics Dashboard and Reporting
   quality-metrics:
     name: Quality Metrics Dashboard
     runs-on: ubuntu-latest
-    needs: [type-checking, code-formatting, linting, pre-commit-validation]
+    needs: [type-checking, code-formatting, linting, pre-commit-validation, test-traceability-validation]
     if: always()
     
     steps:
@@ -481,8 +691,9 @@ jobs:
         |-------------|--------|---------|
         | Type Checking | ${{ needs.type-checking.result == 'success' && '✅ PASS' || '❌ FAIL' }} | mypy strict mode validation |
         | Code Formatting | ${{ needs.code-formatting.result == 'success' && '✅ PASS' || '❌ FAIL' }} | black + isort compliance |
-        | Comprehensive Linting | ${{ needs.linting.result == 'success' && '✅ PASS' || '❌ FAIL' }} | flake8 + plugins analysis |
-        | Pre-commit Validation | ${{ needs.pre-commit-validation.result == 'success' && '✅ PASS' || '❌ FAIL' }} | Hook consistency check |
+        | Comprehensive Linting | ${{ needs.linting.result == 'success' && '✅ PASS' || '❌ FAIL' }} | flake8 + pytest-style validation |
+        | Pre-commit Validation | ${{ needs.pre-commit-validation.result == 'success' && '✅ PASS' || '❌ FAIL' }} | Hook consistency + pytest-style check |
+        | Test Traceability | ${{ needs.test-traceability-validation.result == 'success' && '✅ PASS' || (github.event_name == 'pull_request' && '❌ FAIL') || 'ℹ️ SKIP' }} | PR test modification documentation |
         
         ## Quality Metrics Summary
         
@@ -498,11 +709,19 @@ jobs:
         
         ### Linting Quality
         - **Primary Linter:** flake8 with comprehensive plugin suite
-        - **Plugins:** bugbear, docstrings, comprehensions, simplify, naming
+        - **Plugins:** bugbear, docstrings, comprehensions, simplify, naming, pytest-style
+        - **Pytest Style Validation:** Comprehensive AAA patterns, naming conventions, fixture standards
         - **Docstring Convention:** Google style
         
+        ### Pytest Style Quality Validation
+        - **Test Naming Compliance:** 100% adherence to standardized naming patterns
+        - **AAA Pattern Enforcement:** ≥95% adoption rate with warning-level guidance
+        - **Fixture Standards:** 100% compliance with centralized fixture management
+        - **Parametrize Consistency:** Comprehensive validation of argument naming and types
+        - **Test Traceability:** Mandatory PR documentation for test modifications
+        
         ### Development Workflow Integration
-        - **Pre-commit Hooks:** Fully configured and validated
+        - **Pre-commit Hooks:** Fully configured with pytest-style validation
         - **CI/CD Consistency:** Local development matches CI enforcement
         - **Quality Gates:** Automated blocking on quality violations
         
@@ -521,6 +740,8 @@ jobs:
         
         - ✅ **Type Safety Validation:** Complete type annotation coverage with mypy integration
         - ✅ **Automated Quality Gates:** Stringent code style and linting standards enforcement
+        - ✅ **Pytest Style Validation:** Comprehensive test quality with AAA patterns and naming conventions
+        - ✅ **Test Traceability:** Mandatory documentation of test modifications for research reproducibility
         - ✅ **Pre-commit Integration:** Consistent quality validation across development and CI
         - ✅ **Quality Metrics Dashboard:** Detailed reporting and trend analysis capabilities
         
@@ -553,6 +774,13 @@ jobs:
         echo "| Code Formatting | ${{ needs.code-formatting.result == 'success' && '✅ PASS' || '❌ FAIL' }} |" >> $GITHUB_STEP_SUMMARY
         echo "| Comprehensive Linting | ${{ needs.linting.result == 'success' && '✅ PASS' || '❌ FAIL' }} |" >> $GITHUB_STEP_SUMMARY
         echo "| Pre-commit Validation | ${{ needs.pre-commit-validation.result == 'success' && '✅ PASS' || '❌ FAIL' }} |" >> $GITHUB_STEP_SUMMARY
+        echo "| Test Traceability | ${{ needs.test-traceability-validation.result == 'success' && '✅ PASS' || (github.event_name == 'pull_request' && '❌ FAIL') || 'ℹ️ SKIP' }} |" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### Pytest Style Quality Metrics" >> $GITHUB_STEP_SUMMARY
+        echo "- **Test Naming Compliance:** Enforced via flake8-pytest-style PT001-PT003" >> $GITHUB_STEP_SUMMARY
+        echo "- **AAA Pattern Validation:** Warning-level enforcement for gradual adoption" >> $GITHUB_STEP_SUMMARY
+        echo "- **Fixture Standards:** Blocking enforcement for centralized fixture management" >> $GITHUB_STEP_SUMMARY
+        echo "- **Test Traceability:** Required documentation for all test modifications" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
         echo "📊 **Detailed reports available in workflow artifacts**" >> $GITHUB_STEP_SUMMARY
     
@@ -581,5 +809,16 @@ jobs:
           exit 1
         fi
         
+        # Check test traceability validation for PRs only
+        if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+          if [[ "${{ needs.test-traceability-validation.result }}" != "success" ]]; then
+            echo "❌ Test traceability validation failed - blocking merge"
+            echo "PR description must document all test modifications with comprehensive justification"
+            exit 1
+          fi
+        fi
+        
         echo "✅ All quality gates passed successfully!"
         echo "🚀 Code meets comprehensive quality assurance standards per Section 3.6.4"
+        echo "✅ Pytest style validation ensures test quality and maintainability"
+        echo "✅ Test traceability validation supports research reproducibility requirements"

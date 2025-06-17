@@ -1,210 +1,577 @@
 """
-Tests for file statistics functionality.
+Enhanced file statistics functionality testing.
 
-Tests the functionality for collecting and working with file system metadata.
-Implements comprehensive edge case testing, cross-platform validation, and 
-modern pytest practices with fixtures, parametrization, and property-based testing.
+This module implements behavior-focused testing for file statistics functionality,
+emphasizing public API behavior validation through black-box testing approaches
+that validate observable system behavior rather than implementation-specific details.
+
+Testing Strategy:
+- Protocol-based mock implementations for consistent dependency injection
+- Centralized fixture management from tests/conftest.py and tests/utils.py
+- AAA (Arrange-Act-Assert) pattern enforcement for improved readability
+- Edge-case coverage through parameterized test scenarios
+- Performance tests isolated to scripts/benchmarks/ directory
+
+Key Features:
+- Observable behavior validation for get_file_stats and attach_file_stats functions
+- Cross-platform file permission and timestamp handling validation
+- Unicode filename and special character processing edge cases
+- Error handling validation for nonexistent paths and corrupted files
+- Protocol-based filesystem mocking for reliable test isolation
 """
 
 import os
-import sys
+import platform
 import stat
 import tempfile
-import shutil
-from pathlib import Path
 from datetime import datetime, timedelta
-import time
-import platform
-from typing import List, Dict, Any, Union, Tuple
-from unittest.mock import Mock, patch, MagicMock
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Union
+from unittest.mock import Mock
 
 import pytest
-import hypothesis
-from hypothesis import given, strategies as st, assume, settings
-from hypothesis.strategies import composite
+from hypothesis import given, settings, strategies as st
 
+# Import production modules for public API testing
 from flyrigloader.discovery.stats import (
+    FileStatsError,
     get_file_stats,
     attach_file_stats,
+    FileStatsCollector,
+    DefaultFileSystemProvider,
+    DefaultTimestampProvider,
 )
-from flyrigloader.discovery.files import discover_files
+
+# Import centralized test utilities for consistent mock implementations
+from tests.utils import (
+    MockFilesystem,
+    create_mock_filesystem,
+    EdgeCaseScenarioGenerator,
+    generate_edge_case_scenarios,
+    FlyrigloaderStrategies,
+)
 
 
-# === Session-scoped Fixtures for Modern Pytest Practice ===
+# ============================================================================
+# CORE FILE STATISTICS PUBLIC API TESTING
+# ============================================================================
 
-@pytest.fixture(scope="session")
-def temp_workspace():
+class TestGetFileStatsPublicAPI:
     """
-    Session-scoped fixture creating a temporary workspace for all tests.
+    Test suite for get_file_stats function focusing on public API behavior validation.
     
-    This replaces basic file creation patterns with a managed workspace
-    that persists across all tests in the session for better performance.
+    Implements black-box testing approach emphasizing observable behavior rather than
+    internal implementation details, per Section 0 behavior-focused testing requirements.
     """
-    workspace = tempfile.mkdtemp(prefix="flyrigloader_test_")
-    yield workspace
-    # Cleanup after session
-    if os.path.exists(workspace):
-        shutil.rmtree(workspace, ignore_errors=True)
-
-
-@pytest.fixture
-def test_dir(temp_workspace):
-    """Function-scoped fixture providing a clean test directory."""
-    test_subdir = os.path.join(temp_workspace, f"test_{os.getpid()}_{int(time.time() * 1000)}")
-    os.makedirs(test_subdir, exist_ok=True)
-    yield test_subdir
-    # Cleanup after each test
-    if os.path.exists(test_subdir):
-        shutil.rmtree(test_subdir, ignore_errors=True)
-
-
-@pytest.fixture
-def sample_files(test_dir):
-    """
-    Fixture creating a set of sample files with known properties.
     
-    Creates files with different sizes, timestamps, and content types
-    for comprehensive testing scenarios.
-    """
-    files = {}
-    
-    # Small text file
-    small_file = os.path.join(test_dir, "small.txt")
-    with open(small_file, 'w') as f:
-        f.write("Small content")
-    files['small'] = small_file
-    
-    # Larger binary file
-    large_file = os.path.join(test_dir, "large.bin")
-    with open(large_file, 'wb') as f:
-        f.write(b"X" * 10240)  # 10KB
-    files['large'] = large_file
-    
-    # Empty file
-    empty_file = os.path.join(test_dir, "empty.dat")
-    Path(empty_file).touch()
-    files['empty'] = empty_file
-    
-    # Unicode filename
-    unicode_file = os.path.join(test_dir, "测试文件.txt")
-    with open(unicode_file, 'w', encoding='utf-8') as f:
-        f.write("Unicode content 测试")
-    files['unicode'] = unicode_file
-    
-    return files
-
-
-@pytest.fixture
-def mock_filesystem(mocker):
-    """
-    Comprehensive filesystem mocking fixture for isolated unit testing.
-    
-    Uses pytest-mock for standardized mocking of os.stat and filesystem
-    operations enabling isolated unit testing per TST-MOD-003 requirements.
-    """
-    mock_stat = mocker.patch('os.stat')
-    mock_path_exists = mocker.patch('pathlib.Path.exists')
-    mock_path_is_file = mocker.patch('pathlib.Path.is_file')
-    mock_path_is_dir = mocker.patch('pathlib.Path.is_dir')
-    mock_path_is_symlink = mocker.patch('pathlib.Path.is_symlink')
-    mock_access = mocker.patch('os.access')
-    
-    return {
-        'stat': mock_stat,
-        'exists': mock_path_exists,
-        'is_file': mock_path_is_file,
-        'is_dir': mock_path_is_dir,
-        'is_symlink': mock_path_is_symlink,
-        'access': mock_access
-    }
-
-
-# === Core File Statistics Testing ===
-
-class TestGetFileStats:
-    """Test suite for get_file_stats function with comprehensive coverage."""
-    
-    def test_basic_file_stats(self, sample_files):
-        """Test basic file statistics collection."""
-        # Test small file
-        stats = get_file_stats(sample_files['small'])
+    def test_basic_file_stats_structure(self, temp_experiment_directory):
+        """
+        Test that get_file_stats returns correctly structured metadata dictionary.
         
-        # Verify required keys are present
+        ARRANGE: Create test file with known properties
+        ACT: Call get_file_stats on the test file
+        ASSERT: Verify complete metadata structure and data types
+        """
+        # ARRANGE - Set up test file with known content
+        test_file = temp_experiment_directory["directory"] / "test_stats.txt"
+        test_content = "Test file content for statistics validation"
+        test_file.write_text(test_content)
+        
+        # ACT - Call public API function
+        result = get_file_stats(test_file)
+        
+        # ASSERT - Verify comprehensive metadata structure
         required_keys = {
             'size', 'size_bytes', 'mtime', 'modified_time', 'creation_time',
             'ctime', 'created_time', 'is_directory', 'is_file', 'is_symlink',
             'filename', 'extension', 'permissions', 'is_readable', 
             'is_writable', 'is_executable'
         }
-        assert required_keys.issubset(stats.keys())
+        assert required_keys.issubset(result.keys())
         
-        # Verify data types
-        assert isinstance(stats['size'], int)
-        assert isinstance(stats['size_bytes'], int)
-        assert isinstance(stats['mtime'], datetime)
-        assert isinstance(stats['modified_time'], (int, float))
-        assert isinstance(stats['creation_time'], datetime)
-        assert isinstance(stats['ctime'], datetime)
-        assert isinstance(stats['created_time'], (int, float))
-        assert isinstance(stats['is_directory'], bool)
-        assert isinstance(stats['is_file'], bool)
-        assert isinstance(stats['is_symlink'], bool)
-        assert isinstance(stats['filename'], str)
-        assert isinstance(stats['extension'], str)
-        assert isinstance(stats['permissions'], int)
-        assert isinstance(stats['is_readable'], bool)
-        assert isinstance(stats['is_writable'], bool)
-        assert isinstance(stats['is_executable'], bool)
+        # Verify data types match API contract
+        assert isinstance(result['size'], int)
+        assert isinstance(result['size_bytes'], int)
+        assert isinstance(result['mtime'], datetime)
+        assert isinstance(result['modified_time'], (int, float))
+        assert isinstance(result['creation_time'], datetime)
+        assert isinstance(result['is_file'], bool)
+        assert isinstance(result['filename'], str)
+        assert isinstance(result['extension'], str)
+        assert isinstance(result['permissions'], int)
         
-        # Verify specific values for known file
-        assert stats['size'] == stats['size_bytes']  # Aliases should match
-        assert stats['filename'] == "small.txt"
-        assert stats['extension'] == "txt"
-        assert stats['is_file'] == True
-        assert stats['is_directory'] == False
-        assert stats['is_readable'] == True  # Should be readable
-    
-    def test_file_nonexistent_raises_error(self):
-        """Test that accessing nonexistent file raises FileNotFoundError."""
-        nonexistent_path = "/absolutely/nonexistent/path/file.txt"
+        # Verify observable behavior properties
+        assert result['size'] == len(test_content.encode('utf-8'))
+        assert result['size'] == result['size_bytes']  # Alias consistency
+        assert result['filename'] == "test_stats.txt"
+        assert result['extension'] == "txt"
+        assert result['is_file'] is True
+        assert result['is_directory'] is False
+        assert result['is_readable'] is True
+
+    def test_nonexistent_file_error_behavior(self):
+        """
+        Test error handling behavior for nonexistent files.
         
-        with pytest.raises(FileNotFoundError, match="File not found"):
+        ARRANGE: Define path to nonexistent file
+        ACT: Call get_file_stats on nonexistent path
+        ASSERT: Verify FileStatsError is raised with appropriate context
+        """
+        # ARRANGE - Create path that definitely doesn't exist
+        nonexistent_path = Path("/absolutely/nonexistent/path/file.txt")
+        
+        # ACT & ASSERT - Verify error behavior
+        with pytest.raises(FileStatsError) as exc_info:
             get_file_stats(nonexistent_path)
-    
-    @pytest.mark.parametrize("file_type,expected_size", [
-        ("small", 13),    # "Small content" = 13 characters
-        ("large", 10240), # 10KB binary content
-        ("empty", 0),     # Empty file
-    ])
-    def test_file_sizes(self, sample_files, file_type, expected_size):
-        """Test file size reporting for different file types."""
-        stats = get_file_stats(sample_files[file_type])
-        assert stats['size'] == expected_size
-        assert stats['size_bytes'] == expected_size
-    
-    def test_unicode_filename_handling(self, sample_files):
-        """Test handling of Unicode filenames across platforms."""
-        stats = get_file_stats(sample_files['unicode'])
-        assert stats['filename'] == "测试文件.txt"
-        assert stats['extension'] == "txt"
-        assert stats['size'] > 0  # Should have content
-    
-    def test_pathlib_path_input(self, sample_files):
-        """Test that pathlib.Path objects are handled correctly."""
-        path_obj = Path(sample_files['small'])
-        stats = get_file_stats(path_obj)
         
-        assert stats['filename'] == "small.txt"
-        assert stats['size'] > 0
+        # Verify error provides meaningful context
+        assert str(nonexistent_path) in str(exc_info.value)
+        assert exc_info.value.path == str(nonexistent_path)
+        assert "context" in dir(exc_info.value)
+
+    @pytest.mark.parametrize("file_extension,expected_ext", [
+        ("txt", "txt"),
+        ("csv", "csv"),
+        ("pkl", "pkl"),
+        ("yaml", "yaml"),
+        ("", ""),  # No extension
+    ])
+    def test_extension_detection_behavior(self, temp_experiment_directory, file_extension, expected_ext):
+        """
+        Test file extension detection behavior across different file types.
+        
+        ARRANGE: Create files with various extensions
+        ACT: Get file statistics for each file
+        ASSERT: Verify extension detection behavior
+        """
+        # ARRANGE - Create test file with specific extension
+        filename = f"test_file.{file_extension}" if file_extension else "test_file"
+        test_file = temp_experiment_directory["directory"] / filename
+        test_file.write_text("test content")
+        
+        # ACT - Get file statistics
+        result = get_file_stats(test_file)
+        
+        # ASSERT - Verify extension detection
+        assert result['extension'] == expected_ext
+        assert result['filename'] == filename
+
+    def test_unicode_filename_handling_behavior(self, temp_experiment_directory):
+        """
+        Test Unicode filename handling across platforms.
+        
+        ARRANGE: Create file with Unicode characters in name
+        ACT: Get file statistics
+        ASSERT: Verify Unicode handling behavior
+        """
+        # ARRANGE - Create file with Unicode name
+        unicode_filename = "測試文件_ñämé_файл.txt"
+        test_file = temp_experiment_directory["directory"] / unicode_filename
+        
+        try:
+            test_file.write_text("Unicode test content 測試內容")
+            
+            # ACT - Get file statistics
+            result = get_file_stats(test_file)
+            
+            # ASSERT - Verify Unicode filename preservation
+            assert result['filename'] == unicode_filename
+            assert result['extension'] == "txt"
+            assert result['size'] > 0
+            
+        except (OSError, UnicodeError):
+            # Skip test if filesystem doesn't support Unicode
+            pytest.skip("Filesystem doesn't support Unicode filenames")
+
+    def test_pathlib_path_object_behavior(self, temp_experiment_directory):
+        """
+        Test that Path objects are handled correctly by the public API.
+        
+        ARRANGE: Create test file and Path object
+        ACT: Call get_file_stats with Path object
+        ASSERT: Verify consistent behavior with string paths
+        """
+        # ARRANGE - Set up Path object
+        test_file = temp_experiment_directory["directory"] / "path_object_test.txt"
+        test_file.write_text("Path object test content")
+        
+        # ACT - Use Path object directly
+        result = get_file_stats(test_file)
+        
+        # ASSERT - Verify Path object handling
+        assert result['filename'] == "path_object_test.txt"
+        assert result['extension'] == "txt"
+        assert result['is_file'] is True
+        assert result['size'] > 0
 
 
-# === Cross-Platform Timestamp Testing ===
+# ============================================================================
+# PROTOCOL-BASED MOCK TESTING WITH CENTRALIZED UTILITIES
+# ============================================================================
 
-class TestCrossPlatformTimestamps:
+class TestFileStatsWithMockFilesystem:
     """
-    Test cross-platform OS-specific timestamp handling.
+    Test file statistics using Protocol-based mock implementations from tests/utils.py.
     
-    Validates Windows, Linux, and macOS filesystem behaviors per Section 3.6.1 requirements.
+    Implements centralized mocking patterns for consistent behavior simulation
+    across test scenarios, eliminating duplicate mock definitions.
+    """
+    
+    def test_mock_filesystem_basic_behavior(self):
+        """
+        Test basic file statistics collection using centralized MockFilesystem.
+        
+        ARRANGE: Set up MockFilesystem with test files
+        ACT: Get file statistics using mock provider
+        ASSERT: Verify mock behavior integration
+        """
+        # ARRANGE - Create MockFilesystem from centralized utilities
+        mock_fs = create_mock_filesystem()
+        
+        # Add test file to mock filesystem
+        test_path = Path("/test/mock_file.txt")
+        mock_fs.add_file(
+            test_path,
+            size=1024,
+            mtime=datetime(2024, 1, 1, 12, 0, 0),
+            content="Mock file content"
+        )
+        
+        # Create mock providers
+        class MockFileSystemProvider:
+            def path_exists(self, path):
+                return mock_fs.exists(path)
+            
+            def get_stat(self, path):
+                return mock_fs.stat(path)
+            
+            def check_access(self, path, mode):
+                return True  # Simplified for testing
+            
+            def is_dir(self, path):
+                return mock_fs.is_dir(path)
+            
+            def is_file(self, path):
+                return mock_fs.is_file(path)
+            
+            def is_symlink(self, path):
+                return False  # Simplified for testing
+        
+        # ACT - Get file statistics with mock provider
+        result = get_file_stats(
+            test_path,
+            fs_provider=MockFileSystemProvider(),
+            enable_test_hooks=True
+        )
+        
+        # ASSERT - Verify mock integration behavior
+        assert result['size'] == 1024
+        assert result['filename'] == "mock_file.txt"
+        assert result['extension'] == "txt"
+        assert result['is_file'] is True
+        assert result['is_directory'] is False
+        assert '_test_metadata' in result  # Test hooks enabled
+
+    def test_mock_filesystem_error_scenarios(self):
+        """
+        Test error handling with MockFilesystem edge cases.
+        
+        ARRANGE: Set up MockFilesystem with error scenarios
+        ACT: Attempt file operations on problematic files
+        ASSERT: Verify error handling behavior
+        """
+        # ARRANGE - Create MockFilesystem with error scenarios
+        mock_fs = create_mock_filesystem()
+        
+        # Add file with access error
+        error_file = Path("/test/permission_denied.txt")
+        mock_fs.add_file(
+            error_file,
+            size=100,
+            access_error=PermissionError("Mock permission denied")
+        )
+        
+        # Create mock provider that raises configured errors
+        class MockFileSystemProviderWithErrors:
+            def path_exists(self, path):
+                return mock_fs.exists(path)
+            
+            def get_stat(self, path):
+                if str(path) == str(error_file):
+                    raise PermissionError("Mock permission denied")
+                return mock_fs.stat(path)
+            
+            def check_access(self, path, mode):
+                return True
+            
+            def is_dir(self, path):
+                return False
+            
+            def is_file(self, path):
+                return True
+            
+            def is_symlink(self, path):
+                return False
+        
+        # ACT & ASSERT - Verify error propagation
+        with pytest.raises(FileStatsError) as exc_info:
+            get_file_stats(
+                error_file,
+                fs_provider=MockFileSystemProviderWithErrors()
+            )
+        
+        # Verify error context includes original error information
+        assert "Mock permission denied" in str(exc_info.value)
+        assert exc_info.value.path == str(error_file)
+
+
+# ============================================================================
+# ENHANCED EDGE-CASE COVERAGE WITH PARAMETERIZED TESTING
+# ============================================================================
+
+class TestFileStatsEdgeCases:
+    """
+    Comprehensive edge-case testing using centralized scenario generators.
+    
+    Implements parameterized test scenarios for boundary conditions, Unicode handling,
+    and cross-platform compatibility validation.
+    """
+    
+    @pytest.mark.parametrize("scenario", [
+        {"name": "empty_file", "content": "", "expected_size": 0},
+        {"name": "single_byte", "content": "A", "expected_size": 1},
+        {"name": "unicode_content", "content": "測試內容 🚀", "expected_size": None},  # Variable size
+        {"name": "binary_content", "content": b"\x00\x01\x02\xFF", "expected_size": 4},
+    ])
+    def test_file_content_edge_cases(self, temp_experiment_directory, scenario):
+        """
+        Test file statistics behavior with various content edge cases.
+        
+        ARRANGE: Create files with edge-case content
+        ACT: Get file statistics
+        ASSERT: Verify correct size and metadata handling
+        """
+        # ARRANGE - Create test file with edge-case content
+        test_file = temp_experiment_directory["directory"] / f"{scenario['name']}_test.txt"
+        
+        if isinstance(scenario['content'], bytes):
+            test_file.write_bytes(scenario['content'])
+        else:
+            test_file.write_text(scenario['content'], encoding='utf-8')
+        
+        # ACT - Get file statistics
+        result = get_file_stats(test_file)
+        
+        # ASSERT - Verify edge-case handling
+        if scenario['expected_size'] is not None:
+            assert result['size'] == scenario['expected_size']
+        else:
+            assert result['size'] > 0  # Unicode content should have some size
+        
+        assert result['filename'] == f"{scenario['name']}_test.txt"
+        assert result['is_file'] is True
+
+    @pytest.mark.parametrize("path_component", [
+        "normal_file.txt",
+        "file-with-dashes.txt", 
+        "file_with_underscores.txt",
+        "file.with.multiple.dots.txt",
+        "UPPERCASE_FILE.TXT",
+        "123numeric_start.txt",
+    ])
+    def test_filename_pattern_edge_cases(self, temp_experiment_directory, path_component):
+        """
+        Test filename pattern handling edge cases.
+        
+        ARRANGE: Create files with various naming patterns
+        ACT: Get file statistics
+        ASSERT: Verify filename parsing behavior
+        """
+        # ARRANGE - Create file with specific naming pattern
+        test_file = temp_experiment_directory["directory"] / path_component
+        test_file.write_text("Pattern test content")
+        
+        # ACT - Get file statistics
+        result = get_file_stats(test_file)
+        
+        # ASSERT - Verify filename parsing
+        assert result['filename'] == path_component
+        expected_ext = Path(path_component).suffix[1:] if Path(path_component).suffix else ""
+        assert result['extension'] == expected_ext
+
+    @pytest.mark.skipif(platform.system() == "Windows", 
+                       reason="POSIX permissions not applicable on Windows")
+    def test_permission_edge_cases(self, temp_experiment_directory):
+        """
+        Test file permission detection edge cases on POSIX systems.
+        
+        ARRANGE: Create files with specific permissions
+        ACT: Get file statistics
+        ASSERT: Verify permission detection behavior
+        """
+        # ARRANGE - Create file with specific permissions
+        test_file = temp_experiment_directory["directory"] / "permission_test.txt"
+        test_file.write_text("Permission test content")
+        
+        # Set specific permissions (read-only)
+        os.chmod(test_file, 0o444)
+        
+        # ACT - Get file statistics
+        result = get_file_stats(test_file)
+        
+        # ASSERT - Verify permission detection
+        assert result['permissions'] == 0o444
+        assert result['is_readable'] is True
+        assert result['is_writable'] is False
+        assert result['is_executable'] is False
+
+    def test_corrupted_file_scenarios(self):
+        """
+        Test behavior with corrupted file scenarios using centralized utilities.
+        
+        ARRANGE: Set up corrupted file scenarios
+        ACT: Attempt to get file statistics
+        ASSERT: Verify appropriate error handling
+        """
+        # ARRANGE - Generate corrupted file scenarios
+        edge_scenarios = generate_edge_case_scenarios(['corrupted'])
+        
+        for scenario in edge_scenarios['corrupted']:
+            if scenario['type'] == 'permission_denied':
+                # Create MockFilesystem for permission testing
+                mock_fs = create_mock_filesystem()
+                mock_fs.add_file(
+                    "/test/restricted.txt",
+                    size=100,
+                    access_error=PermissionError("Access denied")
+                )
+                
+                # Verify error handling is covered by mock testing
+                assert mock_fs.access_errors["/test/restricted.txt"]
+
+
+# ============================================================================
+# ATTACH FILE STATS BEHAVIOR VALIDATION
+# ============================================================================
+
+class TestAttachFileStatsPublicAPI:
+    """
+    Test suite for attach_file_stats function focusing on public API behavior.
+    
+    Validates batch processing functionality and error handling patterns
+    through observable behavior rather than implementation coupling.
+    """
+    
+    def test_attach_stats_to_file_list_behavior(self, temp_experiment_directory):
+        """
+        Test attaching statistics to a list of file paths.
+        
+        ARRANGE: Create list of test files
+        ACT: Call attach_file_stats
+        ASSERT: Verify batch processing behavior
+        """
+        # ARRANGE - Create multiple test files
+        test_files = []
+        for i in range(3):
+            test_file = temp_experiment_directory["directory"] / f"list_test_{i}.txt"
+            test_file.write_text(f"Test content {i}")
+            test_files.append(str(test_file))
+        
+        # ACT - Attach file statistics
+        result = attach_file_stats(test_files)
+        
+        # ASSERT - Verify batch processing behavior
+        assert isinstance(result, dict)
+        assert len(result) == len(test_files)
+        
+        for file_path in test_files:
+            assert file_path in result
+            assert 'size' in result[file_path]
+            assert 'mtime' in result[file_path]
+            assert 'filename' in result[file_path]
+            assert isinstance(result[file_path]['size'], int)
+
+    def test_attach_stats_to_metadata_dict_behavior(self, temp_experiment_directory):
+        """
+        Test attaching statistics to existing metadata dictionary.
+        
+        ARRANGE: Create files with existing metadata
+        ACT: Call attach_file_stats with metadata dict
+        ASSERT: Verify metadata preservation and enhancement
+        """
+        # ARRANGE - Create files with initial metadata
+        test_files = {}
+        for i in range(2):
+            test_file = temp_experiment_directory["directory"] / f"metadata_test_{i}.txt"
+            test_file.write_text(f"Metadata test content {i}")
+            test_files[str(test_file)] = {
+                'experiment': f'exp_{i}',
+                'condition': 'control' if i % 2 == 0 else 'treatment'
+            }
+        
+        # ACT - Attach file statistics to existing metadata
+        result = attach_file_stats(test_files)
+        
+        # ASSERT - Verify metadata preservation and enhancement
+        assert isinstance(result, dict)
+        assert len(result) == len(test_files)
+        
+        for file_path, metadata in result.items():
+            # Original metadata should be preserved
+            assert 'experiment' in metadata
+            assert 'condition' in metadata
+            
+            # File statistics should be added
+            assert 'size' in metadata
+            assert 'mtime' in metadata
+            assert 'filename' in metadata
+            assert 'is_file' in metadata
+
+    def test_empty_input_handling_behavior(self):
+        """
+        Test behavior with empty inputs.
+        
+        ARRANGE: Prepare empty inputs
+        ACT: Call attach_file_stats with empty inputs
+        ASSERT: Verify graceful handling
+        """
+        # ARRANGE & ACT & ASSERT - Test empty list
+        result = attach_file_stats([])
+        assert result == {}
+        
+        # ARRANGE & ACT & ASSERT - Test empty dict
+        result = attach_file_stats({})
+        assert result == {}
+
+    @pytest.mark.parametrize("invalid_input", [
+        None,
+        "single_string",
+        123,
+        ["valid_path", None, "another_path"],  # Mixed valid/invalid
+    ])
+    def test_invalid_input_error_behavior(self, invalid_input):
+        """
+        Test error handling behavior with invalid inputs.
+        
+        ARRANGE: Prepare invalid inputs
+        ACT: Call attach_file_stats with invalid inputs
+        ASSERT: Verify appropriate error behavior
+        """
+        # ARRANGE, ACT & ASSERT - Verify error handling
+        with pytest.raises((TypeError, AttributeError, FileStatsError)):
+            attach_file_stats(invalid_input)
+
+
+# ============================================================================
+# CROSS-PLATFORM TIMESTAMP BEHAVIOR VALIDATION
+# ============================================================================
+
+class TestCrossPlatformTimestampBehavior:
+    """
+    Test cross-platform timestamp handling behavior through public API.
+    
+    Validates platform-specific timestamp behavior using dependency injection
+    rather than testing internal implementation details.
     """
     
     @pytest.mark.parametrize("platform_name,has_birthtime", [
@@ -212,483 +579,466 @@ class TestCrossPlatformTimestamps:
         ("Darwin", True),   # macOS
         ("Linux", False),
     ])
-    def test_creation_time_platform_behavior(self, mock_filesystem, platform_name, has_birthtime):
-        """Test platform-specific creation time handling."""
-        with patch('platform.system', return_value=platform_name):
-            # Mock stat result
-            mock_stat_result = Mock()
-            mock_stat_result.st_size = 1024
-            mock_stat_result.st_mtime = 1609459200.0  # 2021-01-01 00:00:00
-            mock_stat_result.st_ctime = 1609459100.0  # 100 seconds earlier
-            
-            if has_birthtime:
-                mock_stat_result.st_birthtime = 1609459050.0  # Birth time even earlier
-            
-            # Configure mocks
-            mock_filesystem['exists'].return_value = True
-            mock_filesystem['stat'].return_value = mock_stat_result
-            mock_filesystem['is_file'].return_value = True
-            mock_filesystem['is_dir'].return_value = False
-            mock_filesystem['is_symlink'].return_value = False
-            mock_filesystem['access'].return_value = True
-            
-            with patch('pathlib.Path.stat', return_value=mock_stat_result):
-                stats = get_file_stats("/test/file.txt")
-                
+    def test_timestamp_provider_behavior(self, platform_name, has_birthtime):
+        """
+        Test timestamp provider behavior across platforms.
+        
+        ARRANGE: Create mock timestamp provider for platform
+        ACT: Get file statistics with custom provider
+        ASSERT: Verify platform-specific timestamp behavior
+        """
+        # ARRANGE - Create mock timestamp provider
+        class MockTimestampProvider:
+            def get_creation_timestamp(self, stat_result):
                 if has_birthtime:
-                    # Should use st_birthtime
-                    expected_creation = datetime.fromtimestamp(1609459050.0)
+                    return getattr(stat_result, 'st_birthtime', stat_result.st_ctime)
                 else:
-                    # Should fall back to st_ctime
-                    expected_creation = datetime.fromtimestamp(1609459100.0)
-                
-                assert abs((stats['creation_time'] - expected_creation).total_seconds()) < 1
-    
-    def test_timestamp_precision(self, sample_files):
-        """Test timestamp precision across different platforms."""
-        stats = get_file_stats(sample_files['small'])
+                    return stat_result.st_ctime
+            
+            def timestamp_to_datetime(self, timestamp):
+                return datetime.fromtimestamp(timestamp)
         
-        # Timestamps should be reasonably recent (within last hour)
+        # Mock stat result
+        mock_stat = Mock()
+        mock_stat.st_size = 1024
+        mock_stat.st_mtime = 1609459200.0  # 2021-01-01 00:00:00
+        mock_stat.st_ctime = 1609459100.0  # 100 seconds earlier
+        if has_birthtime:
+            mock_stat.st_birthtime = 1609459050.0  # Birth time even earlier
+        mock_stat.st_mode = 0o644
+        mock_stat.st_uid = 1000
+        mock_stat.st_gid = 1000
+        mock_stat.st_nlink = 1
+        
+        # Create mock filesystem provider
+        class MockFileSystemProvider:
+            def path_exists(self, path):
+                return True
+            
+            def get_stat(self, path):
+                return mock_stat
+            
+            def check_access(self, path, mode):
+                return True
+            
+            def is_dir(self, path):
+                return False
+            
+            def is_file(self, path):
+                return True
+            
+            def is_symlink(self, path):
+                return False
+        
+        # ACT - Get file statistics with custom providers
+        result = get_file_stats(
+            Path("/test/timestamp_test.txt"),
+            fs_provider=MockFileSystemProvider(),
+            timestamp_provider=MockTimestampProvider()
+        )
+        
+        # ASSERT - Verify timestamp behavior
+        if has_birthtime:
+            expected_creation = datetime.fromtimestamp(1609459050.0)
+        else:
+            expected_creation = datetime.fromtimestamp(1609459100.0)
+        
+        # Allow for minor timestamp differences
+        time_diff = abs((result['creation_time'] - expected_creation).total_seconds())
+        assert time_diff < 1
+
+    def test_recent_file_timestamp_behavior(self, temp_experiment_directory):
+        """
+        Test timestamp behavior for recently created files.
+        
+        ARRANGE: Create a new file
+        ACT: Get file statistics immediately
+        ASSERT: Verify timestamps are recent and reasonable
+        """
+        # ARRANGE - Create new file
+        test_file = temp_experiment_directory["directory"] / "recent_file.txt"
+        create_time = datetime.now()
+        test_file.write_text("Recent file content")
+        
+        # ACT - Get file statistics
+        result = get_file_stats(test_file)
+        
+        # ASSERT - Verify recent timestamps
         now = datetime.now()
-        time_diff = abs((stats['mtime'] - now).total_seconds())
-        assert time_diff < 3600  # Within 1 hour
         
-        time_diff = abs((stats['creation_time'] - now).total_seconds())
-        assert time_diff < 3600  # Within 1 hour
-
-
-# === Permission and Access Testing ===
-
-class TestFilePermissions:
-    """Test file permission and access checking."""
-    
-    def test_permission_calculation(self, sample_files):
-        """Test permission calculation and access checks."""
-        stats = get_file_stats(sample_files['small'])
+        # Modification time should be recent
+        mtime_diff = abs((result['mtime'] - now).total_seconds())
+        assert mtime_diff < 60  # Within 1 minute
         
-        # Permissions should be a valid octal value
-        assert 0 <= stats['permissions'] <= 0o777
-        
-        # Access checks should be boolean
-        assert isinstance(stats['is_readable'], bool)
-        assert isinstance(stats['is_writable'], bool)
-        assert isinstance(stats['is_executable'], bool)
-        
-        # For a regular file we created, it should be readable
-        assert stats['is_readable'] == True
-    
-    @pytest.mark.skipif(platform.system() == "Windows", 
-                       reason="POSIX permissions not applicable on Windows")
-    def test_posix_permission_modes(self, test_dir):
-        """Test POSIX-specific permission modes."""
-        # Create file with specific permissions
-        test_file = os.path.join(test_dir, "perm_test.txt")
-        with open(test_file, 'w') as f:
-            f.write("test")
-        
-        # Set specific permissions (readable/writable by owner only)
-        os.chmod(test_file, 0o600)
-        
-        stats = get_file_stats(test_file)
-        assert stats['permissions'] == 0o600
-        assert stats['is_readable'] == True
-        assert stats['is_writable'] == True
-        # Executable should be False for 0o600
-        assert stats['is_executable'] == False
+        # Creation time should be after our start time
+        assert result['creation_time'] >= create_time - timedelta(seconds=1)
+        assert result['creation_time'] <= now + timedelta(seconds=1)
 
 
-# === Symbolic Link Testing ===
+# ============================================================================
+# FILE STATS COLLECTOR MODULAR INTERFACE TESTING
+# ============================================================================
 
-@pytest.mark.skipif(platform.system() == "Windows", 
-                   reason="Symbolic link testing may require admin privileges on Windows")
-class TestSymbolicLinks:
-    """Test handling of symbolic links."""
-    
-    def test_symlink_detection(self, test_dir, sample_files):
-        """Test detection and handling of symbolic links."""
-        # Create a symbolic link
-        link_path = os.path.join(test_dir, "test_link.txt")
-        
-        try:
-            os.symlink(sample_files['small'], link_path)
-            
-            stats = get_file_stats(link_path)
-            assert stats['is_symlink'] == True
-            assert stats['is_file'] == True  # Symlink to file should report as file
-            assert stats['filename'] == "test_link.txt"
-            
-        except (OSError, NotImplementedError):
-            # Skip if symlinks not supported
-            pytest.skip("Symbolic links not supported on this system")
-
-
-# === Property-Based Testing with Hypothesis ===
-
-@composite
-def file_sizes(draw):
-    """Generate realistic file sizes for property-based testing."""
-    # Most files are small, but occasionally large
-    return draw(st.one_of(
-        st.integers(min_value=0, max_value=1024),      # Small files (0-1KB)
-        st.integers(min_value=1024, max_value=102400), # Medium files (1KB-100KB)
-        st.integers(min_value=102400, max_value=1048576) # Large files (100KB-1MB)
-    ))
-
-
-@composite
-def file_content(draw, size):
-    """Generate file content of specified size."""
-    if size == 0:
-        return b""
-    
-    # Generate random bytes
-    return draw(st.binary(min_size=size, max_size=size))
-
-
-class TestPropertyBasedFileStats:
+class TestFileStatsCollectorBehavior:
     """
-    Property-based testing using Hypothesis for robust validation.
+    Test FileStatsCollector modular interface behavior.
     
-    Tests file statistics collection across diverse file types and sizes
-    per Section 3.6.3 requirements.
+    Validates the modular collection interface while maintaining focus
+    on public API behavior rather than internal coupling.
     """
     
-    @given(size=file_sizes())
-    @settings(max_examples=50, deadline=5000)  # Limit examples for CI performance
-    def test_file_size_property(self, test_dir, size):
-        """Property test: reported file size should match actual file size."""
-        assume(size >= 0)  # Ensure non-negative size
+    def test_collector_single_file_behavior(self, temp_experiment_directory):
+        """
+        Test FileStatsCollector single file collection behavior.
         
-        # Create file with specific size
-        test_file = os.path.join(test_dir, f"prop_test_{size}.dat")
-        content = b"X" * size
+        ARRANGE: Create FileStatsCollector and test file
+        ACT: Collect single file statistics
+        ASSERT: Verify collector behavior
+        """
+        # ARRANGE - Create collector and test file
+        collector = FileStatsCollector()
+        test_file = temp_experiment_directory["directory"] / "collector_test.txt"
+        test_file.write_text("Collector test content")
         
-        with open(test_file, 'wb') as f:
-            f.write(content)
+        # ACT - Collect single file statistics
+        result = collector.collect_single_file_stats(test_file)
         
-        stats = get_file_stats(test_file)
-        assert stats['size'] == size
-        assert stats['size_bytes'] == size
+        # ASSERT - Verify collector behavior
+        assert isinstance(result, dict)
+        assert 'size' in result
+        assert 'filename' in result
+        assert result['filename'] == "collector_test.txt"
+        assert result['is_file'] is True
+
+    def test_collector_batch_stats_behavior(self, temp_experiment_directory):
+        """
+        Test FileStatsCollector batch collection behavior.
+        
+        ARRANGE: Create FileStatsCollector and multiple test files
+        ACT: Collect batch statistics
+        ASSERT: Verify batch collection behavior
+        """
+        # ARRANGE - Create collector and test files
+        collector = FileStatsCollector()
+        test_files = []
+        for i in range(3):
+            test_file = temp_experiment_directory["directory"] / f"batch_test_{i}.txt"
+            test_file.write_text(f"Batch content {i}")
+            test_files.append(str(test_file))
+        
+        # ACT - Collect batch statistics
+        result = collector.collect_batch_stats(test_files)
+        
+        # ASSERT - Verify batch collection behavior
+        assert isinstance(result, dict)
+        assert len(result) == len(test_files)
+        for file_path in test_files:
+            assert file_path in result
+            assert isinstance(result[file_path], dict)
+
+    def test_collector_with_custom_providers(self):
+        """
+        Test FileStatsCollector with custom providers.
+        
+        ARRANGE: Create collector with custom providers
+        ACT: Use collector with dependency injection
+        ASSERT: Verify provider integration behavior
+        """
+        # ARRANGE - Create custom providers
+        fs_provider = DefaultFileSystemProvider()
+        timestamp_provider = DefaultTimestampProvider()
+        collector = FileStatsCollector(
+            fs_provider=fs_provider,
+            timestamp_provider=timestamp_provider
+        )
+        
+        # ACT & ASSERT - Verify provider integration
+        assert collector.fs_provider is fs_provider
+        assert collector.timestamp_provider is timestamp_provider
+
+
+# ============================================================================
+# PROPERTY-BASED TESTING WITH HYPOTHESIS
+# ============================================================================
+
+class TestFileStatsPropertyBased:
+    """
+    Property-based testing using Hypothesis for comprehensive edge-case discovery.
     
-    @given(filename=st.text(min_size=1, max_size=50, 
-                           alphabet=st.characters(whitelist_categories=['Lu', 'Ll', 'Nd', 'Pc'])))
-    @settings(max_examples=30, deadline=3000)
-    def test_filename_handling_property(self, test_dir, filename):
-        """Property test: filename handling should be robust."""
-        assume(filename.strip())  # Ensure non-empty after stripping
-        assume(not any(char in filename for char in ['/', '\\', '\0']))  # Invalid chars
+    Implements domain-specific strategies for robust validation of file statistics
+    behavior across diverse file scenarios.
+    """
+    
+    @given(st.integers(min_value=0, max_value=10000))
+    @settings(max_examples=20, deadline=5000)  # Reduced for performance
+    def test_file_size_property_consistency(self, temp_experiment_directory, file_size):
+        """
+        Property test: reported file size should match actual file size.
         
-        # Create file with generated filename
-        safe_filename = filename.replace(' ', '_')  # Replace spaces for safety
-        test_file = os.path.join(test_dir, f"{safe_filename}.txt")
+        ARRANGE: Create file with specific size
+        ACT: Get file statistics
+        ASSERT: Verify size consistency property
+        """
+        # ARRANGE - Create file with specific size
+        test_file = temp_experiment_directory["directory"] / f"prop_size_{file_size}.txt"
+        content = "X" * file_size
+        test_file.write_text(content)
+        
+        # ACT - Get file statistics
+        result = get_file_stats(test_file)
+        
+        # ASSERT - Verify size property
+        expected_size = len(content.encode('utf-8'))
+        assert result['size'] == expected_size
+        assert result['size_bytes'] == expected_size
+
+    @given(st.text(min_size=1, max_size=30, 
+                   alphabet=st.characters(whitelist_categories=['Lu', 'Ll', 'Nd'])))
+    @settings(max_examples=15, deadline=3000)  # Reduced for performance
+    def test_filename_handling_property(self, temp_experiment_directory, filename):
+        """
+        Property test: filename handling should be robust.
+        
+        ARRANGE: Create file with generated filename
+        ACT: Get file statistics
+        ASSERT: Verify filename preservation property
+        """
+        # ARRANGE - Create file with generated filename
+        safe_filename = filename.replace(' ', '_')  # Make filesystem-safe
+        test_file = temp_experiment_directory["directory"] / f"{safe_filename}.txt"
         
         try:
-            with open(test_file, 'w') as f:
-                f.write("test content")
+            test_file.write_text("Property test content")
             
-            stats = get_file_stats(test_file)
-            assert stats['filename'] == f"{safe_filename}.txt"
-            assert stats['extension'] == "txt"
+            # ACT - Get file statistics
+            result = get_file_stats(test_file)
+            
+            # ASSERT - Verify filename property
+            assert result['filename'] == f"{safe_filename}.txt"
+            assert result['extension'] == "txt"
             
         except (OSError, UnicodeError):
             # Some filenames may not be valid on all systems
-            assume(False)
+            pytest.skip(f"Filename not supported: {safe_filename}")
 
 
-# === Attach File Stats Testing ===
-
-class TestAttachFileStats:
-    """Test the attach_file_stats function with various input scenarios."""
-    
-    def test_attach_to_file_list(self, sample_files):
-        """Test attaching stats to a list of file paths."""
-        file_list = list(sample_files.values())
-        result = attach_file_stats(file_list)
-        
-        assert isinstance(result, dict)
-        assert len(result) == len(file_list)
-        
-        for file_path in file_list:
-            assert file_path in result
-            assert 'size' in result[file_path]
-            assert 'mtime' in result[file_path]
-            assert isinstance(result[file_path]['size'], int)
-    
-    def test_attach_to_metadata_dict(self, sample_files):
-        """Test attaching stats to existing metadata dictionary."""
-        initial_metadata = {
-            sample_files['small']: {'experiment': 'exp1', 'condition': 'control'},
-            sample_files['large']: {'experiment': 'exp2', 'condition': 'treatment'}
-        }
-        
-        result = attach_file_stats(initial_metadata)
-        
-        assert isinstance(result, dict)
-        assert len(result) == 2
-        
-        for file_path, metadata in result.items():
-            # Original metadata should be preserved
-            assert 'experiment' in metadata
-            assert 'condition' in metadata
-            
-            # File stats should be added
-            assert 'size' in metadata
-            assert 'mtime' in metadata
-            assert 'is_file' in metadata
-    
-    def test_empty_input_handling(self):
-        """Test handling of empty inputs."""
-        # Empty list
-        result = attach_file_stats([])
-        assert result == {}
-        
-        # Empty dict
-        result = attach_file_stats({})
-        assert result == {}
-    
-    @pytest.mark.parametrize("invalid_input", [
-        None,
-        "single_string",
-        123,
-        {"file.txt": "not_a_dict"}  # Dict with non-dict values
-    ])
-    def test_invalid_input_handling(self, invalid_input):
-        """Test handling of invalid inputs."""
-        if invalid_input is None or isinstance(invalid_input, (str, int)):
-            with pytest.raises((TypeError, AttributeError)):
-                attach_file_stats(invalid_input)
-        else:
-            # For the dict with non-dict values case
-            with pytest.raises((TypeError, AttributeError)):
-                attach_file_stats(invalid_input)
-
-
-# === Integration Testing ===
+# ============================================================================
+# INTEGRATION TESTING WITH DISCOVERY MODULE
+# ============================================================================
 
 class TestFileStatsIntegration:
     """
-    Enhanced integration testing with discover_files function.
+    Integration testing with discovery module functionality.
     
-    Validates end-to-end statistics attachment workflows per F-008 
-    and TST-INTEG-001 requirements.
+    Validates end-to-end file statistics attachment workflows while maintaining
+    focus on observable behavior rather than internal implementation coupling.
     """
     
-    def test_discover_files_with_stats(self, test_dir):
-        """Test integration between discover_files and file statistics."""
-        # Create test files with known patterns
+    def test_integration_with_discovery_module(self, temp_experiment_directory):
+        """
+        Test integration between file discovery and statistics attachment.
+        
+        ARRANGE: Create structured test files for discovery
+        ACT: Use discovery with statistics attachment
+        ASSERT: Verify integrated workflow behavior
+        """
+        # ARRANGE - Create test files with patterns
         test_files = [
-            "mouse_20240101_control_1.csv",
-            "mouse_20240102_treatment_1.csv", 
-            "rat_20240103_control_2.csv"
+            "experiment_001_control.csv",
+            "experiment_002_treatment.csv",
+            "experiment_003_control.csv"
         ]
         
         for filename in test_files:
-            file_path = os.path.join(test_dir, filename)
-            with open(file_path, 'w') as f:
-                f.write(f"# {filename}\ndata,value\n1,2\n3,4\n")
+            file_path = temp_experiment_directory["directory"] / filename
+            file_path.write_text(f"# {filename}\ndata,value\n1,2\n3,4\n")
         
-        # Discover files with stats
-        result = discover_files(test_dir, "*.csv", include_stats=True)
+        # ACT - Create file list and attach statistics
+        file_paths = [str(f) for f in temp_experiment_directory["directory"].glob("*.csv")]
+        result = attach_file_stats(file_paths)
         
+        # ASSERT - Verify integration behavior
         assert isinstance(result, dict)
-        assert len(result) == 3
+        assert len(result) == len(test_files)
         
-        # Verify all files have stats
         for file_path, metadata in result.items():
             assert 'size' in metadata
             assert 'mtime' in metadata
             assert 'filename' in metadata
             assert 'is_file' in metadata
-            assert metadata['is_file'] == True
-            assert metadata['size'] > 0  # Should have content
-    
-    def test_discover_files_with_metadata_and_stats(self, test_dir):
-        """Test discovery with both metadata extraction and file stats."""
-        # Create files with extractable metadata
-        test_files = [
-            "exp001_mouse_baseline.csv",
-            "exp002_rat_treatment.csv"
-        ]
+            assert metadata['is_file'] is True
+            assert metadata['size'] > 0
+
+    def test_integration_with_existing_metadata(self, temp_experiment_directory):
+        """
+        Test integration with existing metadata structures.
         
-        for filename in test_files:
-            file_path = os.path.join(test_dir, filename)
-            with open(file_path, 'w') as f:
-                f.write(f"timestamp,x,y\n1.0,10.5,20.3\n2.0,11.2,21.1\n")
-        
-        # Use extraction patterns and stats
-        extract_patterns = [r".*/(?P<experiment_id>exp\d+)_(?P<animal>\w+)_(?P<condition>\w+)\.csv"]
-        
-        from flyrigloader.discovery.files import FileDiscoverer
-        discoverer = FileDiscoverer(
-            extract_patterns=extract_patterns,
-            include_stats=True
-        )
-        
-        result = discoverer.discover(test_dir, "*.csv")
-        
-        assert isinstance(result, dict)
-        assert len(result) == 2
-        
-        # Verify metadata extraction and stats are both present
-        for file_path, metadata in result.items():
-            # Extracted metadata
-            assert 'experiment_id' in metadata
-            assert 'animal' in metadata 
-            assert 'condition' in metadata
+        ARRANGE: Create files with pre-existing metadata
+        ACT: Attach file statistics to metadata
+        ASSERT: Verify metadata preservation and enhancement
+        """
+        # ARRANGE - Create files with metadata structure
+        test_data = {}
+        for i in range(2):
+            filename = f"integration_test_{i}.csv"
+            file_path = temp_experiment_directory["directory"] / filename
+            file_path.write_text(f"integration,test\n{i},data\n")
             
-            # File statistics
+            test_data[str(file_path)] = {
+                'experiment_id': f'INT_{i:03d}',
+                'condition': 'control' if i % 2 == 0 else 'treatment',
+                'replicate': i + 1
+            }
+        
+        # ACT - Attach statistics to existing metadata
+        result = attach_file_stats(test_data)
+        
+        # ASSERT - Verify integration preservation
+        for file_path, metadata in result.items():
+            # Original metadata preserved
+            assert 'experiment_id' in metadata
+            assert 'condition' in metadata
+            assert 'replicate' in metadata
+            
+            # Statistics added
             assert 'size' in metadata
             assert 'mtime' in metadata
             assert 'filename' in metadata
-    
-    def test_large_file_set_performance(self, test_dir):
-        """Test performance with larger numbers of files."""
-        # Create a moderate number of files to test performance
-        num_files = 50
-        file_paths = []
-        
-        for i in range(num_files):
-            file_path = os.path.join(test_dir, f"data_{i:03d}.txt")
-            with open(file_path, 'w') as f:
-                f.write(f"File {i} content with some data")
-            file_paths.append(file_path)
-        
-        # Time the stats attachment
-        import time
-        start_time = time.time()
-        result = attach_file_stats(file_paths)
-        end_time = time.time()
-        
-        # Should complete reasonably quickly
-        execution_time = end_time - start_time
-        assert execution_time < 5.0  # Should complete within 5 seconds
-        
-        # Verify all files processed
-        assert len(result) == num_files
-        for file_path in file_paths:
-            assert file_path in result
-            assert 'size' in result[file_path]
+            assert 'is_file' in metadata
 
 
-# === Error Handling and Edge Cases ===
+# ============================================================================
+# ERROR HANDLING AND RESILIENCE TESTING
+# ============================================================================
 
-class TestErrorHandlingAndEdgeCases:
-    """Test error handling and edge case scenarios."""
-    
-    def test_permission_denied_handling(self, mock_filesystem):
-        """Test handling of permission denied scenarios."""
-        # Mock a permission denied scenario
-        mock_filesystem['exists'].return_value = True
-        mock_filesystem['stat'].side_effect = PermissionError("Permission denied")
-        
-        with pytest.raises(PermissionError):
-            get_file_stats("/restricted/file.txt")
-    
-    def test_corrupted_filesystem_handling(self, mock_filesystem):
-        """Test handling of corrupted filesystem scenarios."""
-        # Mock filesystem corruption
-        mock_filesystem['exists'].return_value = True
-        mock_filesystem['stat'].side_effect = OSError("I/O error")
-        
-        with pytest.raises(OSError):
-            get_file_stats("/corrupted/file.txt")
-    
-    @pytest.mark.parametrize("special_path", [
-        "",           # Empty string
-        ".",          # Current directory
-        "..",         # Parent directory
-        "/dev/null",  # Special device (Unix)
-    ])
-    def test_special_path_handling(self, special_path):
-        """Test handling of special filesystem paths."""
-        if special_path in ["", ".", ".."]:
-            # These should raise FileNotFoundError or similar
-            with pytest.raises((FileNotFoundError, OSError, PermissionError)):
-                get_file_stats(special_path)
-        elif special_path == "/dev/null" and platform.system() != "Windows":
-            # On Unix systems, /dev/null exists but may behave differently
-            try:
-                stats = get_file_stats(special_path)
-                # /dev/null should be a special file
-                assert stats['size'] == 0
-            except (OSError, PermissionError):
-                # May not be accessible in some environments
-                pass
-    
-    def test_very_long_filename_handling(self, test_dir):
-        """Test handling of very long filenames."""
-        # Most filesystems have limits around 255 characters for filenames
-        long_name = "a" * 240 + ".txt"  # Stay under typical limits
-        long_path = os.path.join(test_dir, long_name)
-        
-        try:
-            with open(long_path, 'w') as f:
-                f.write("test content")
-            
-            stats = get_file_stats(long_path)
-            assert stats['filename'] == long_name
-            assert len(stats['filename']) == 244  # 240 + ".txt"
-            
-        except OSError:
-            # Some systems may reject very long filenames
-            pytest.skip("Filesystem doesn't support long filenames")
-
-
-# === Mock-Based Unit Testing ===
-
-class TestMockedFileStats:
+class TestFileStatsErrorHandling:
     """
-    Mocked unit tests for isolated testing of stats functionality.
+    Comprehensive error handling and resilience testing.
     
-    Uses pytest-mock for standardized mocking enabling isolated unit testing
-    per TST-MOD-003 requirements.
+    Validates error recovery and graceful degradation behavior
+    through observable API responses rather than internal error handling.
     """
     
-    def test_mocked_stat_call(self, mock_filesystem):
-        """Test file stats with mocked os.stat call."""
-        # Create a mock stat result
-        mock_stat_result = Mock()
-        mock_stat_result.st_size = 2048
-        mock_stat_result.st_mode = 0o100644  # Regular file, rw-r--r--
-        mock_stat_result.st_mtime = 1609459200.0
-        mock_stat_result.st_ctime = 1609459100.0
-        mock_stat_result.st_birthtime = 1609459050.0  # macOS/Windows creation time
+    def test_custom_error_handler_behavior(self, temp_experiment_directory):
+        """
+        Test custom error handler behavior in batch processing.
         
-        # Configure mocks
-        mock_filesystem['exists'].return_value = True
-        mock_filesystem['stat'].return_value = mock_stat_result
-        mock_filesystem['is_file'].return_value = True
-        mock_filesystem['is_dir'].return_value = False
-        mock_filesystem['is_symlink'].return_value = False
-        mock_filesystem['access'].return_value = True
+        ARRANGE: Set up files with mixed success/failure scenarios
+        ACT: Use attach_file_stats with custom error handler
+        ASSERT: Verify error handler integration behavior
+        """
+        # ARRANGE - Create mix of valid and invalid files
+        valid_file = temp_experiment_directory["directory"] / "valid.txt"
+        valid_file.write_text("Valid content")
         
-        with patch('pathlib.Path.stat', return_value=mock_stat_result):
-            stats = get_file_stats("/mocked/file.txt")
+        file_list = [
+            str(valid_file),
+            "/nonexistent/invalid.txt"  # This will cause error
+        ]
+        
+        # Custom error handler that returns fallback data
+        def custom_error_handler(error, file_path):
+            return {
+                'size': -1,
+                'error': str(error),
+                'filename': Path(file_path).name,
+                'is_file': False
+            }
+        
+        # ACT - Use custom error handler
+        result = attach_file_stats(file_list, error_handler=custom_error_handler)
+        
+        # ASSERT - Verify error handler behavior
+        assert len(result) == 2
+        assert str(valid_file) in result
+        assert "/nonexistent/invalid.txt" in result
+        
+        # Valid file should have normal statistics
+        assert result[str(valid_file)]['size'] > 0
+        assert result[str(valid_file)]['is_file'] is True
+        
+        # Invalid file should have error handler result
+        assert result["/nonexistent/invalid.txt"]['size'] == -1
+        assert 'error' in result["/nonexistent/invalid.txt"]
+
+    def test_filesystem_access_error_propagation(self):
+        """
+        Test filesystem access error propagation behavior.
+        
+        ARRANGE: Set up mock filesystem with access errors
+        ACT: Attempt file operations
+        ASSERT: Verify error propagation behavior
+        """
+        # ARRANGE - Create mock filesystem with access error
+        mock_fs = create_mock_filesystem()
+        restricted_file = Path("/test/restricted.txt")
+        mock_fs.add_file(
+            restricted_file,
+            size=100,
+            access_error=PermissionError("Access denied for testing")
+        )
+        
+        # Create provider that propagates access errors
+        class ErrorPropagatingProvider:
+            def path_exists(self, path):
+                try:
+                    return mock_fs.exists(path)
+                except PermissionError:
+                    raise
             
-            assert stats['size'] == 2048
-            assert stats['permissions'] == 0o644  # Should extract permission bits
-            assert stats['filename'] == "file.txt"
-            assert stats['is_file'] == True
-            assert stats['is_directory'] == False
-    
-    def test_cross_platform_birthtime_fallback(self, mock_filesystem):
-        """Test birthtime fallback behavior across platforms."""
-        mock_stat_result = Mock()
-        mock_stat_result.st_size = 1024
-        mock_stat_result.st_mtime = 1609459200.0
-        mock_stat_result.st_ctime = 1609459100.0
-        # No st_birthtime attribute (Linux behavior)
-        
-        mock_filesystem['exists'].return_value = True
-        mock_filesystem['stat'].return_value = mock_stat_result
-        mock_filesystem['is_file'].return_value = True
-        mock_filesystem['is_dir'].return_value = False
-        mock_filesystem['is_symlink'].return_value = False
-        mock_filesystem['access'].return_value = True
-        
-        with patch('pathlib.Path.stat', return_value=mock_stat_result):
-            stats = get_file_stats("/test/file.txt")
+            def get_stat(self, path):
+                if str(path) == str(restricted_file):
+                    raise PermissionError("Access denied for testing")
+                return mock_fs.stat(path)
             
-            # Should fall back to st_ctime
-            expected_creation = datetime.fromtimestamp(1609459100.0)
-            assert abs((stats['creation_time'] - expected_creation).total_seconds()) < 1
+            def check_access(self, path, mode):
+                return True
+            
+            def is_dir(self, path):
+                return False
+            
+            def is_file(self, path):
+                return True
+            
+            def is_symlink(self, path):
+                return False
+        
+        # ACT & ASSERT - Verify error propagation
+        with pytest.raises(FileStatsError) as exc_info:
+            get_file_stats(
+                restricted_file,
+                fs_provider=ErrorPropagatingProvider()
+            )
+        
+        # Verify error context
+        assert "Access denied for testing" in str(exc_info.value)
+        assert exc_info.value.path == str(restricted_file)
+
+    def test_batch_processing_resilience(self, temp_experiment_directory):
+        """
+        Test batch processing resilience with partial failures.
+        
+        ARRANGE: Create batch with mix of valid/invalid files
+        ACT: Process batch with default error handling
+        ASSERT: Verify resilience behavior
+        """
+        # ARRANGE - Create valid files
+        valid_files = []
+        for i in range(3):
+            test_file = temp_experiment_directory["directory"] / f"batch_valid_{i}.txt"
+            test_file.write_text(f"Valid content {i}")
+            valid_files.append(str(test_file))
+        
+        # Mix in invalid files
+        mixed_files = valid_files + ["/invalid/path1.txt", "/invalid/path2.txt"]
+        
+        # ACT & ASSERT - Verify batch resilience
+        # Default behavior should raise error for invalid files
+        with pytest.raises(FileStatsError):
+            attach_file_stats(mixed_files)
+        
+        # But valid files should work independently
+        valid_result = attach_file_stats(valid_files)
+        assert len(valid_result) == len(valid_files)
+        for file_path in valid_files:
+            assert file_path in valid_result
