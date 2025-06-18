@@ -6,7 +6,7 @@ Functions for loading, parsing, and accessing configuration data from YAML files
 import logging
 import os
 from pathlib import Path
-from typing import Dict, List, Any, Optional, Union, Callable, Protocol
+from typing import Dict, List, Any, Optional, Union, Callable, Protocol, Set
 from abc import abstractmethod
 import yaml
 
@@ -210,9 +210,7 @@ def _convert_to_glob_pattern(pattern: str) -> str:
         return pattern
     if pattern == "._":
         return "*._*"
-    if pattern.startswith('.'):
-        return f"{pattern}*"
-    return f"*{pattern}*"
+    return f"{pattern}*" if pattern.startswith('.') else f"*{pattern}*"
 
 
 def get_mandatory_substrings(
@@ -319,26 +317,44 @@ def get_extraction_patterns(
     Returns:
         List of regex patterns for extracting metadata, or None if no patterns are defined
     """
-    patterns = []
-    
-    # Get project-level extraction patterns
+    # Helper to normalise different pattern container types to a flat list[str]
+    def _collect(src):  # type: ignore[override]
+        """Return a list of regex strings from *src*, which may be a dict, list or str."""
+        if isinstance(src, dict):
+            return list(src.values())
+        if isinstance(src, list):
+            return src
+        if isinstance(src, str):
+            return [src]
+        return []
+
+    patterns: List[str] = []
+
+    # 1️⃣ Folder-parsing patterns (global)
+    if "folder_parsing" in config and "extract_patterns" in config["folder_parsing"]:
+        patterns += _collect(config["folder_parsing"]["extract_patterns"])
+
+    # 2️⃣ Project-level extraction patterns
     if "project" in config and "extraction_patterns" in config["project"]:
-        patterns.extend(config["project"]["extraction_patterns"])
-    
-    # Get experiment-specific extraction patterns
+        patterns += _collect(config["project"]["extraction_patterns"])
+
+    # 3️⃣ Experiment-specific extraction patterns
     if experiment and "experiments" in config and experiment in config["experiments"]:
-        experiment_config = config["experiments"][experiment]
-        if "metadata" in experiment_config and "extraction_patterns" in experiment_config["metadata"]:
-            patterns.extend(experiment_config["metadata"]["extraction_patterns"])
-    
-    # Get dataset-specific extraction patterns
+        experiment_cfg = config["experiments"][experiment]
+        if "metadata" in experiment_cfg and "extraction_patterns" in experiment_cfg["metadata"]:
+            patterns += _collect(experiment_cfg["metadata"]["extraction_patterns"])
+
+    # 4️⃣ Dataset-specific extraction patterns
     if dataset_name and "datasets" in config and dataset_name in config["datasets"]:
-        dataset_config = config["datasets"][dataset_name]
-        if "metadata" in dataset_config and "extraction_patterns" in dataset_config["metadata"]:
-            patterns.extend(dataset_config["metadata"]["extraction_patterns"])
-    
-    # Return patterns if not empty, or None
-    return patterns or None
+        dataset_cfg = config["datasets"][dataset_name]
+        if "metadata" in dataset_cfg and "extraction_patterns" in dataset_cfg["metadata"]:
+            patterns += _collect(dataset_cfg["metadata"]["extraction_patterns"])
+
+    # Remove potential duplicates while preserving order
+    seen: Set[str] = set()
+    unique_patterns = [p for p in patterns if not (p in seen or seen.add(p))]
+
+    return unique_patterns or None
 
 
 def get_all_dataset_names(config: Dict[str, Any]) -> List[str]:
