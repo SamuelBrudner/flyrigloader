@@ -16,15 +16,18 @@ from flyrigloader.io.pickle import (
     read_pickle_any_format as _read_pickle_any_format,
     make_dataframe_from_config as _make_dataframe_from_config,
 )
+from flyrigloader.io.column_models import get_config_from_source as _get_config_from_source
 
 # Re-export helpers for convenience
 read_pickle_any_format = _read_pickle_any_format
 make_dataframe_from_config = _make_dataframe_from_config
+get_config_from_source = _get_config_from_source
 
 __all__ = [
     "process_experiment_data",
     "read_pickle_any_format",
     "make_dataframe_from_config",
+    "get_config_from_source",
     "FlyRigLoaderError",
 ]
 from flyrigloader import logger
@@ -218,7 +221,7 @@ class DefaultDependencyProvider:
                 read_pickle_any_format,
                 make_dataframe_from_config
             )
-            from flyrigloader.io.column_models import get_config_from_source
+            # get_config_from_source already imported at module level
             
             class IOModule:
                 read_pickle_any_format = staticmethod(read_pickle_any_format)
