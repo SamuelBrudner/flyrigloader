@@ -12,14 +12,19 @@ import copy
 from typing import Dict, List, Any, Optional, Union, Protocol, Callable
 from abc import ABC, abstractmethod
 import pandas as pd
-from flyrigloader.io.pickle import read_pickle_any_format as _read_pickle_any_format
+from flyrigloader.io.pickle import (
+    read_pickle_any_format as _read_pickle_any_format,
+    make_dataframe_from_config as _make_dataframe_from_config,
+)
 
-# Re-export helper for convenience
+# Re-export helpers for convenience
 read_pickle_any_format = _read_pickle_any_format
+make_dataframe_from_config = _make_dataframe_from_config
 
 __all__ = [
     "process_experiment_data",
     "read_pickle_any_format",
+    "make_dataframe_from_config",
     "FlyRigLoaderError",
 ]
 from flyrigloader import logger
