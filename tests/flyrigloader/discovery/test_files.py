@@ -414,7 +414,7 @@ class TestFileDiscoveryCore:
         # Mock platform-specific path handling
         if path_style == "windows":
             mocker.patch("os.sep", "\\")
-            mocker.patch("pathlib.Path._flavour", mocker.MagicMock())
+            # Removed patch to pathlib.Path._flavour which caused teardown errors in pytest
         else:
             mocker.patch("os.sep", "/")
             
