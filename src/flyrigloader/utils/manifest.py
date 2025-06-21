@@ -66,8 +66,12 @@ def _load_experiment_files(
     config: Dict[str, Any] | str,
     experiment_name: str,
     base_directory: PathLike | None = None,
-) -> List[str]:
-    """Delegate to :pyfunc:`flyrigloader.api.load_experiment_files`."""
+    extract_metadata: bool = False,
+    parse_dates: bool = False,
+) -> Union[List[str], Dict[str, Dict[str, Any]]]:
+    """Delegate to :pyfunc:`flyrigloader.api.load_experiment_files` while
+    allowing callers to request metadata extraction.
+    """
     return _api_load_experiment_files(
         config_path=config if isinstance(config, str) else None,
         config=None if isinstance(config, str) else config,
@@ -76,8 +80,8 @@ def _load_experiment_files(
         pattern="exp_matrix.pklz",  # enforce spec-required filtering
         recursive=True,
         extensions=["pklz"],
-        extract_metadata=False,
-        parse_dates=False,
+        extract_metadata=extract_metadata,
+        parse_dates=parse_dates,
     )  # type: ignore[arg-type]
 
 
@@ -86,8 +90,12 @@ def _load_dataset_files(
     config: Dict[str, Any] | str,
     dataset_name: str,
     base_directory: PathLike | None = None,
-) -> List[str]:
-    """Delegate to :pyfunc:`flyrigloader.api.load_dataset_files`."""
+    extract_metadata: bool = False,
+    parse_dates: bool = False,
+) -> Union[List[str], Dict[str, Dict[str, Any]]]:
+    """Delegate to :pyfunc:`flyrigloader.api.load_dataset_files` while
+    allowing callers to request metadata extraction.
+    """
     return _api_load_dataset_files(
         config_path=config if isinstance(config, str) else None,
         config=None if isinstance(config, str) else config,
@@ -96,8 +104,8 @@ def _load_dataset_files(
         pattern="exp_matrix.pklz",  # enforce spec-required filtering
         recursive=True,
         extensions=["pklz"],
-        extract_metadata=False,
-        parse_dates=False,
+        extract_metadata=extract_metadata,
+        parse_dates=parse_dates,
     )  # type: ignore[arg-type]
 
 
@@ -149,6 +157,8 @@ def build_file_manifest(
     experiment_name: str | None = None,
     dataset_names: list[str] | None = None,
     *,
+    extract_metadata: bool = False,
+    parse_dates: bool = False,
     add_timestamps: bool = True,
     add_file_size: bool = True,
     store_relative_paths: bool = True,
@@ -176,32 +186,40 @@ def build_file_manifest(
         raise ValueError("Specify *either* experiment_name or dataset_names, but not both.")
 
     # ------------------------------------------------------------------
-    # 1. Collect file paths
+    # 1. Collect file paths or metadata records
     # ------------------------------------------------------------------
-    file_paths: List[str] = []
     if experiment_name:
-        file_paths = _load_experiment_files(
+        file_records = _load_experiment_files(
             config=config,
             experiment_name=experiment_name,
             base_directory=base_directory,
+            extract_metadata=extract_metadata,
+            parse_dates=parse_dates,
         )
     else:
         assert dataset_names is not None  # mypy helper
+        file_records = {} if extract_metadata else []  # type: ignore[assignment]
         for ds in dataset_names:
-            file_paths.extend(
-                _load_dataset_files(
-                    config=config,
-                    dataset_name=ds,
-                    base_directory=base_directory,
-                )
+            result = _load_dataset_files(
+                config=config,
+                dataset_name=ds,
+                base_directory=base_directory,
+                extract_metadata=extract_metadata,
+                parse_dates=parse_dates,
             )
+            if extract_metadata:
+                assert isinstance(result, dict)
+                file_records.update(result)  # type: ignore[arg-type]
+            else:
+                assert isinstance(result, list)
+                file_records.extend(result)  # type: ignore[arg-type]
 
-    logger.info(f"Collected {len(file_paths)} exp_matrix.pklz files.")
+    logger.info(f"Collected {len(file_records)} exp_matrix.pklz files.")
 
     # ------------------------------------------------------------------
     # 2. Convert to DataFrame (initial cols: path, plus whatever metadata)
     # ------------------------------------------------------------------
-    df = build_manifest_df(file_paths, include_stats=False)
+    df = build_manifest_df(file_records, include_stats=False)
 
     # ------------------------------------------------------------------
     # 3. Optionally enrich with os.stat info
@@ -222,7 +240,8 @@ def build_file_manifest(
         # Determine base_dir default lazily if not provided.
         if base_directory is None:
             # Use common parent among all files.
-            common_parts = os.path.commonpath(file_paths)
+            path_list = list(file_records.keys()) if isinstance(file_records, dict) else file_records  # type: ignore[arg-type]
+            common_parts = os.path.commonpath(path_list)
             base_directory = common_parts
         df["path"] = df["path"].apply(lambda p: str(get_relative_path(p, base_directory)))
 
