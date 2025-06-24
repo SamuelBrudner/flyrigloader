@@ -11,6 +11,9 @@ This module provides comprehensive testing of the YAML configuration system incl
 - Mock integration for filesystem and network scenarios
 """
 
+
+
+import contextlib
 import os
 import tempfile
 import shutil
@@ -53,11 +56,19 @@ safe_strings = st.text(
 )
 
 # Path-like strings for directories
-path_strings = st.text(
-    alphabet=st.characters(whitelist_categories=('Lu', 'Ll', 'Nd'), min_codepoint=32, max_codepoint=126),
-    min_size=1,
-    max_size=100
-).map(lambda s: s + '/').filter(lambda x: x and not x.startswith('//') and '..' not in x)
+path_strings = (
+    st.text(
+        alphabet=st.characters(
+            whitelist_categories=('Lu', 'Ll', 'Nd'),
+            min_codepoint=32,
+            max_codepoint=126,
+        ),
+        min_size=1,
+        max_size=100,
+    )
+    .map(lambda s: f'{s}/')
+    .filter(lambda x: x and not x.startswith('//') and '..' not in x)
+)
 
 # Date strings in YYYY-MM-DD format
 date_strings = st.from_regex(r'^\d{4}-\d{2}-\d{2}$', fullmatch=True)
@@ -218,20 +229,21 @@ def unicode_config_data():
 @pytest.fixture
 def mock_filesystem_scenarios():
     """Mock various filesystem scenarios for testing."""
-    scenarios = {}
-    
-    # Permission denied scenario
-    scenarios['permission_denied'] = Mock(side_effect=PermissionError("Permission denied"))
-    
+    scenarios = {
+        'permission_denied': Mock(
+            side_effect=PermissionError("Permission denied")
+        )
+    }
+
     # File not found scenario
     scenarios['file_not_found'] = Mock(side_effect=FileNotFoundError("File not found"))
-    
+
     # Network timeout scenario
     scenarios['network_timeout'] = Mock(side_effect=TimeoutError("Network timeout"))
-    
+
     # Disk full scenario
     scenarios['disk_full'] = Mock(side_effect=OSError("No space left on device"))
-    
+
     return scenarios
 
 
@@ -510,10 +522,8 @@ class TestAdvancedSchemaValidation:
         """Test validation errors for incorrect data types."""
         # Some structures may pass basic validation but fail in usage
         # This tests the boundaries of our validation
-        try:
+        with contextlib.suppress(ValueError, TypeError):
             validate_config_dict(invalid_structure)
-        except (ValueError, TypeError):
-            pass  # Expected for some invalid structures
     
     def test_circular_reference_detection(self):
         """Test detection of circular references in configuration."""
@@ -608,15 +618,12 @@ class TestPropertyBasedValidation:
                 "ignore_substrings": [emoji_text]
             }
         }
-        
-        try:
+
+        with contextlib.suppress(UnicodeError):
             validated = validate_config_dict(config)
             patterns = get_ignore_patterns(validated)
             # Should handle emoji gracefully
             assert any(emoji_text in pattern for pattern in patterns)
-        except UnicodeError:
-            # Some emoji combinations might cause issues, which is acceptable
-            pass
     
     @given(st.integers(min_value=1, max_value=1000))  # Reduced max value
     @settings(
@@ -943,18 +950,16 @@ class TestErrorCaseValidation:
             {"project": {"directories": {}}},  # Missing major_data_directory
             {"project": {"directories": {"major_data_directory": ""}}},  # Empty path
         ]
-        
+
         for config in configs_missing_sections:
             # Basic validation might pass for some minimal configs
-            try:
+            with contextlib.suppress(ValueError):
                 validated = validate_config_dict(config)
                 # But usage might reveal missing required elements
                 if "project" in validated and "directories" in validated["project"]:
                     dirs = validated["project"]["directories"]
                     if "major_data_directory" in dirs:
                         assert isinstance(dirs["major_data_directory"], str)
-            except ValueError:
-                pass  # Expected for invalid structures
     
     def test_circular_dataset_references(self):
         """Test detection and handling of circular dataset references."""
@@ -1030,7 +1035,7 @@ class TestErrorCaseValidation:
                 "ignore_substrings": empty_value
             }
         }
-        
+
         if empty_value is None or isinstance(empty_value, list):
             # None or empty list should be acceptable
             validated = validate_config_dict(config)
@@ -1038,10 +1043,8 @@ class TestErrorCaseValidation:
             assert isinstance(patterns, list)
         else:
             # Other empty values might cause validation issues
-            try:
+            with contextlib.suppress(ValueError, TypeError):
                 validate_config_dict(config)
-            except (ValueError, TypeError):
-                pass  # Expected for some invalid types
 
 
 # ============================================================================
@@ -1084,21 +1087,18 @@ class TestIntegrationScenarios:
     def test_nested_experiment_configurations(self, sample_config_file):
         """Test complex nested experiment configuration scenarios."""
         config = load_config(sample_config_file)
-        
+
         # Test multi-level experiment relationships
         for exp_name in get_all_experiment_names(config):
             exp_info = get_experiment_info(config, exp_name)
-            
+
             # Validate that all referenced datasets exist
             if "datasets" in exp_info:
                 for dataset in exp_info["datasets"]:
                     # Should be able to get info for each referenced dataset
-                    try:
+                    with contextlib.suppress(KeyError):
                         dataset_info = get_dataset_info(config, dataset)
                         assert "rig" in dataset_info or "dates_vials" in dataset_info
-                    except KeyError:
-                        # Some test configurations may have invalid references
-                        pass
     
     def test_complete_workflow_validation(self, sample_config_file):
         """Test complete configuration workflow from loading to usage."""
