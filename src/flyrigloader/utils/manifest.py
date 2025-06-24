@@ -25,7 +25,8 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from typing import Any, Dict, List, Union, Optional, Sequence
+from typing import Any, Dict, List, Union, Optional, Sequence, Callable
+import copy
 
 import pandas as pd
 
@@ -153,10 +154,16 @@ build_manifest_df = _build_manifest_df  # noqa: E305
 # -----------------------------------------------------------------------------
 
 def build_file_manifest(
-    config: Dict[str, Any] | str,
+    config: Dict[str, Any] | str | None = None,
     experiment_name: str | None = None,
     dataset_names: list[str] | None = None,
     *,
+    # New configuration handling flags
+    use_passed_config: bool = True,
+    reload_config: bool = False,
+    config_override: Optional[Dict[str, Any]] = None,
+    config_loader: Optional[Callable[[Union[str, Path]], Dict[str, Any]]] = None,
+    # Existing discovery flags
     extract_metadata: bool = False,
     parse_dates: bool = False,
     add_timestamps: bool = True,
@@ -165,6 +172,14 @@ def build_file_manifest(
     base_directory: PathLike | None = None,
 ) -> pd.DataFrame:
     """Return a tidy :class:`pandas.DataFrame` describing experiment/dataset files.
+
+    The function now offers more flexible configuration handling:
+    - ``use_passed_config`` (default *True*): if *config* is a dictionary, reuse it instead of re-loading.
+    - ``reload_config``: force reloading from disk even if a dictionary was supplied.
+    - ``config_override``: shallow/deep dictionary applied on top of the resolved configuration (useful in tests).
+    - ``config_loader``: injectable callable used to resolve YAML/JSON etc. when *config* is a path.
+
+    These options are **100 % backward-compatible** – omitting them preserves the original behaviour.
 
     Parameters
     ----------
@@ -177,11 +192,50 @@ def build_file_manifest(
     add_timestamps, add_file_size
         Whether to include ``mtime`` / ``ctime`` and ``file_size`` columns.
     store_relative_paths
-        Store the ``path`` column relative to *base_directory* (if given) –
-        otherwise relative to the common prefix.
+        Store the ``path`` column relative to *base_directory* (if given) – otherwise relative to the common prefix.
     base_directory
         Optional explicit base directory used for relative path calculation.
     """
+
+
+    # ------------------------------------------------------------------
+    # 0. Resolve configuration according to new flexibility flags
+    # ------------------------------------------------------------------
+    resolved_config_source: Dict[str, Any] | str | None = config
+
+    # Helper for deep (recursive) dict update
+    def _deep_update(d: Dict[str, Any], u: Dict[str, Any]) -> Dict[str, Any]:
+        for k, v in u.items():
+            if isinstance(v, dict) and isinstance(d.get(k), dict):
+                d[k] = _deep_update(d[k], v)
+            else:
+                d[k] = v
+        return d
+
+    # Case 1 – caller passed a dictionary and wants to use it directly
+    if use_passed_config and isinstance(config, dict):
+        cfg = copy.deepcopy(config)
+        if config_override:
+            cfg = _deep_update(cfg, config_override)
+        resolved_config_source = cfg
+
+    # Case 2 – caller passed a *path* but wants to apply overrides (or reload)
+    elif isinstance(config, (str, Path)):
+        if config_override or reload_config:
+            # Determine loader (DI-friendly)
+            if config_loader is None:
+                from flyrigloader.config.yaml_config import load_config as _default_loader
+                config_loader = _default_loader  # type: ignore[assignment]
+            try:
+                cfg = config_loader(Path(config))  # type: ignore[arg-type]
+            except Exception as exc:  # pragma: no cover – defensive
+                raise RuntimeError(f"Failed to load configuration from {config}: {exc}")
+            if config_override:
+                cfg = _deep_update(cfg, config_override)
+            resolved_config_source = cfg
+        # else: keep as path – original behaviour
+
+    # ------------------------------------------------------------------
     if bool(experiment_name) == bool(dataset_names):
         raise ValueError("Specify *either* experiment_name or dataset_names, but not both.")
 
@@ -190,7 +244,7 @@ def build_file_manifest(
     # ------------------------------------------------------------------
     if experiment_name:
         file_records = _load_experiment_files(
-            config=config,
+            config=resolved_config_source,
             experiment_name=experiment_name,
             base_directory=base_directory,
             extract_metadata=extract_metadata,
@@ -201,7 +255,7 @@ def build_file_manifest(
         file_records = {} if extract_metadata else []  # type: ignore[assignment]
         for ds in dataset_names:
             result = _load_dataset_files(
-                config=config,
+                config=resolved_config_source,
                 dataset_name=ds,
                 base_directory=base_directory,
                 extract_metadata=extract_metadata,
