@@ -322,28 +322,25 @@ def _validate_config_parameters(
         ValueError: If validation fails with detailed error message
     """
     logger.debug(f"Validating config parameters for {operation_name}")
-    
+
     if config_path is None and config is None:
-        error_msg = (
-            f"Invalid configuration parameters for {operation_name}: "
-            "Either 'config_path' or 'config' must be provided, but both are None. "
-            "Please provide either a path to a YAML configuration file or a "
-            "pre-loaded configuration dictionary."
+        _extracted_from__validate_config_parameters_20(
+            operation_name,
+            ": Either 'config_path' or 'config' must be provided, but both are None. Please provide either a path to a YAML configuration file or a pre-loaded configuration dictionary.",
         )
-        logger.error(error_msg)
-        raise FlyRigLoaderError(error_msg)
-    
     if config_path is not None and config is not None:
-        error_msg = (
-            f"Invalid configuration parameters for {operation_name}: "
-            "Both 'config_path' and 'config' are provided, but only one is allowed. "
-            "Please provide either a path to a configuration file OR a "
-            "configuration dictionary, not both."
+        _extracted_from__validate_config_parameters_20(
+            operation_name,
+            ": Both 'config_path' and 'config' are provided, but only one is allowed. Please provide either a path to a configuration file OR a configuration dictionary, not both.",
         )
-        logger.error(error_msg)
-        raise FlyRigLoaderError(error_msg)
-    
     logger.debug(f"Config parameter validation successful for {operation_name}")
+
+
+# TODO Rename this here and in `_validate_config_parameters`
+def _extracted_from__validate_config_parameters_20(operation_name, arg1):
+    error_msg = f"Invalid configuration parameters for {operation_name}{arg1}"
+    logger.error(error_msg)
+    raise FlyRigLoaderError(error_msg)
 
 
 def _load_and_validate_config(
@@ -847,6 +844,7 @@ def process_experiment_data(
     *,
     column_config_path: Optional[Union[str, Path, Dict[str, Any]]] = None,
     metadata: Optional[Dict[str, Any]] = None,
+    strict_schema: bool = False,
     _deps: Optional[DefaultDependencyProvider] = None
 ) -> pd.DataFrame:
     """
@@ -860,6 +858,10 @@ def process_experiment_data(
         column_config_path: Path to column configuration file, configuration dictionary,
                             or ColumnConfigDict instance. If None, uses default configuration.
         metadata: Optional dictionary of metadata to add to the DataFrame
+        strict_schema: If True, drop any columns not present in the provided column
+            configuration. Requires that ``column_config_path`` is supplied. This
+            option is useful for downstream pipelines that rely on a strict
+            schema definition (e.g. Kedro parameters).
         _deps: Optional dependency provider for testing injection (internal parameter)
         
     Returns:
@@ -870,13 +872,13 @@ def process_experiment_data(
         ValueError: If required columns are missing from the data or path is invalid
     """
     operation_name = "process_experiment_data"
-    
+
     # Initialize dependency provider for testability
     if _deps is None:
         _deps = get_dependency_provider()
-    
+
     logger.info(f"Processing experimental data from: {data_path}")
-    
+
     # Validate data_path parameter
     if not data_path:
         error_msg = (
@@ -885,7 +887,7 @@ def process_experiment_data(
         )
         logger.error(error_msg)
         raise FlyRigLoaderError(error_msg)
-    
+
     # Convert to Path for validation
     data_path_obj = Path(data_path)
     if not data_path_obj.exists():
@@ -895,24 +897,24 @@ def process_experiment_data(
         )
         logger.error(error_msg)
         raise FlyRigLoaderError(error_msg)
-    
+
     # Log metadata information
     if metadata:
         logger.debug(f"Processing with metadata: {list(metadata.keys())}")
     else:
         logger.debug("Processing without additional metadata")
-    
+
     # Read the experimental data with enhanced error handling
     try:
         logger.debug(f"Reading experimental data from: {data_path}")
         exp_matrix = _deps.io.read_pickle_any_format(data_path)
-        
+
         if not isinstance(exp_matrix, dict):
             logger.warning(f"Expected dictionary data structure, got {type(exp_matrix).__name__}")
         else:
             matrix_keys = list(exp_matrix.keys())
             logger.debug(f"Loaded experimental matrix with keys: {matrix_keys}")
-            
+
     except Exception as e:
         error_msg = (
             f"Failed to read experimental data for {operation_name} from {data_path}: {e}. "
@@ -920,7 +922,7 @@ def process_experiment_data(
         )
         logger.error(error_msg)
         raise FlyRigLoaderError(error_msg) from e
-    
+
     # Create DataFrame using column configuration with enhanced error handling
     try:
         logger.debug("Creating DataFrame from experimental matrix")
@@ -929,7 +931,7 @@ def process_experiment_data(
             config_source=column_config_path,
             metadata=metadata
         )
-        
+
         # Ensure we return a pandas DataFrame
         if isinstance(result, dict):
             df = pd.DataFrame(result)
@@ -942,8 +944,28 @@ def process_experiment_data(
         logger.info(f"Successfully created DataFrame with shape: {df.shape}")
         logger.debug(f"DataFrame columns: {list(df.columns)}")
 
+        # Optional strict-schema filtering
+        if strict_schema:
+            if column_config_path is None:
+                raise FlyRigLoaderError(
+                    "strict_schema=True requires a column_config_path (schema) to be provided"
+                )
+            try:
+                schema_model = _get_config_from_source(column_config_path)
+            except Exception as e:
+                raise FlyRigLoaderError(
+                    f"Failed to load column configuration for strict schema filtering: {e}"
+                ) from e
+            allowed_cols = set(schema_model.columns.keys())
+            if extra_cols := [c for c in df.columns if c not in allowed_cols]:
+                logger.debug(
+                    "Dropping %d columns not in schema: %s",
+                    len(extra_cols),
+                    ", ".join(extra_cols),
+                )
+                df = df[list(allowed_cols & set(df.columns))]
         return df
-        
+
     except Exception as e:
         error_msg = (
             f"Failed to create DataFrame for {operation_name}: {e}. "
@@ -1184,30 +1206,28 @@ def get_path_relative_to(
         ValueError: If the path is not within the base directory or parameters are invalid
     """
     operation_name = "get_path_relative_to"
-    
+
     # Initialize dependency provider for testability
     if _deps is None:
         _deps = get_dependency_provider()
-    
+
     logger.debug(f"Getting relative path: {path} relative to {base_dir}")
-    
+
     # Validate parameters
     if not path:
-        error_msg = (
-            f"Invalid path for {operation_name}: '{path}'. "
-            "path must be a non-empty string or Path object."
+        _extracted_from_get_path_relative_to_30(
+            'Invalid path for ',
+            operation_name,
+            path,
+            "'. path must be a non-empty string or Path object.",
         )
-        logger.error(error_msg)
-        raise FlyRigLoaderError(error_msg)
-    
     if not base_dir:
-        error_msg = (
-            f"Invalid base_dir for {operation_name}: '{base_dir}'. "
-            "base_dir must be a non-empty string or Path object."
+        _extracted_from_get_path_relative_to_30(
+            'Invalid base_dir for ',
+            operation_name,
+            base_dir,
+            "'. base_dir must be a non-empty string or Path object.",
         )
-        logger.error(error_msg)
-        raise FlyRigLoaderError(error_msg)
-    
     try:
         result = _deps.utils.get_relative_path(path, base_dir)
         logger.debug(f"Relative path result: {result}")
@@ -1226,6 +1246,13 @@ def get_path_relative_to(
         )
         logger.error(error_msg)
         raise FlyRigLoaderError(error_msg) from e
+
+
+# TODO Rename this here and in `get_path_relative_to`
+def _extracted_from_get_path_relative_to_30(arg0, operation_name, arg2, arg3):
+    error_msg = f"{arg0}{operation_name}: '{arg2}{arg3}"
+    logger.error(error_msg)
+    raise FlyRigLoaderError(error_msg)
 
 
 def get_path_absolute(
@@ -1248,30 +1275,28 @@ def get_path_absolute(
         ValueError: If parameters are invalid
     """
     operation_name = "get_path_absolute"
-    
+
     # Initialize dependency provider for testability
     if _deps is None:
         _deps = get_dependency_provider()
-    
+
     logger.debug(f"Getting absolute path: {path} with base {base_dir}")
-    
+
     # Validate parameters
     if not path:
-        error_msg = (
-            f"Invalid path for {operation_name}: '{path}'. "
-            "path must be a non-empty string or Path object."
+        _extracted_from_get_path_absolute_30(
+            'Invalid path for ',
+            operation_name,
+            path,
+            "'. path must be a non-empty string or Path object.",
         )
-        logger.error(error_msg)
-        raise FlyRigLoaderError(error_msg)
-    
     if not base_dir:
-        error_msg = (
-            f"Invalid base_dir for {operation_name}: '{base_dir}'. "
-            "base_dir must be a non-empty string or Path object."
+        _extracted_from_get_path_absolute_30(
+            'Invalid base_dir for ',
+            operation_name,
+            base_dir,
+            "'. base_dir must be a non-empty string or Path object.",
         )
-        logger.error(error_msg)
-        raise FlyRigLoaderError(error_msg)
-    
     try:
         result = _deps.utils.get_absolute_path(path, base_dir)
         logger.debug(f"Absolute path result: {result}")
@@ -1283,6 +1308,13 @@ def get_path_absolute(
         )
         logger.error(error_msg)
         raise FlyRigLoaderError(error_msg) from e
+
+
+# TODO Rename this here and in `get_path_absolute`
+def _extracted_from_get_path_absolute_30(arg0, operation_name, arg2, arg3):
+    error_msg = f"{arg0}{operation_name}: '{arg2}{arg3}"
+    logger.error(error_msg)
+    raise FlyRigLoaderError(error_msg)
 
 
 def get_common_base_dir(
