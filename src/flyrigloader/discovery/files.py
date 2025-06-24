@@ -416,23 +416,20 @@ class FileDiscoverer:
             # Use the configurable PatternMatcher for pattern extraction (TST-REF-002)
             if self.pattern_matcher:
                 logger.debug("Using pattern matcher for metadata extraction")
-                # Get the basic matched metadata from the pattern matcher
-                result = self.pattern_matcher.filter_files(files)
-                logger.debug(f"Pattern matcher found metadata for {len(result)} files")
-                
-                # Add the path to each file's metadata
-                for file_path, metadata in result.items():
-                    metadata["path"] = file_path
-                
-                # Add entries for files that didn't match any pattern
+                result = {}
                 unmatched_count = 0
                 for file_path in files:
-                    if file_path not in result:
-                        result[file_path] = {"path": file_path}
+                    metadata = self.pattern_matcher.match_all(file_path)
+                    if metadata is None:
+                        metadata = {}
                         unmatched_count += 1
-                
+                    metadata["path"] = file_path
+                    result[file_path] = metadata
+
                 if unmatched_count > 0:
-                    logger.debug(f"Added basic metadata for {unmatched_count} unmatched files")
+                    logger.debug(
+                        f"Added basic metadata for {unmatched_count} unmatched files"
+                    )
             else:
                 logger.debug("No pattern matcher configured, creating basic metadata")
                 # Create basic metadata with just the path
