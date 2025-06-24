@@ -297,6 +297,38 @@ class TestFileDiscoveryCore:
                 
         assert metadata_found, f"Expected metadata keys {expected_metadata_keys} not found in any file"
 
+    def test_multiple_extract_patterns_combined(self, tmp_path):
+        folder = tmp_path / "smoke_1a_vial2_vflipTrue_PSI40_intensity1_0"
+        folder.mkdir()
+        file_path = folder / "exp_matrix.pklz"
+        file_path.write_text("dummy")
+
+        patterns = [
+            r"parent::^(?P<experiment_type>[^_]+)",
+            r"parent::^[^_]+_(?P<genotype>[0-9]+[a-zA-Z])",
+            r"parent::.*vial(?P<vial>\d+)",
+            r"parent::.*vflip(?P<vflip>True|False)",
+            r"parent::.*PSI(?P<PSI>\d+)",
+            r"parent::.*intensity(?P<intensity>\d+)",
+            r"parent::.*_(?P<replicate>\d+)$",
+        ]
+
+        result = discover_files(
+            directory=str(tmp_path),
+            pattern="*.pklz",
+            extract_patterns=patterns,
+        )
+
+        assert isinstance(result, dict)
+        md = result[str(file_path)]
+        assert md["experiment_type"] == "smoke"
+        assert md["genotype"] == "1a"
+        assert md["vial"] == "2"
+        assert md["vflip"] == "True"
+        assert md["PSI"] == "40"
+        assert md["intensity"] == "1"
+        assert md["replicate"] == "0"
+
     def test_date_parsing_comprehensive(self, temp_filesystem):
         """Test date parsing from various filename formats."""
         # Create files with different date formats

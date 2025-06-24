@@ -324,6 +324,67 @@ class PatternMatcher(PatternMatchingInterface):
             return ["experiment_id", "animal", "condition"]
         
         return None
+
+    def match_all(self, filename: str) -> Optional[Dict[str, str]]:
+        """Match *all* patterns against *filename* and merge metadata.
+
+        Parameters
+        ----------
+        filename:
+            Path to match against the configured patterns.
+
+        Returns
+        -------
+        dict | None
+            Combined metadata from every pattern that matches the file. ``None``
+            if no pattern matches at all.
+        """
+        self._logger.debug(
+            f"Attempting to match all patterns against: {filename}"
+        )
+
+        combined: Dict[str, str] = {}
+
+        for i, pattern in enumerate(self.compiled_patterns):
+            self._logger.debug(f"Trying pattern {i}: {self.patterns[i]}")
+
+            target_type, target_idx = self._targets[i]
+            path_obj = Path(filename)
+
+            if target_type == "filename":
+                candidate = path_obj.name
+            elif target_type == "parent":
+                candidate = path_obj.parent.name
+            elif target_type == "parts":
+                parts = path_obj.parts
+                idx = target_idx if target_idx is not None else 0
+                if idx < 0:
+                    idx = len(parts) + idx
+                if idx < 0 or idx >= len(parts):
+                    self._logger.debug(
+                        f"Skipping pattern {i} due to out-of-range parts index {target_idx} for path {filename}"
+                    )
+                    continue
+                candidate = parts[idx]
+            else:
+                candidate = filename
+
+            self._logger.debug(
+                f"Matching against component '{candidate}' (target={target_type})"
+            )
+
+            if (match := self._regex.search(pattern, candidate)):
+                self._logger.debug(f"Match found with pattern {i}")
+                result = self._extract_groups_from_match(match, i)
+                self._logger.debug(f"Extracted groups: {result}")
+                result = self._process_special_cases(result, filename)
+                combined.update(result)
+
+        if combined:
+            return combined
+
+        self._logger.debug(f"No matches found for {filename}")
+        return None
     
     def _extract_groups_from_match(self, match: re.Match, pattern_idx: int) -> Dict[str, str]:
         """
