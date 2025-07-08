@@ -347,16 +347,19 @@ def _extracted_from__validate_config_parameters_20(operation_name, arg1):
 
 def _load_and_validate_config(
     config_path: Optional[Union[str, Path]],
-    config: Optional[Dict[str, Any]],
+    config: Optional[Union[Dict[str, Any], Any]],
     operation_name: str,
     deps: Optional[DefaultDependencyProvider] = None
 ) -> Dict[str, Any]:
     """
     Load and validate configuration with enhanced error handling.
     
+    Supports both dictionary configurations and LegacyConfigAdapter objects
+    for backward compatibility with enhanced Pydantic-based configurations.
+    
     Args:
         config_path: Path to configuration file
-        config: Pre-loaded configuration dictionary
+        config: Pre-loaded configuration dictionary or LegacyConfigAdapter
         operation_name: Name of the operation for error context
         deps: Dependency provider for testing injection
         
@@ -395,11 +398,32 @@ def _load_and_validate_config(
         logger.debug(f"Using pre-loaded configuration for {operation_name}")
         config_dict = copy.deepcopy(config)
     
-    if not isinstance(config_dict, dict):
+    # Check if config is a LegacyConfigAdapter (duck typing approach)
+    if hasattr(config_dict, 'keys') and hasattr(config_dict, '__getitem__') and hasattr(config_dict, 'get'):
+        # This supports both dict and LegacyConfigAdapter (which implements MutableMapping)
+        logger.debug(f"Configuration is dict-like for {operation_name}")
+        
+        # For LegacyConfigAdapter, we need to convert to dict for backward compatibility
+        if not isinstance(config_dict, dict):
+            try:
+                # Convert LegacyConfigAdapter to dictionary for internal use
+                dict_config = {}
+                for key in config_dict.keys():
+                    dict_config[key] = config_dict[key]
+                config_dict = dict_config
+                logger.debug(f"Converted LegacyConfigAdapter to dictionary for {operation_name}")
+            except Exception as e:
+                error_msg = (
+                    f"Failed to convert configuration to dictionary for {operation_name}: {e}. "
+                    "Configuration must be convertible to dictionary structure."
+                )
+                logger.error(error_msg)
+                raise FlyRigLoaderError(error_msg) from e
+    elif not isinstance(config_dict, dict):
         error_msg = (
             f"Invalid configuration format for {operation_name}: "
-            f"Expected dictionary, got {type(config_dict).__name__}. "
-            "Configuration must be a valid dictionary structure."
+            f"Expected dictionary or dict-like object, got {type(config_dict).__name__}. "
+            "Configuration must be a valid dictionary structure or LegacyConfigAdapter."
         )
         logger.error(error_msg)
         raise FlyRigLoaderError(error_msg)
