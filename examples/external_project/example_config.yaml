@@ -4,6 +4,7 @@
 # ==================================================================================
 # This example demonstrates the new schema-driven configuration system that provides:
 # • Automatic validation of all configuration fields using Pydantic models
+# • Schema validation with comprehensive error reporting and field checking
 # • Clear error messages when configuration is invalid
 # • IDE autocomplete support for configuration fields
 # • Type safety and runtime validation
@@ -71,8 +72,8 @@ datasets:
     # NEW: Vial lists are validated to contain only positive integers
     # NEW: Duplicate vial numbers within the same date are detected
     dates_vials:
-      2023-05-01: [1, 2, 3, 4]
-      2023-05-02: [5, 6, 7, 8]
+      "2023-05-01": [1, 2, 3, 4]
+      "2023-05-02": [5, 6, 7, 8]
     
     # NEW: Optional custom data directory for this specific dataset
     # This overrides the project's major_data_directory for this dataset only
@@ -87,8 +88,8 @@ datasets:
   odor_preference:
     rig: "rig2"
     dates_vials:
-      2023-06-15: [1, 3, 5]
-      2023-06-16: [2, 4, 6]
+      "2023-06-15": [1, 3, 5]
+      "2023-06-16": [2, 4, 6]
     
     # Example of additional metadata that's now formally supported
     # NEW: Any additional fields are preserved (extra = "allow" in Pydantic)
