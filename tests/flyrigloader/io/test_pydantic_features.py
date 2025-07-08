@@ -28,7 +28,7 @@ import yaml
 from hypothesis import given, strategies as st, assume, settings
 from pydantic import ValidationError
 
-from flyrigloader.io.pickle import make_dataframe_from_config
+from flyrigloader.io.transformers import make_dataframe_from_config
 from flyrigloader.io.column_models import (
     ColumnConfig, 
     ColumnConfigDict, 
