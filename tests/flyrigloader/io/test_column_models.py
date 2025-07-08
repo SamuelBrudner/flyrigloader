@@ -25,7 +25,7 @@ def test_models_inherit_basemodel():
     """Ensure core models derive from Pydantic BaseModel."""
     assert issubclass(ColumnConfig, pydantic.BaseModel)
     assert issubclass(ColumnConfigDict, pydantic.BaseModel)
-from flyrigloader.io.pickle import make_dataframe_from_config
+from flyrigloader.io.transformers import make_dataframe_from_config
 
 
 def test_column_config_validation():
