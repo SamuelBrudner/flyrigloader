@@ -178,7 +178,7 @@ def demonstrate_config_introspection(config_path: str) -> Optional[LegacyConfigA
             project_model = config.get_model('project')
             if project_model:
                 print(f"   Project model type: {type(project_model).__name__}")
-                print(f"   Project model fields: {list(project_model.model_fields.keys())}")
+                print(f"   Project model fields: {list(project_model.__class__.model_fields.keys())}")
         
         # Demonstrate iteration and access patterns
         print("\n🔍 Iteration and access patterns:")
