@@ -256,10 +256,8 @@ class DefaultDependencyProvider:
         """Get I/O provider with lazy loading."""
         if self._io_module is None:
             logger.debug("Loading I/O module dependencies")
-            from flyrigloader.io.pickle import (
-                read_pickle_any_format,
-                make_dataframe_from_config
-            )
+            from flyrigloader.io.pickle import read_pickle_any_format
+            from flyrigloader.io.transformers import make_dataframe_from_config
             # get_config_from_source already imported at module level
             
             class IOModule:
