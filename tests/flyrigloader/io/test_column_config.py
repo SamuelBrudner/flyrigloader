@@ -29,7 +29,7 @@ from flyrigloader.io.column_models import (
     get_config_from_source,
     get_default_config_path,
 )
-from flyrigloader.io.pickle import make_dataframe_from_config
+from flyrigloader.io.transformers import make_dataframe_from_config
 
 
 # ============================================================================
