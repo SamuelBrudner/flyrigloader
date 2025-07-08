@@ -1641,7 +1641,8 @@ class TestDecoupledPipelineFunctions:
         assert result == [1, 2, 3]
         
         # Test with validation enabled (should raise error)
-        with pytest.raises(ValueError, match="Invalid data format"):
+        from flyrigloader.api import FlyRigLoaderError
+        with pytest.raises(FlyRigLoaderError, match="Invalid data format"):
             load_data_file('/data/test.pkl', validate_format=True)
         
         # Test with valid dict format
