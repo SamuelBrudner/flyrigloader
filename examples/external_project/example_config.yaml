@@ -1,39 +1,217 @@
 ---
-# Example external project configuration file that integrates with flyrigloader
+# ==================================================================================
+# FLYRIGLOADER CONFIGURATION FILE - ENHANCED WITH PYDANTIC VALIDATION
+# ==================================================================================
+# This example demonstrates the new schema-driven configuration system that provides:
+# • Automatic validation of all configuration fields using Pydantic models
+# • Schema validation with comprehensive error reporting and field checking
+# • Clear error messages when configuration is invalid
+# • IDE autocomplete support for configuration fields
+# • Type safety and runtime validation
+# • Migration compatibility with existing configurations
+# ==================================================================================
+
+# PROJECT CONFIGURATION
+# ===================
 project:
   name: "external_analysis_project"
+  
+  # DIRECTORY CONFIGURATION WITH PATH RESOLUTION PRECEDENCE
+  # ======================================================
+  # NEW: Enhanced path resolution with explicit precedence and logging
+  # The system now follows a clear hierarchy for determining data directories:
+  # 1. Explicit base_directory parameter (highest priority)
+  # 2. Configuration's major_data_directory (this setting)
+  # 3. Environment variable override for CI/CD scenarios
+  # 4. Fallback to current working directory
+  # 
+  # BENEFIT: Every data loading operation now logs exactly which directory
+  # is being used, eliminating path ambiguity issues
   directories:
+    # Primary data directory - will be validated for existence (unless in test mode)
     major_data_directory: "/path/to/fly_data"
+    
+    # Output directory for analysis results
     output_directory: "/path/to/analysis_results"
+    
+    # NEW: Multiple data directories support for future-proofing
+    # This allows different rigs to have data in different locations
+    # Example usage: major_data_directory will be used as default,
+    # but individual rigs can override with their specific paths
+    # alternative_data_directories:
+    #   - "/backup/path/to/fly_data"
+    #   - "/remote/mount/fly_data"
+    
+  # FILE FILTERING CONFIGURATION WITH PATTERN VALIDATION
+  # ===================================================
+  # NEW: All regex patterns are now validated at configuration load time
+  # Invalid patterns will produce clear error messages during initialization
+  # rather than failing during file discovery
   ignore_substrings:
-    - "._"
-    - "temp_"
-    - "debug_"
-    - "test_"
-  mandatory_experiment_strings: []  # No project-wide mandatory strings
+    - "._"        # macOS hidden files
+    - "temp_"     # Temporary files
+    - "debug_"    # Debug output files
+    - "test_"     # Test data files
+    
+  # Project-wide mandatory strings (empty for this example)
+  # These patterns are also validated for proper regex syntax
+  mandatory_experiment_strings: []
 
+# DATASET CONFIGURATION WITH ENHANCED VALIDATION
+# =============================================
+# NEW: Dataset configurations are now validated using Pydantic models
+# This ensures all required fields are present and have correct types
+# Date formats are validated, and vial numbers are checked for consistency
 datasets:
   plume_tracking:
+    # Rig identifier - validated as non-empty string
     rig: "rig1"
+    
+    # Date-vial mapping with automatic validation
+    # NEW: Date format validation ensures YYYY-MM-DD format
+    # NEW: Vial lists are validated to contain only positive integers
+    # NEW: Duplicate vial numbers within the same date are detected
     dates_vials:
-      2023-05-01: [1, 2, 3, 4]
-      2023-05-02: [5, 6, 7, 8]
+      "2023-05-01": [1, 2, 3, 4]
+      "2023-05-02": [5, 6, 7, 8]
+    
+    # NEW: Optional custom data directory for this specific dataset
+    # This overrides the project's major_data_directory for this dataset only
+    # custom_data_directory: "/specific/path/for/plume_tracking"
+    
+    # NEW: Dataset-specific filtering options
+    # These are combined with project-level filters
+    # dataset_filters:
+    #   ignore_substrings: ["dataset_specific_ignore"]
+    #   mandatory_experiment_strings: ["plume"]
 
   odor_preference:
     rig: "rig2"
     dates_vials:
-      2023-06-15: [1, 3, 5]
-      2023-06-16: [2, 4, 6]
+      "2023-06-15": [1, 3, 5]
+      "2023-06-16": [2, 4, 6]
+    
+    # Example of additional metadata that's now formally supported
+    # NEW: Any additional fields are preserved (extra = "allow" in Pydantic)
+    # This maintains forward compatibility while providing validation
+    description: "Odor preference behavioral experiments"
+    researcher: "Dr. Smith"
+    experimental_conditions:
+      temperature: "22-24°C"
+      humidity: "50-60%"
 
+# EXPERIMENT CONFIGURATION WITH PARAMETERS SUPPORT
+# ===============================================
+# NEW: Experiment configurations now support the previously undocumented
+# 'parameters' field with full validation and type safety
 experiments:
   plume_navigation_analysis:
+    # Dataset references - validated to ensure referenced datasets exist
     datasets: ["plume_tracking"]
+    
+    # File filtering specific to this experiment
     filters:
       ignore_substrings: ["failed_run", "calibration"]
       mandatory_experiment_strings: ["plume", "tracking"]
+    
+    # NEW: EXPERIMENT PARAMETERS - PREVIOUSLY UNDOCUMENTED, NOW FULLY SUPPORTED
+    # =======================================================================
+    # This field was previously used but not documented or validated
+    # Now it's part of the formal schema with complete validation support
+    parameters:
+      # Analysis parameters
+      analysis_window_seconds: 300
+      sampling_rate_hz: 30
+      baseline_duration_seconds: 60
+      
+      # Behavioral thresholds
+      movement_threshold_mm: 2.0
+      velocity_threshold_mm_per_s: 5.0
+      
+      # Statistical parameters
+      confidence_interval: 0.95
+      significance_threshold: 0.05
+      
+      # Processing options
+      apply_smoothing: true
+      smoothing_window_size: 5
+      remove_outliers: true
+      outlier_threshold_std: 3.0
+      
+      # NEW: Nested parameter structures are fully supported
+      tracking_parameters:
+        max_track_gap_frames: 10
+        minimum_track_length_frames: 30
+        position_error_threshold_mm: 1.0
+      
+      # NEW: Array parameters with validation
+      roi_coordinates: [100, 100, 400, 300]  # [x, y, width, height]
+      calibration_points: 
+        - [0, 0]
+        - [100, 100]
+        - [200, 200]
 
   odor_preference_experiment:
     datasets: ["odor_preference"]
     filters:
       ignore_substrings: ["control"]
       mandatory_experiment_strings: ["choice", "preference"]
+    
+    # Example of different parameter structure for different experiment types
+    parameters:
+      # Choice experiment parameters
+      choice_duration_seconds: 600
+      acclimation_time_seconds: 120
+      
+      # Odor delivery parameters
+      odor_concentration_ppm: 100
+      air_flow_rate_ml_per_min: 500
+      
+      # Scoring parameters
+      proximity_threshold_mm: 20
+      choice_zone_diameter_mm: 50
+      
+      # Data processing
+      binning_interval_seconds: 30
+      preference_index_calculation: "time_based"  # or "visit_based"
+      
+      # NEW: Custom validator example - this will be checked for valid enum values
+      analysis_mode: "preference_index"  # validated against allowed values
+      
+      # NEW: Path parameters are validated for existence (when not in test mode)
+      # reference_video_path: "/path/to/reference/video.mp4"
+      # calibration_file_path: "/path/to/calibration/data.json"
+
+# MIGRATION GUIDANCE
+# =================
+# EXISTING CONFIGURATIONS: All existing flyrigloader configurations will continue
+# to work without modification. The new Pydantic validation is additive and
+# maintains backward compatibility.
+#
+# BENEFITS OF MIGRATION:
+# • Immediate validation feedback when configuration is loaded
+# • IDE autocomplete and type hints for all configuration fields
+# • Clear error messages pointing to specific configuration issues
+# • Automatic detection of typos in field names
+# • Prevention of common configuration mistakes
+#
+# MIGRATION STEPS:
+# 1. Your existing YAML files work as-is (no changes required)
+# 2. Run flyrigloader with your current config to see validation messages
+# 3. Add any missing required fields identified by validation
+# 4. Take advantage of new features like experiment parameters
+# 5. Use the enhanced logging to verify path resolution is working correctly
+#
+# CUSTOM VALIDATOR USAGE:
+# The new system includes custom validators for:
+# • Path existence checks (configurable for test vs. production environments)
+# • Date format validation (ensures YYYY-MM-DD format)
+# • Regex pattern compilation (validates patterns at load time)
+# • Cross-field validation (ensures dataset references exist)
+# • Numeric range validation (ensures sensible parameter values)
+#
+# DEBUGGING CONFIGURATION ISSUES:
+# If validation fails, you'll see detailed error messages like:
+# "Field 'major_data_directory' in project.directories: path does not exist"
+# "Field 'dates_vials' in dataset 'plume_tracking': invalid date format '2023-5-1'"
+# "Field 'datasets' in experiment 'analysis': dataset 'nonexistent' not found"

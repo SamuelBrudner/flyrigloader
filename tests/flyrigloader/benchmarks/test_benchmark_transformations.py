@@ -41,7 +41,7 @@ import pytest
 from hypothesis import given, strategies as st, settings, assume
 
 # Import the functions under test
-from flyrigloader.io.pickle import make_dataframe_from_config, handle_signal_disp
+from flyrigloader.io.transformers import make_dataframe_from_config, handle_signal_disp
 from flyrigloader.io.column_models import get_config_from_source, ColumnConfigDict
 
 

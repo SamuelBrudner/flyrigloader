@@ -1,8 +1,25 @@
 """
 FlyRigLoader - Tools for managing and controlling fly rigs for neuroscience experiments.
+
+This library provides a modernized, decoupled architecture for loading and transforming
+neuroscience experimental data with enhanced logging support throughout the pipeline.
+
+Key Features:
+- Structured configuration management with Pydantic validation
+- Decoupled data loading and transformation pipeline
+- Enhanced logging capabilities with configurable levels and formats
+- Backward-compatible API for existing downstream tools
+- Support for both file-based and dictionary-based configuration
+
+The logger is available for import and use by transformation utilities and other
+components in the refactored architecture, providing consistent logging across
+the entire data processing pipeline.
 """
 
 __version__ = "0.1.1"
+
+# Explicit exports for decoupled architecture components
+__all__ = ["logger"]
 
 import sys
 import os
@@ -22,38 +39,6 @@ log_format_file = (
     "{level: <8} | "
     "{name}:{function}:{line} - {message}"
 )
-
-def _get_default_log_directory() -> Path:
-    """Get the default log directory path.
-    
-    Returns:
-        Path: Path to the default log directory
-    """
-    # First try to get the log directory from environment variable
-    log_dir = os.environ.get("FLYRIGLOADER_LOG_DIR")
-    if log_dir:
-        return Path(log_dir)
-    
-    # Fall back to a logs directory in the user's home directory
-    home = Path.home()
-    log_dir = home / ".flyrigloader" / "logs"
-    
-    # Create the directory if it doesn't exist
-    log_dir.mkdir(parents=True, exist_ok=True)
-    return log_dir
-
-# Standard log file path
-def _get_log_file_path() -> Path:
-    """Get the path to the log file.
-    
-    Returns:
-        Path: Path to the log file
-    """
-    log_dir = _get_default_log_directory()
-    log_dir.mkdir(parents=True, exist_ok=True)  # Ensure directory exists
-    return log_dir / f"flyrigloader_{os.getpid()}.log"
-
-log_file_path = _get_log_file_path()
 
 
 # --- Logger Configuration Infrastructure ---
@@ -102,17 +87,8 @@ class LoggerConfig:
         self.enable_console_logging = enable_console_logging
         
         # Set default formats if not provided
-        self.console_format = console_format or (
-            "<green>{time:YYYY-MM-DD HH:mm:ss.SSS}</green> | "
-            "<level>{level: <8}</level> | "
-            "<cyan>{module}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - <level>{message}</level>"
-        )
-        
-        self.file_format = file_format or (
-            "{time:YYYY-MM-DD HH:mm:ss.SSS} | "
-            "{level: <8} | "
-            "{name}:{function}:{line} - {message}"
-        )
+        self.console_format = console_format or log_format_console
+        self.file_format = file_format or log_format_file
 
 
 def _validate_logger_config(config: LoggerConfig) -> None:

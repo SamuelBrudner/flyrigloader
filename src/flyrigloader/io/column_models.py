@@ -22,6 +22,28 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 import numpy as np
 import os
 
+# Module exports for the new manifest-based workflow and decoupled transformation architecture
+__all__ = [
+    'ColumnConfigDict',
+    'ColumnConfig', 
+    'SpecialHandlerType',
+    'get_config_from_source',
+    # Additional exports for comprehensive column configuration support
+    'ColumnDimension',
+    'load_column_config',
+    'validate_experimental_data',
+    'transform_to_standardized_format',
+    'DependencyContainer',
+    'ValidationConfig',
+    'get_dependency_container',
+    'set_dependency_container',
+    'reset_dependency_container',
+    'create_test_dependency_container',
+    'register_validation_behavior',
+    'validate_column_config_with_hooks',
+    'get_validation_diagnostics'
+]
+
 # Dependency injection interfaces for testability (TST-REF-001)
 class YamlLoaderProtocol(Protocol):
     """Protocol for YAML loading dependencies to enable comprehensive mocking."""

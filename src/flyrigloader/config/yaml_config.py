@@ -2,6 +2,8 @@
 YAML configuration handling utilities.
 
 Functions for loading, parsing, and accessing configuration data from YAML files.
+Enhanced with Pydantic validation for improved configuration safety while maintaining
+backward compatibility with existing dictionary-based access patterns.
 """
 import logging
 import os
@@ -10,30 +12,50 @@ from typing import Dict, List, Any, Optional, Union, Callable, Protocol, Set
 from abc import abstractmethod
 import yaml
 
+# New imports for Pydantic integration
+from pydantic import ValidationError
+from .models import LegacyConfigAdapter
+from .validators import pattern_validation
+
 # Set up logger with null handler by default
 logger = logging.getLogger(__name__)
 logger.addHandler(logging.NullHandler())
 
 
-def validate_config_dict(config: Dict[str, Any]) -> Dict[str, Any]:
+def validate_config_dict(config: Union[Dict[str, Any], LegacyConfigAdapter]) -> Union[Dict[str, Any], LegacyConfigAdapter]:
     """
-    Validate a configuration dictionary to ensure it has the expected structure.
+    Validate a configuration dictionary or Pydantic model to ensure it has the expected structure.
     
     This function is used to validate Kedro-style parameters dictionaries directly
-    passed to flyrigloader functions.
+    passed to flyrigloader functions, as well as LegacyConfigAdapter objects that
+    wrap Pydantic models.
     
     Args:
-        config: The configuration dictionary to validate
+        config: The configuration dictionary or LegacyConfigAdapter to validate
         
     Returns:
-        The validated configuration dictionary
+        The validated configuration dictionary or LegacyConfigAdapter
         
     Raises:
         ValueError: If the configuration dictionary is invalid
+        ValidationError: If Pydantic validation fails with detailed error reporting
     """
-    # Perform basic structure validation
+    # Handle LegacyConfigAdapter (Pydantic-backed configuration)
+    if isinstance(config, LegacyConfigAdapter):
+        try:
+            # Use the adapter's built-in validation method
+            if config.validate_all():
+                logger.debug("Pydantic-based configuration validation successful")
+                return config
+            else:
+                raise ValueError("Configuration validation failed - see logs for details")
+        except Exception as e:
+            logger.error(f"Pydantic configuration validation error: {e}")
+            raise ValueError(f"Configuration validation failed: {e}") from e
+    
+    # Perform basic structure validation for dictionary input
     if not isinstance(config, dict):
-        raise ValueError("Configuration must be a dictionary")
+        raise ValueError("Configuration must be a dictionary or LegacyConfigAdapter")
     
     # Check for required top-level keys (minimal validation)
     required_sections = []
@@ -41,7 +63,35 @@ def validate_config_dict(config: Dict[str, Any]) -> Dict[str, Any]:
         if section not in config:
             raise ValueError(f"Missing required section in configuration: {section}")
 
-    # Validate dates_vials structure within datasets if present
+    # Enhanced validation with Pydantic integration
+    try:
+        # Create a LegacyConfigAdapter to validate through Pydantic models
+        adapter = LegacyConfigAdapter(config)
+        
+        # Perform comprehensive validation
+        if adapter.validate_all():
+            logger.debug("Enhanced validation with Pydantic models successful")
+            # Return original dict for backward compatibility
+            return config
+        else:
+            logger.warning("Pydantic validation failed, falling back to basic validation")
+            
+    except ValidationError as e:
+        # Extract detailed error information
+        error_details = []
+        for error in e.errors():
+            field_path = " -> ".join(str(loc) for loc in error['loc'])
+            error_msg = f"Field '{field_path}': {error['msg']}"
+            error_details.append(error_msg)
+        
+        detailed_error = f"Configuration validation failed:\n" + "\n".join(error_details)
+        logger.error(detailed_error)
+        raise ValueError(detailed_error) from e
+        
+    except Exception as e:
+        logger.warning(f"Advanced validation failed ({e}), falling back to basic validation")
+
+    # Fallback to legacy validation for datasets structure
     if "datasets" in config:
         datasets = config["datasets"]
         if not isinstance(datasets, dict):
@@ -65,31 +115,63 @@ def validate_config_dict(config: Dict[str, Any]) -> Dict[str, Any]:
                             f"Dataset '{name}' dates_vials value for '{key}' must be a list"
                         )
 
+    logger.debug("Basic configuration validation successful")
     return config
 
 
-def load_config(config_path_or_dict: Union[str, Path, Dict[str, Any]]) -> Dict[str, Any]:
+def load_config(
+    config_path_or_dict: Union[str, Path, Dict[str, Any]], 
+    use_pydantic_models: bool = False
+) -> Union[Dict[str, Any], LegacyConfigAdapter]:
     """
     Load and validate a YAML configuration file or dictionary.
     
     This function loads a YAML configuration from a file path or dictionary,
-    validates its structure, and returns the parsed configuration.
+    validates its structure, and returns the parsed configuration. Enhanced with
+    Pydantic validation support for improved type safety and detailed error reporting.
     
     Args:
         config_path_or_dict: Path to the YAML config file or a dictionary
             containing the configuration.
+        use_pydantic_models: If True, return a LegacyConfigAdapter with Pydantic
+            validation. If False, return a dictionary for backward compatibility.
             
     Returns:
-        dict: The loaded and validated configuration.
+        Union[Dict[str, Any], LegacyConfigAdapter]: The loaded and validated configuration.
+        Returns a dictionary by default for backward compatibility, or a LegacyConfigAdapter
+        when use_pydantic_models=True.
         
     Raises:
         FileNotFoundError: If the config file doesn't exist.
         yaml.YAMLError: If there's an error parsing the YAML.
         ValueError: If the config structure is invalid.
+        ValidationError: If Pydantic validation fails with detailed error reporting.
     """
     # If input is already a dictionary (Kedro-style parameters)
     if isinstance(config_path_or_dict, dict):
-        return validate_config_dict(config_path_or_dict)
+        validated_config = validate_config_dict(config_path_or_dict)
+        
+        # Return appropriate format based on compatibility flag
+        if use_pydantic_models:
+            try:
+                # Create LegacyConfigAdapter for Pydantic-backed access
+                adapter = LegacyConfigAdapter(validated_config)
+                logger.info("Configuration loaded with Pydantic validation enabled")
+                return adapter
+            except ValidationError as e:
+                # Log detailed validation errors
+                error_details = []
+                for error in e.errors():
+                    field_path = " -> ".join(str(loc) for loc in error['loc'])
+                    error_msg = f"Field '{field_path}': {error['msg']}"
+                    error_details.append(error_msg)
+                
+                detailed_error = f"Pydantic configuration validation failed:\n" + "\n".join(error_details)
+                logger.error(detailed_error)
+                raise ValidationError(detailed_error) from e
+        else:
+            logger.debug("Configuration loaded with legacy dictionary format")
+            return validated_config
     
     # Check for invalid input types
     if not isinstance(config_path_or_dict, (str, Path)):
@@ -138,19 +220,48 @@ def load_config(config_path_or_dict: Union[str, Path, Dict[str, Any]]) -> Dict[s
     
     # In test environment, return a mock config if the file doesn't exist
     if is_test_env and not config_path.exists():
-        return {}
+        empty_config = {}
+        if use_pydantic_models:
+            return LegacyConfigAdapter(empty_config)
+        return empty_config
     
     with open(config_path, 'r') as f:
         try:
             # Use safe_load to prevent code execution
-            return yaml.safe_load(f) or {}
+            raw_config = yaml.safe_load(f) or {}
+            
+            # Validate the loaded configuration
+            validated_config = validate_config_dict(raw_config)
+            
+            # Return appropriate format based on compatibility flag
+            if use_pydantic_models:
+                try:
+                    # Create LegacyConfigAdapter for Pydantic-backed access
+                    adapter = LegacyConfigAdapter(validated_config)
+                    logger.info(f"Configuration loaded from {config_path} with Pydantic validation enabled")
+                    return adapter
+                except ValidationError as e:
+                    # Log detailed validation errors
+                    error_details = []
+                    for error in e.errors():
+                        field_path = " -> ".join(str(loc) for loc in error['loc'])
+                        error_msg = f"Field '{field_path}': {error['msg']}"
+                        error_details.append(error_msg)
+                    
+                    detailed_error = f"Pydantic configuration validation failed for {config_path}:\n" + "\n".join(error_details)
+                    logger.error(detailed_error)
+                    raise ValidationError(detailed_error) from e
+            else:
+                logger.debug(f"Configuration loaded from {config_path} with legacy dictionary format")
+                return validated_config
+                
         except yaml.YAMLError as e:
             # Re-raise with additional context while preserving the original exception
             raise yaml.YAMLError(f"Error parsing YAML configuration: {e}") from e
 
 
 def get_ignore_patterns(
-    config: Dict[str, Any],
+    config: Union[Dict[str, Any], LegacyConfigAdapter],
     experiment: Optional[str] = None
 ) -> List[str]:
     """
@@ -158,10 +269,10 @@ def get_ignore_patterns(
     
     This combines project-level ignore patterns with any experiment-specific patterns.
     The patterns from the config are converted to glob patterns if they don't already
-    contain wildcard characters.
+    contain wildcard characters. Now supports both dictionary and Pydantic model inputs.
     
     Args:
-        config: The loaded configuration dictionary
+        config: The loaded configuration dictionary or LegacyConfigAdapter
         experiment: Optional experiment name to get experiment-specific patterns
         
     Returns:
@@ -214,16 +325,17 @@ def _convert_to_glob_pattern(pattern: str) -> str:
 
 
 def get_mandatory_substrings(
-    config: Dict[str, Any],
+    config: Union[Dict[str, Any], LegacyConfigAdapter],
     experiment: Optional[str] = None
 ) -> List[str]:
     """
     Get mandatory substrings from the configuration.
     
     This combines project-level mandatory substrings with any experiment-specific substrings.
+    Now supports both dictionary and Pydantic model inputs.
     
     Args:
-        config: The loaded configuration dictionary
+        config: The loaded configuration dictionary or LegacyConfigAdapter
         experiment: Optional experiment name to get experiment-specific substrings
         
     Returns:
@@ -244,14 +356,14 @@ def get_mandatory_substrings(
 
 
 def get_dataset_info(
-    config: Dict[str, Any],
+    config: Union[Dict[str, Any], LegacyConfigAdapter],
     dataset_name: str
 ) -> Dict[str, Any]:
     """
     Get information about a specific dataset from the configuration.
     
     Args:
-        config: The loaded configuration dictionary
+        config: The loaded configuration dictionary or LegacyConfigAdapter
         dataset_name: Name of the dataset to retrieve
         
     Returns:
@@ -267,14 +379,14 @@ def get_dataset_info(
 
 
 def get_experiment_info(
-    config: Dict[str, Any],
+    config: Union[Dict[str, Any], LegacyConfigAdapter],
     experiment_name: str
 ) -> Dict[str, Any]:
     """
     Get information about a specific experiment from the configuration.
     
     Args:
-        config: The loaded configuration dictionary
+        config: The loaded configuration dictionary or LegacyConfigAdapter
         experiment_name: Name of the experiment to retrieve
         
     Returns:
@@ -289,13 +401,13 @@ def get_experiment_info(
     return config["experiments"][experiment_name]
 
 
-def get_all_experiment_names(config: Dict[str, Any]) -> List[str]:
+def get_all_experiment_names(config: Union[Dict[str, Any], LegacyConfigAdapter]) -> List[str]:
     """Return a list of experiment names defined in the configuration."""
     return list(config.get("experiments", {}).keys())
 
 
 def get_extraction_patterns(
-    config: Dict[str, Any],
+    config: Union[Dict[str, Any], LegacyConfigAdapter],
     experiment: Optional[str] = None,
     dataset_name: Optional[str] = None
 ) -> Optional[List[str]]:
@@ -308,9 +420,10 @@ def get_extraction_patterns(
     3. Dataset-specific extraction patterns (if dataset_name is provided)
     
     Only one of experiment or dataset_name should be provided.
+    Now supports both dictionary and Pydantic model inputs with enhanced pattern validation.
     
     Args:
-        config: The loaded configuration dictionary
+        config: The loaded configuration dictionary or LegacyConfigAdapter
         experiment: Optional experiment name to get extraction patterns for
         dataset_name: Optional dataset name to get extraction patterns for
         
@@ -354,17 +467,34 @@ def get_extraction_patterns(
     seen: Set[str] = set()
     unique_patterns = [p for p in patterns if not (p in seen or seen.add(p))]
 
-    return unique_patterns or None
+    # Validate all patterns using the pattern_validation function
+    if unique_patterns:
+        validated_patterns = []
+        for pattern in unique_patterns:
+            try:
+                # Use pattern_validation to ensure pattern is valid
+                pattern_validation(pattern)
+                validated_patterns.append(pattern)
+                logger.debug(f"Extraction pattern validated: {pattern}")
+            except Exception as e:
+                logger.warning(f"Invalid extraction pattern '{pattern}' ignored: {e}")
+                # Continue with other patterns rather than failing entirely
+                continue
+        
+        return validated_patterns if validated_patterns else None
+    
+    return None
 
 
-def get_all_dataset_names(config: Dict[str, Any]) -> List[str]:
+def get_all_dataset_names(config: Union[Dict[str, Any], LegacyConfigAdapter]) -> List[str]:
     """
     Return a list of all dataset names defined in the configuration.
 
     Enhanced with validation and logging for test observability.
+    Now supports both dictionary and Pydantic model inputs.
 
     Args:
-        config: The loaded configuration dictionary.
+        config: The loaded configuration dictionary or LegacyConfigAdapter.
 
     Returns:
         List of dataset names. Returns an empty list if no datasets are defined.
@@ -374,13 +504,15 @@ def get_all_dataset_names(config: Dict[str, Any]) -> List[str]:
     """
     logger.debug("Retrieving all dataset names from configuration")
 
-    if not isinstance(config, dict):
-        _extracted_from_get_all_dataset_names_19("Configuration must be a dictionary")
+    if not isinstance(config, (dict, LegacyConfigAdapter)):
+        _extracted_from_get_all_dataset_names_19("Configuration must be a dictionary or LegacyConfigAdapter")
+    
     datasets_section = config.get("datasets", {})
     if not isinstance(datasets_section, dict):
         _extracted_from_get_all_dataset_names_19(
             "'datasets' section must be a dictionary"
         )
+    
     dataset_names = list(datasets_section.keys())
     logger.info(f"Found {len(dataset_names)} datasets: {dataset_names}")
     return dataset_names

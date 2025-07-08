@@ -28,10 +28,12 @@ from loguru import logger
 
 # Module under test
 from flyrigloader.io.pickle import (
+    read_pickle_any_format,
+)
+from flyrigloader.io.transformers import (
     extract_columns_from_matrix,
     handle_signal_disp,
     make_dataframe_from_config,
-    read_pickle_any_format,
 )
 from flyrigloader.io.column_models import (
     ColumnConfig,
@@ -462,7 +464,7 @@ def mock_ensure_1d_array(mocker):
         return array
     
     return mocker.patch(
-        'flyrigloader.io.pickle.ensure_1d_array',
+        'flyrigloader.io.transformers.ensure_1d_array',
         side_effect=mock_ensure_1d
     )
 
@@ -487,8 +489,8 @@ ERROR_CONDITIONS = [
 
 # Signal display orientation parameters
 SIGNAL_DISP_ORIENTATIONS = [
-    ('time_first', 'T_X', (10, 5)),  # (T, X) orientation
-    ('signal_first', 'X_T', (5, 10))  # (X, T) orientation  
+    ('time_first', 'T_X', (10, 5)),  # (T, X) orientation: 10 time points, 5 signals each
+    ('signal_first', 'X_T', (10, 5))  # (X, T) orientation: 10 time points, 5 signals each
 ]
 
 
@@ -806,8 +808,9 @@ def test_make_dataframe_signal_disp_handling(exp_matrix_data, comprehensive_colu
     
     # Verify signal_disp content type
     for i in range(len(df)):
-        if pd.notna(df['signal_disp'].iloc[i]):
-            assert isinstance(df['signal_disp'].iloc[i], np.ndarray)
+        element = df['signal_disp'].iloc[i]
+        # signal_disp should always contain numpy arrays after transformation
+        assert isinstance(element, np.ndarray)
 
 
 # =============================================================================
