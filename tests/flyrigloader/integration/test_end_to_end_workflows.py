@@ -53,7 +53,8 @@ from flyrigloader.api import (
 from flyrigloader.config.yaml_config import load_config, get_experiment_info, get_dataset_info
 from flyrigloader.config.discovery import discover_experiment_files, discover_dataset_files
 from flyrigloader.discovery.files import discover_files
-from flyrigloader.io.pickle import read_pickle_any_format, make_dataframe_from_config
+from flyrigloader.io.pickle import read_pickle_any_format
+from flyrigloader.io.transformers import make_dataframe_from_config
 from flyrigloader.io.column_models import ColumnConfigDict, ColumnConfig, ColumnDimension, SpecialHandlerType
 
 
