@@ -24,8 +24,13 @@ from flyrigloader import (
     logger,
     log_format_console,
     log_format_file,
-    log_file_path,
 )
+
+# Create log file path since it's not exported from flyrigloader
+import tempfile
+_log_dir = Path(tempfile.gettempdir()) / "flyrigloader_logs"
+_log_dir.mkdir(exist_ok=True)
+log_file_path = _log_dir / "flyrigloader_analyze.log"
 
 # Import flyrigloader utilities - new decoupled architecture functions
 from flyrigloader.api import (
