@@ -273,22 +273,22 @@ class DefaultDependencyProvider:
         """Get utilities provider with lazy loading."""
         if self._utils_module is None:
             logger.debug("Loading utilities module dependencies")
-            from flyrigloader.discovery.stats import get_file_stats
+            from flyrigloader.discovery.stats import get_file_stats as _get_file_stats
             from flyrigloader.utils.paths import (
-                get_relative_path,
-                get_absolute_path,
-                check_file_exists,
-                ensure_directory_exists,
-                find_common_base_directory
+                get_relative_path as _get_relative_path,
+                get_absolute_path as _get_absolute_path,
+                check_file_exists as _check_file_exists,
+                ensure_directory_exists as _ensure_directory_exists,
+                find_common_base_directory as _find_common_base_directory
             )
             
             class UtilsModule:
-                get_file_stats = staticmethod(get_file_stats)
-                get_relative_path = staticmethod(get_relative_path)
-                get_absolute_path = staticmethod(get_absolute_path)
-                check_file_exists = staticmethod(check_file_exists)
-                ensure_directory_exists = staticmethod(ensure_directory_exists)
-                find_common_base_directory = staticmethod(find_common_base_directory)
+                get_file_stats = staticmethod(_get_file_stats)
+                get_relative_path = staticmethod(_get_relative_path)
+                get_absolute_path = staticmethod(_get_absolute_path)
+                check_file_exists = staticmethod(_check_file_exists)
+                ensure_directory_exists = staticmethod(_ensure_directory_exists)
+                find_common_base_directory = staticmethod(_find_common_base_directory)
             
             self._utils_module = UtilsModule()
         return self._utils_module
