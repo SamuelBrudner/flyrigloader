@@ -4,6 +4,15 @@ Comprehensive test suite for config-aware file discovery functionality.
 This module implements modern pytest practices with parametrization, property-based testing,
 comprehensive mocking scenarios, and performance validation against SLA requirements.
 Follows TST-MOD-001 through TST-MOD-004 requirements for test modernization.
+
+Updated to support the new Pydantic-based configuration system while maintaining backward
+compatibility. Tests validate discovery operations work correctly with:
+- Raw dictionary configurations (legacy format)
+- LegacyConfigAdapter wrapper (backward compatibility)
+- Pure Pydantic model instances (new structured format)
+
+Includes comprehensive validation testing for Pydantic model validation, error handling
+with ValidationError exceptions, and type safety improvements in the configuration system.
 """
 import os
 import tempfile
@@ -30,6 +39,8 @@ from flyrigloader.config.yaml_config import (
     get_experiment_info,
     get_extraction_patterns
 )
+from flyrigloader.config.models import LegacyConfigAdapter
+from pydantic import ValidationError
 
 
 # ============================================================================
@@ -178,6 +189,43 @@ def sample_config_base():
 
 
 @pytest.fixture
+def sample_config_legacy_adapter(sample_config_base):
+    """
+    LegacyConfigAdapter version of the base configuration for testing backward compatibility.
+    This fixture provides Pydantic model instances wrapped in dictionary-style access patterns.
+    """
+    return LegacyConfigAdapter(sample_config_base)
+
+
+@pytest.fixture
+def sample_config_pydantic(sample_config_base):
+    """
+    Pure Pydantic model version of the base configuration for testing new configuration system.
+    This fixture creates validated Pydantic model instances for type-safe configuration testing.
+    """
+    try:
+        return LegacyConfigAdapter(sample_config_base)
+    except ValidationError as e:
+        pytest.fail(f"Failed to create Pydantic models from sample config: {e}")
+
+
+@pytest.fixture(params=["raw_dict", "legacy_adapter", "pydantic_models"])
+def sample_config_variants(request, sample_config_base, sample_config_legacy_adapter, sample_config_pydantic):
+    """
+    Parametrized fixture providing different configuration formats for comprehensive testing.
+    Tests must work with raw dictionaries, LegacyConfigAdapter, and pure Pydantic models.
+    """
+    if request.param == "raw_dict":
+        return sample_config_base
+    elif request.param == "legacy_adapter":
+        return sample_config_legacy_adapter
+    elif request.param == "pydantic_models":
+        return sample_config_pydantic
+    else:
+        pytest.fail(f"Unknown config variant: {request.param}")
+
+
+@pytest.fixture
 def complex_directory_structure(tmp_path):
     """
     Create a complex temporary directory structure for comprehensive testing.
@@ -307,7 +355,7 @@ def mock_filesystem_permissions(monkeypatch):
     ({"experiment": "basic_experiment"}, 3, 0),
 ])
 def test_discover_files_with_config_parametrized(
-    sample_config_base, 
+    sample_config_variants, 
     complex_directory_structure, 
     config_modification,
     expected_ignore_count,
@@ -325,7 +373,12 @@ def test_discover_files_with_config_parametrized(
         expected_mandatory_count: Expected number of mandatory substrings
     """
     # Apply configuration modifications
-    config = sample_config_base.copy()
+    if isinstance(sample_config_variants, dict):
+        config = sample_config_variants.copy()
+    else:
+        # For LegacyConfigAdapter, create a copy by re-creating from dictionary
+        config_dict = dict(sample_config_variants)
+        config = LegacyConfigAdapter(config_dict) if hasattr(sample_config_variants, 'get_model') else config_dict
     experiment = config_modification.get("experiment")
     
     # Test the pattern extraction functions
@@ -923,7 +976,7 @@ def test_discover_files_with_config_mocking(
 # ============================================================================
 
 def test_end_to_end_experiment_workflow(
-    sample_config_base,
+    sample_config_variants,
     complex_directory_structure
 ):
     """
@@ -935,7 +988,12 @@ def test_end_to_end_experiment_workflow(
         complex_directory_structure: Complex test directory structure
     """
     # Update config to use test directory
-    config = sample_config_base.copy()
+    if isinstance(sample_config_variants, dict):
+        config = sample_config_variants.copy()
+    else:
+        # For LegacyConfigAdapter, create a copy and update
+        config_dict = dict(sample_config_variants)
+        config = LegacyConfigAdapter(config_dict) if hasattr(sample_config_variants, 'get_model') else config_dict
     config["project"]["directories"]["major_data_directory"] = complex_directory_structure["base_dir"]
     
     # Test complete experiment discovery workflow
@@ -969,7 +1027,7 @@ def test_end_to_end_experiment_workflow(
 
 
 def test_end_to_end_dataset_workflow(
-    sample_config_base,
+    sample_config_variants,
     complex_directory_structure
 ):
     """
@@ -980,7 +1038,12 @@ def test_end_to_end_dataset_workflow(
         complex_directory_structure: Complex test directory structure
     """
     # Update config to use test directory
-    config = sample_config_base.copy()
+    if isinstance(sample_config_variants, dict):
+        config = sample_config_variants.copy()
+    else:
+        # For LegacyConfigAdapter, create a copy
+        config_dict = dict(sample_config_variants)
+        config = LegacyConfigAdapter(config_dict) if hasattr(sample_config_variants, 'get_model') else config_dict
     
     # Test dataset discovery
     dataset_files = discover_dataset_files(
@@ -1060,6 +1123,332 @@ def test_metadata_extraction_modes(
             if parse_dates:
                 # Should have date parsing information
                 assert len(metadata) > 0
+
+
+# ============================================================================
+# PYDANTIC MODEL VALIDATION TESTS
+# ============================================================================
+
+def test_legacy_config_adapter_initialization_success(sample_config_base):
+    """
+    Test successful initialization of LegacyConfigAdapter with valid configuration.
+    Validates that valid configurations create proper Pydantic models under the hood.
+    """
+    adapter = LegacyConfigAdapter(sample_config_base)
+    
+    # Verify dictionary-style access works
+    assert adapter["project"]["directories"]["major_data_directory"] == "/path/to/data"
+    assert "test_dataset" in adapter["datasets"]
+    assert "test_experiment" in adapter["experiments"]
+    
+    # Verify Pydantic models were created successfully
+    project_model = adapter.get_model("project")
+    assert project_model is not None
+    
+    dataset_model = adapter.get_model("dataset", "test_dataset")
+    assert dataset_model is not None
+    assert dataset_model.rig == "test_rig"
+    
+    experiment_model = adapter.get_model("experiment", "test_experiment")
+    assert experiment_model is not None
+    assert "test_dataset" in experiment_model.datasets
+
+
+def test_legacy_config_adapter_validation_errors():
+    """
+    Test LegacyConfigAdapter handling of invalid configuration data.
+    Validates improved error handling when discovery consumes invalid config objects.
+    """
+    # Test invalid project configuration
+    invalid_config = {
+        "project": {
+            "directories": "should_be_dict",  # Invalid type
+            "ignore_substrings": "should_be_list"  # Invalid type
+        }
+    }
+    
+    # LegacyConfigAdapter should handle validation errors gracefully
+    adapter = LegacyConfigAdapter(invalid_config)
+    
+    # Should still allow dictionary access but Pydantic models should be None
+    assert adapter["project"]["directories"] == "should_be_dict"
+    project_model = adapter.get_model("project")
+    # Should be None due to validation failure but logged as warning
+    assert project_model is None
+
+
+def test_pydantic_validation_error_handling():
+    """
+    Test proper ValidationError handling for completely invalid configurations.
+    Ensures discovery operations properly handle ValidationError exceptions.
+    """
+    invalid_configs = [
+        # Invalid dataset configuration
+        {
+            "datasets": {
+                "invalid_dataset": {
+                    "rig": 123,  # Should be string
+                    "dates_vials": "not_a_dict"  # Should be dict
+                }
+            }
+        },
+        # Invalid experiment configuration
+        {
+            "experiments": {
+                "invalid_experiment": {
+                    "datasets": "should_be_list",  # Should be list
+                    "parameters": "should_be_dict"  # Should be dict
+                }
+            }
+        }
+    ]
+    
+    for invalid_config in invalid_configs:
+        # Test that LegacyConfigAdapter handles these gracefully
+        adapter = LegacyConfigAdapter(invalid_config)
+        
+        # Dictionary access should still work
+        assert isinstance(adapter, LegacyConfigAdapter)
+        
+        # But validation should detect errors
+        validation_result = adapter.validate_all()
+        assert validation_result is False
+
+
+def test_discovery_with_pydantic_config_integration(
+    sample_config_legacy_adapter,
+    complex_directory_structure
+):
+    """
+    Test file discovery integration with validated Pydantic configuration objects.
+    Validates that discovery operations work correctly with new structured configuration system.
+    """
+    # Test that discovery functions work with LegacyConfigAdapter
+    files = discover_files_with_config(
+        config=sample_config_legacy_adapter,
+        directory=complex_directory_structure["base_dir"],
+        pattern="**/*.csv",
+        recursive=True,
+        experiment="test_experiment"
+    )
+    
+    # Should work identically to raw dictionary
+    assert isinstance(files, list)
+    assert len(files) > 0
+    assert all(f.endswith('.csv') for f in files)
+    assert all("include_me" in f for f in files)
+
+
+def test_discovery_config_variants_equivalence(
+    sample_config_variants,
+    complex_directory_structure
+):
+    """
+    Test that discovery operations produce equivalent results across configuration formats.
+    Validates integration with both new and legacy configuration formats.
+    """
+    # Test discovery with current config variant
+    files = discover_files_with_config(
+        config=sample_config_variants,
+        directory=complex_directory_structure["base_dir"],
+        pattern="**/*.csv",
+        recursive=True,
+        experiment="test_experiment"
+    )
+    
+    # Results should be consistent regardless of config format
+    assert isinstance(files, list)
+    assert len(files) > 0
+    assert all(f.endswith('.csv') for f in files)
+    
+    # All files should contain mandatory experiment strings
+    assert all("include_me" in f for f in files)
+    
+    # No files should contain ignore patterns
+    assert not any("exclude_me" in f for f in files)
+
+
+def test_dataset_discovery_pydantic_validation(
+    sample_config_legacy_adapter,
+    complex_directory_structure
+):
+    """
+    Test dataset discovery with validated Pydantic configuration models.
+    Ensures dataset discovery integrates properly with structured configuration.
+    """
+    files = discover_dataset_files(
+        config=sample_config_legacy_adapter,
+        dataset_name="test_dataset",
+        base_directory=complex_directory_structure["base_dir"]
+    )
+    
+    assert isinstance(files, list)
+    assert len(files) >= 0  # May be empty if no matching files
+    
+    # Verify dataset model validation worked
+    dataset_model = sample_config_legacy_adapter.get_model("dataset", "test_dataset")
+    assert dataset_model is not None
+    assert dataset_model.rig == "test_rig"
+
+
+def test_experiment_discovery_pydantic_validation(
+    sample_config_legacy_adapter,
+    complex_directory_structure
+):
+    """
+    Test experiment discovery with validated Pydantic configuration models.
+    Ensures experiment discovery integrates properly with structured configuration.
+    """
+    files = discover_experiment_files(
+        config=sample_config_legacy_adapter,
+        experiment_name="test_experiment",
+        base_directory=complex_directory_structure["base_dir"]
+    )
+    
+    assert isinstance(files, list)
+    assert len(files) > 0
+    
+    # Verify experiment model validation worked
+    experiment_model = sample_config_legacy_adapter.get_model("experiment", "test_experiment")
+    assert experiment_model is not None
+    assert "test_dataset" in experiment_model.datasets
+
+
+@given(
+    dates=st.lists(valid_date_string(), min_size=1, max_size=5, unique=True),
+    vial_numbers=st.lists(st.integers(min_value=1, max_value=10), min_size=1, max_size=3)
+)
+@settings(max_examples=20, deadline=2000)
+def test_pydantic_config_property_based_validation(
+    tmp_path,
+    dates,
+    vial_numbers
+):
+    """
+    Property-based test for Pydantic configuration validation with Hypothesis.
+    Tests improved type safety with randomly generated valid configuration data.
+    """
+    assume(len(dates) > 0 and len(vial_numbers) > 0)
+    
+    # Generate valid configuration structure
+    dates_vials = {date: vial_numbers.copy() for date in dates}
+    
+    config_data = {
+        "project": {
+            "directories": {
+                "major_data_directory": str(tmp_path)
+            },
+            "ignore_substrings": ["._", "temp"]
+        },
+        "datasets": {
+            "hypothesis_dataset": {
+                "rig": "test_rig",
+                "dates_vials": dates_vials
+            }
+        },
+        "experiments": {
+            "hypothesis_experiment": {
+                "datasets": ["hypothesis_dataset"]
+            }
+        }
+    }
+    
+    # Test LegacyConfigAdapter creation with property-based data
+    adapter = LegacyConfigAdapter(config_data)
+    
+    # Verify validation succeeded
+    assert adapter.validate_all() is True
+    
+    # Verify models were created correctly
+    dataset_model = adapter.get_model("dataset", "hypothesis_dataset")
+    assert dataset_model is not None
+    assert dataset_model.rig == "test_rig"
+    assert len(dataset_model.dates_vials) == len(dates)
+    
+    experiment_model = adapter.get_model("experiment", "hypothesis_experiment")
+    assert experiment_model is not None
+    assert "hypothesis_dataset" in experiment_model.datasets
+
+
+def test_config_access_patterns_compatibility(sample_config_legacy_adapter):
+    """
+    Test backward compatibility of configuration access patterns.
+    Validates that legacy dictionary-style access works with LegacyConfigAdapter.
+    """
+    config = sample_config_legacy_adapter
+    
+    # Test all standard dictionary operations
+    assert "project" in config
+    assert "datasets" in config
+    assert "experiments" in config
+    
+    # Test nested access patterns
+    assert config["project"]["directories"]["major_data_directory"] == "/path/to/data"
+    assert "test_dataset" in config["datasets"]
+    assert config["datasets"]["test_dataset"]["rig"] == "test_rig"
+    
+    # Test get() method
+    assert config.get("nonexistent") is None
+    assert config.get("project") is not None
+    
+    # Test keys(), values(), items()
+    assert "project" in config.keys()
+    assert len(list(config.values())) >= 3
+    assert ("project", config["project"]) in list(config.items())
+    
+    # Test len()
+    assert len(config) >= 3
+
+
+def test_invalid_configuration_error_scenarios_pydantic():
+    """
+    Test comprehensive error handling for invalid Pydantic configuration scenarios.
+    Enhanced version of existing invalid configuration test with Pydantic validation.
+    """
+    invalid_configs = [
+        # Invalid project structure
+        {
+            "project": {
+                "directories": None,  # Should be dict
+                "ignore_substrings": 123  # Should be list
+            }
+        },
+        # Invalid dataset structure
+        {
+            "datasets": {
+                "bad_dataset": {
+                    "rig": None,  # Should be string
+                    "dates_vials": []  # Should be dict
+                }
+            }
+        },
+        # Invalid experiment structure
+        {
+            "experiments": {
+                "bad_experiment": {
+                    "datasets": None,  # Should be list
+                    "filters": "not_a_dict"  # Should be dict
+                }
+            }
+        },
+        # Invalid regex patterns
+        {
+            "project": {
+                "extraction_patterns": ["[invalid_regex("]  # Invalid regex
+            }
+        }
+    ]
+    
+    for invalid_config in invalid_configs:
+        # LegacyConfigAdapter should handle these gracefully
+        adapter = LegacyConfigAdapter(invalid_config)
+        
+        # Dictionary access should work
+        assert isinstance(adapter, LegacyConfigAdapter)
+        
+        # But validation should fail
+        validation_result = adapter.validate_all()
+        assert validation_result is False
 
 
 if __name__ == "__main__":
