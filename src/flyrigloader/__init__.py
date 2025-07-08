@@ -1,8 +1,25 @@
 """
 FlyRigLoader - Tools for managing and controlling fly rigs for neuroscience experiments.
+
+This library provides a modernized, decoupled architecture for loading and transforming
+neuroscience experimental data with enhanced logging support throughout the pipeline.
+
+Key Features:
+- Structured configuration management with Pydantic validation
+- Decoupled data loading and transformation pipeline
+- Enhanced logging capabilities with configurable levels and formats
+- Backward-compatible API for existing downstream tools
+- Support for both file-based and dictionary-based configuration
+
+The logger is available for import and use by transformation utilities and other
+components in the refactored architecture, providing consistent logging across
+the entire data processing pipeline.
 """
 
 __version__ = "0.1.1"
+
+# Explicit exports for decoupled architecture components
+__all__ = ["logger"]
 
 import sys
 import os
