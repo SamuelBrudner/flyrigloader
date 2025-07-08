@@ -458,3 +458,17 @@ def transform_to_dataframe(
     
     logger.info(f"Completed DataFrame transformation: {result.shape} DataFrame with {len(result.columns)} columns")
     return result
+
+
+def create_test_dataframe_transformer() -> DataFrameTransformer:
+    """
+    Test utility factory for creating DataFrameTransformer instances.
+    
+    This function provides a clean way to create DataFrameTransformer instances
+    for testing purposes, ensuring consistent initialization across test suites.
+    
+    Returns:
+        DataFrameTransformer: New instance configured for testing
+    """
+    logger.debug("Creating test DataFrameTransformer instance")
+    return DataFrameTransformer()
