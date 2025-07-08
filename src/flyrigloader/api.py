@@ -14,6 +14,8 @@ from abc import ABC, abstractmethod
 import pandas as pd
 from flyrigloader.io.pickle import (
     read_pickle_any_format as _read_pickle_any_format,
+)
+from flyrigloader.io.transformers import (
     make_dataframe_from_config as _make_dataframe_from_config,
 )
 from flyrigloader.io.column_models import get_config_from_source as _get_config_from_source
