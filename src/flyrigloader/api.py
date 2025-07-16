@@ -27,7 +27,12 @@ from flyrigloader.io.transformers import (
 from flyrigloader.io.column_models import get_config_from_source as _get_config_from_source
 
 # New imports for refactored architecture
-from flyrigloader.config.models import LegacyConfigAdapter
+from flyrigloader.config.models import LegacyConfigAdapter, create_config
+from flyrigloader.discovery.files import discover_experiment_manifest as _discover_experiment_manifest
+from flyrigloader.io.loaders import load_data_file as _load_data_file
+from flyrigloader.io.transformers import transform_to_dataframe as _transform_to_dataframe
+import warnings
+import functools
 
 # Re-export helpers for convenience
 read_pickle_any_format = _read_pickle_any_format
@@ -39,6 +44,8 @@ __all__ = [
     "discover_experiment_manifest",
     "load_data_file", 
     "transform_to_dataframe",
+    # Configuration builders
+    "create_config",
     # Existing API functions (maintained for backward compatibility)
     "load_experiment_files",
     "load_dataset_files",
@@ -615,9 +622,9 @@ from flyrigloader.discovery.files import discover_files
 
 
 def discover_experiment_manifest(
-    config_path: Optional[Union[str, Path]] = None,
-    config: Optional[Union[Dict[str, Any], LegacyConfigAdapter]] = None,
+    config: Optional[Union[Dict[str, Any], LegacyConfigAdapter, Any]] = None,
     experiment_name: str = "",
+    config_path: Optional[Union[str, Path]] = None,
     base_directory: Optional[Union[str, Path]] = None,
     pattern: str = "*.*",
     recursive: bool = True,
@@ -634,9 +641,9 @@ def discover_experiment_manifest(
     selective processing, better memory management, and manifest-based workflows.
     
     Args:
-        config_path: Path to the YAML configuration file
-        config: Pre-loaded configuration dictionary or LegacyConfigAdapter
+        config: Pre-loaded configuration dictionary, LegacyConfigAdapter, or Pydantic model
         experiment_name: Name of the experiment to discover files for
+        config_path: Path to the YAML configuration file (alternative to config)
         base_directory: Optional override for the data directory
         pattern: File pattern to search for in glob format (e.g., "*.pkl", "data_*.pkl")
         recursive: Whether to search recursively (defaults to True)
@@ -659,8 +666,13 @@ def discover_experiment_manifest(
         ValueError: If neither config_path nor config is provided, or if both are provided
         
     Example:
+        >>> # Using Pydantic model directly
+        >>> config = create_config(
+        ...     project_name="fly_behavior",
+        ...     base_directory="/data/experiments"
+        ... )
         >>> manifest = discover_experiment_manifest(
-        ...     config_path="config.yaml",
+        ...     config=config,
         ...     experiment_name="plume_navigation_analysis"
         ... )
         >>> print(f"Found {len(manifest)} files")
@@ -678,9 +690,6 @@ def discover_experiment_manifest(
                 f"extensions={extensions}, extract_metadata={extract_metadata}, "
                 f"parse_dates={parse_dates}")
     
-    # Enhanced parameter validation with detailed error messages
-    _validate_config_parameters(config_path, config, operation_name)
-    
     # Validate experiment_name parameter
     if not experiment_name or not isinstance(experiment_name, str):
         error_msg = (
@@ -690,64 +699,54 @@ def discover_experiment_manifest(
         logger.error(error_msg)
         raise FlyRigLoaderError(error_msg)
     
-    # Load and validate configuration with enhanced error handling
-    config_dict = _load_and_validate_config(config_path, config, operation_name, _deps)
-    
-    # Determine the data directory with enhanced validation and logging
-    base_directory = _resolve_base_directory(config_dict, base_directory, operation_name)
-    
-    # Validate experiment exists in configuration
-    try:
-        experiment_info = _deps.config.get_experiment_info(config_dict, experiment_name)
-        logger.debug(f"Found experiment configuration for '{experiment_name}'")
-        logger.debug(f"Experiment datasets: {experiment_info.get('datasets', [])}")
-    except KeyError as e:
-        available_experiments = list(config_dict.get("experiments", {}).keys())
+    # Handle Pydantic model directly or load from config_path
+    if config is not None:
+        # Support direct Pydantic model usage
+        logger.debug("Using provided configuration object (Pydantic model or dict)")
+        config_dict = config
+    elif config_path is not None:
+        # Load from file path
+        logger.debug(f"Loading configuration from file: {config_path}")
+        config_dict = _load_and_validate_config(config_path, None, operation_name, _deps)
+    else:
         error_msg = (
-            f"Experiment '{experiment_name}' not found in configuration. "
-            f"Available experiments: {available_experiments}. "
-            "Please check the experiment name and ensure it's defined in your configuration."
+            f"Either 'config' or 'config_path' must be provided for {operation_name}. "
+            "Please provide either a configuration object or a path to a configuration file."
         )
         logger.error(error_msg)
-        raise KeyError(error_msg) from e
+        raise FlyRigLoaderError(error_msg)
     
-    # Discover experiment files with comprehensive metadata
+    # Use the new decoupled discovery function
     try:
-        logger.debug(f"Starting file discovery for experiment '{experiment_name}'")
-        logger.debug(f"Using base directory: {base_directory}")
+        logger.debug(f"Starting decoupled file discovery for experiment '{experiment_name}'")
         
-        manifest = _deps.discovery.discover_experiment_files(
+        # Call the new discovery function from discovery/files.py
+        file_manifest = _discover_experiment_manifest(
             config=config_dict,
             experiment_name=experiment_name,
-            base_directory=base_directory,
-            pattern=pattern,
-            recursive=recursive,
-            extensions=extensions,
-            extract_metadata=extract_metadata,
-            parse_dates=parse_dates
+            patterns=None,  # Use config patterns
+            parse_dates=parse_dates,
+            include_stats=extract_metadata,
+            test_mode=False
         )
         
-        # Ensure we return a dictionary with metadata (manifest format)
-        if isinstance(manifest, list):
-            # Convert simple file list to manifest format
-            logger.debug("Converting file list to manifest format")
-            manifest_dict = {}
-            for file_path in manifest:
-                manifest_dict[file_path] = {
-                    'path': str(Path(file_path).resolve()),
-                    'size': Path(file_path).stat().st_size if Path(file_path).exists() else 0,
-                    'metadata': {},
-                    'parsed_dates': {}
-                }
-            manifest = manifest_dict
+        # Convert FileManifest to dictionary format for backward compatibility
+        manifest_dict = {}
+        for file_info in file_manifest.files:
+            manifest_dict[file_info.path] = {
+                'path': file_info.path,
+                'size': file_info.size or 0,
+                'metadata': file_info.extracted_metadata,
+                'parsed_dates': {'parsed_date': file_info.parsed_date} if file_info.parsed_date else {}
+            }
         
-        file_count = len(manifest)
-        total_size = sum(item.get('size', 0) for item in manifest.values())
+        file_count = len(manifest_dict)
+        total_size = sum(item.get('size', 0) for item in manifest_dict.values())
         logger.info(f"✓ Discovered {file_count} files for experiment '{experiment_name}'")
         logger.info(f"  Total data size: {total_size:,} bytes ({total_size / (1024**2):.1f} MB)")
-        logger.debug(f"  Sample files: {list(manifest.keys())[:3]}{'...' if file_count > 3 else ''}")
+        logger.debug(f"  Sample files: {list(manifest_dict.keys())[:3]}{'...' if file_count > 3 else ''}")
         
-        return manifest
+        return manifest_dict
         
     except Exception as e:
         error_msg = (
@@ -761,18 +760,21 @@ def discover_experiment_manifest(
 def load_data_file(
     file_path: Union[str, Path],
     validate_format: bool = True,
+    loader: Optional[str] = None,
     _deps: Optional[DefaultDependencyProvider] = None
 ) -> Dict[str, Any]:
     """
     Load raw data from a single file without DataFrame transformation.
     
     This function implements the second step of the new decoupled architecture,
-    providing selective data loading from individual files. This enables
-    memory-efficient processing of large datasets and selective analysis workflows.
+    providing selective data loading from individual files using the registry-based
+    loader system. This enables memory-efficient processing of large datasets and
+    selective analysis workflows.
     
     Args:
         file_path: Path to the data file to load
         validate_format: Whether to validate the loaded data format (default True)
+        loader: Optional loader identifier for explicit loader selection
         _deps: Optional dependency provider for testing injection (internal parameter)
         
     Returns:
@@ -806,20 +808,10 @@ def load_data_file(
         logger.error(error_msg)
         raise FlyRigLoaderError(error_msg)
     
-    # Convert to Path for validation
-    file_path_obj = Path(file_path)
-    if not file_path_obj.exists():
-        error_msg = (
-            f"Data file not found for {operation_name}: {file_path}. "
-            "Please ensure the file exists and the path is correct."
-        )
-        logger.error(error_msg)
-        raise FlyRigLoaderError(error_msg)
-    
-    # Load the raw data with enhanced error handling
+    # Use the new decoupled loading function
     try:
-        logger.debug(f"Reading raw data from: {file_path}")
-        raw_data = _deps.io.read_pickle_any_format(file_path)
+        logger.debug(f"Loading raw data using decoupled loader: {file_path}")
+        raw_data = _load_data_file(file_path, loader)
         
         # Validate format if requested
         if validate_format:
@@ -835,7 +827,8 @@ def load_data_file(
                 if 't' not in raw_data:
                     logger.warning("Time column 't' not found in data - may cause issues in downstream processing")
         
-        file_size = file_path_obj.stat().st_size
+        file_path_obj = Path(file_path)
+        file_size = file_path_obj.stat().st_size if file_path_obj.exists() else 0
         logger.debug(f"✓ Successfully loaded {len(raw_data) if isinstance(raw_data, dict) else 'N/A'} data columns from {file_path}")
         logger.debug(f"  File size: {file_size:,} bytes")
         
@@ -934,10 +927,9 @@ def transform_to_dataframe(
     if metadata:
         logger.debug(f"Adding metadata: {list(metadata.keys())}")
     
-    # Use the imported transform_to_dataframe function from transformers module
+    # Use the new decoupled transformation function
     try:
-        logger.debug("Calling DataFrame transformation utility")
-        from flyrigloader.io.transformers import transform_to_dataframe as _transform_to_dataframe
+        logger.debug("Calling DataFrame transformation utility from decoupled architecture")
         df = _transform_to_dataframe(
             exp_matrix=raw_data,
             config_source=column_config_path,
@@ -992,9 +984,9 @@ def transform_to_dataframe(
 
 
 def load_experiment_files(
-    config_path: Optional[Union[str, Path]] = None,
-    config: Optional[Dict[str, Any]] = None,
+    config: Optional[Union[Dict[str, Any], Any]] = None,
     experiment_name: str = "",
+    config_path: Optional[Union[str, Path]] = None,
     base_directory: Optional[Union[str, Path]] = None,
     pattern: str = "*.*",
     recursive: bool = True,
@@ -1007,12 +999,13 @@ def load_experiment_files(
     High-level function to load files for a specific experiment with enhanced testability.
     
     This function supports comprehensive dependency injection for testing scenarios
-    through the _deps parameter, enabling pytest.monkeypatch patterns.
+    through the _deps parameter, enabling pytest.monkeypatch patterns. It now accepts
+    Pydantic models directly for improved type safety.
     
     Args:
-        config_path: Path to the YAML configuration file
-        config: Pre-loaded configuration dictionary (can be a Kedro-style parameters dictionary)
+        config: Pre-loaded configuration dictionary, Pydantic model, or LegacyConfigAdapter
         experiment_name: Name of the experiment to load files for
+        config_path: Path to the YAML configuration file (alternative to config)
         base_directory: Optional override for the data directory (if not specified, uses config)
         pattern: File pattern to search for in glob format (e.g., "*.csv", "data_*.pkl")
         recursive: Whether to search recursively (defaults to True)
@@ -1029,6 +1022,18 @@ def load_experiment_files(
         FileNotFoundError: If the config file doesn't exist
         KeyError: If the experiment doesn't exist in the config
         ValueError: If neither config_path nor config is provided, or if both are provided
+        
+    Example:
+        >>> # Using Pydantic model directly
+        >>> config = create_config(
+        ...     project_name="fly_behavior",
+        ...     base_directory="/data/experiments"
+        ... )
+        >>> files = load_experiment_files(
+        ...     config=config,
+        ...     experiment_name="plume_navigation"
+        ... )
+        >>> print(f"Found {len(files)} files")
     """
     operation_name = "load_experiment_files"
     
@@ -1041,9 +1046,6 @@ def load_experiment_files(
                 f"extensions={extensions}, extract_metadata={extract_metadata}, "
                 f"parse_dates={parse_dates}")
     
-    # Enhanced parameter validation with detailed error messages
-    _validate_config_parameters(config_path, config, operation_name)
-    
     # Validate experiment_name parameter
     if not experiment_name or not isinstance(experiment_name, str):
         error_msg = (
@@ -1053,8 +1055,22 @@ def load_experiment_files(
         logger.error(error_msg)
         raise FlyRigLoaderError(error_msg)
     
-    # Load and validate configuration with enhanced error handling
-    config_dict = _load_and_validate_config(config_path, config, operation_name, _deps)
+    # Handle Pydantic model directly or load from config_path
+    if config is not None:
+        # Support direct Pydantic model usage
+        logger.debug("Using provided configuration object (Pydantic model, LegacyConfigAdapter, or dict)")
+        config_dict = config
+    elif config_path is not None:
+        # Load from file path
+        logger.debug(f"Loading configuration from file: {config_path}")
+        config_dict = _load_and_validate_config(config_path, None, operation_name, _deps)
+    else:
+        error_msg = (
+            f"Either 'config' or 'config_path' must be provided for {operation_name}. "
+            "Please provide either a configuration object or a path to a configuration file."
+        )
+        logger.error(error_msg)
+        raise FlyRigLoaderError(error_msg)
     
     # Determine the data directory with enhanced validation
     base_directory = _resolve_base_directory(config_dict, base_directory, operation_name)
@@ -1103,9 +1119,9 @@ def load_experiment_files(
 
 
 def load_dataset_files(
-    config_path: Optional[Union[str, Path]] = None,
-    config: Optional[Dict[str, Any]] = None,
+    config: Optional[Union[Dict[str, Any], Any]] = None,
     dataset_name: str = "",
+    config_path: Optional[Union[str, Path]] = None,
     base_directory: Optional[Union[str, Path]] = None,
     pattern: str = "*.*",
     recursive: bool = True,
@@ -1118,12 +1134,13 @@ def load_dataset_files(
     High-level function to load files for a specific dataset with enhanced testability.
     
     This function supports comprehensive dependency injection for testing scenarios
-    through the _deps parameter, enabling pytest.monkeypatch patterns.
+    through the _deps parameter, enabling pytest.monkeypatch patterns. It now accepts
+    Pydantic models directly for improved type safety.
     
     Args:
-        config_path: Path to the YAML configuration file
-        config: Pre-loaded configuration dictionary (can be a Kedro-style parameters dictionary)
+        config: Pre-loaded configuration dictionary, Pydantic model, or LegacyConfigAdapter
         dataset_name: Name of the dataset to load files for
+        config_path: Path to the YAML configuration file (alternative to config)
         base_directory: Optional override for the data directory (if not specified, uses config)
         pattern: File pattern to search for in glob format (e.g., "*.csv", "data_*.pkl")
         recursive: Whether to search recursively (defaults to True)
@@ -1140,6 +1157,18 @@ def load_dataset_files(
         FileNotFoundError: If the config file doesn't exist
         KeyError: If the dataset doesn't exist in the config
         ValueError: If neither config_path nor config is provided, or if both are provided
+        
+    Example:
+        >>> # Using Pydantic model directly
+        >>> config = create_config(
+        ...     project_name="fly_behavior",
+        ...     base_directory="/data/experiments"
+        ... )
+        >>> files = load_dataset_files(
+        ...     config=config,
+        ...     dataset_name="plume_tracking"
+        ... )
+        >>> print(f"Found {len(files)} files")
     """
     operation_name = "load_dataset_files"
     
@@ -1152,9 +1181,6 @@ def load_dataset_files(
                 f"extensions={extensions}, extract_metadata={extract_metadata}, "
                 f"parse_dates={parse_dates}")
     
-    # Enhanced parameter validation with detailed error messages
-    _validate_config_parameters(config_path, config, operation_name)
-    
     # Validate dataset_name parameter
     if not dataset_name or not isinstance(dataset_name, str):
         error_msg = (
@@ -1164,8 +1190,22 @@ def load_dataset_files(
         logger.error(error_msg)
         raise FlyRigLoaderError(error_msg)
     
-    # Load and validate configuration with enhanced error handling
-    config_dict = _load_and_validate_config(config_path, config, operation_name, _deps)
+    # Handle Pydantic model directly or load from config_path
+    if config is not None:
+        # Support direct Pydantic model usage
+        logger.debug("Using provided configuration object (Pydantic model, LegacyConfigAdapter, or dict)")
+        config_dict = config
+    elif config_path is not None:
+        # Load from file path
+        logger.debug(f"Loading configuration from file: {config_path}")
+        config_dict = _load_and_validate_config(config_path, None, operation_name, _deps)
+    else:
+        error_msg = (
+            f"Either 'config' or 'config_path' must be provided for {operation_name}. "
+            "Please provide either a configuration object or a path to a configuration file."
+        )
+        logger.error(error_msg)
+        raise FlyRigLoaderError(error_msg)
     
     # Determine the data directory with enhanced validation
     base_directory = _resolve_base_directory(config_dict, base_directory, operation_name)
@@ -1214,21 +1254,22 @@ def load_dataset_files(
 
 
 def get_experiment_parameters(
-    config_path: Optional[Union[str, Path]] = None,
-    config: Optional[Dict[str, Any]] = None,
+    config: Optional[Union[Dict[str, Any], Any]] = None,
     experiment_name: str = "",
+    config_path: Optional[Union[str, Path]] = None,
     _deps: Optional[DefaultDependencyProvider] = None
 ) -> Dict[str, Any]:
     """
     Get parameters for a specific experiment with enhanced testability.
     
     This function supports comprehensive dependency injection for testing scenarios
-    through the _deps parameter, enabling pytest.monkeypatch patterns.
+    through the _deps parameter, enabling pytest.monkeypatch patterns. It now accepts
+    Pydantic models directly for improved type safety.
     
     Args:
-        config_path: Path to the YAML configuration file
-        config: Pre-loaded configuration dictionary (can be a Kedro-style parameters dictionary)
+        config: Pre-loaded configuration dictionary, Pydantic model, or LegacyConfigAdapter
         experiment_name: Name of the experiment to get parameters for
+        config_path: Path to the YAML configuration file (alternative to config)
         _deps: Optional dependency provider for testing injection (internal parameter)
         
     Returns:
@@ -1238,6 +1279,18 @@ def get_experiment_parameters(
         FileNotFoundError: If the config file doesn't exist
         KeyError: If the experiment doesn't exist in the config
         ValueError: If neither config_path nor config is provided, or if both are provided
+        
+    Example:
+        >>> # Using Pydantic model directly
+        >>> config = create_config(
+        ...     project_name="fly_behavior",
+        ...     base_directory="/data/experiments"
+        ... )
+        >>> params = get_experiment_parameters(
+        ...     config=config,
+        ...     experiment_name="plume_navigation"
+        ... )
+        >>> print(f"Found {len(params)} parameters")
     """
     operation_name = "get_experiment_parameters"
     
@@ -1246,9 +1299,6 @@ def get_experiment_parameters(
         _deps = get_dependency_provider()
     
     logger.info(f"Getting parameters for experiment '{experiment_name}'")
-    
-    # Enhanced parameter validation with detailed error messages
-    _validate_config_parameters(config_path, config, operation_name)
     
     # Validate experiment_name parameter
     if not experiment_name or not isinstance(experiment_name, str):
@@ -1259,8 +1309,22 @@ def get_experiment_parameters(
         logger.error(error_msg)
         raise FlyRigLoaderError(error_msg)
     
-    # Load and validate configuration with enhanced error handling
-    config_dict = _load_and_validate_config(config_path, config, operation_name, _deps)
+    # Handle Pydantic model directly or load from config_path
+    if config is not None:
+        # Support direct Pydantic model usage
+        logger.debug("Using provided configuration object (Pydantic model, LegacyConfigAdapter, or dict)")
+        config_dict = config
+    elif config_path is not None:
+        # Load from file path
+        logger.debug(f"Loading configuration from file: {config_path}")
+        config_dict = _load_and_validate_config(config_path, None, operation_name, _deps)
+    else:
+        error_msg = (
+            f"Either 'config' or 'config_path' must be provided for {operation_name}. "
+            "Please provide either a configuration object or a path to a configuration file."
+        )
+        logger.error(error_msg)
+        raise FlyRigLoaderError(error_msg)
     
     # Get experiment info with enhanced error handling
     try:
@@ -1286,21 +1350,22 @@ def get_experiment_parameters(
 
 
 def get_dataset_parameters(
-    config_path: Optional[Union[str, Path]] = None,
-    config: Optional[Dict[str, Any]] = None,
+    config: Optional[Union[Dict[str, Any], Any]] = None,
     dataset_name: str = "",
+    config_path: Optional[Union[str, Path]] = None,
     _deps: Optional[DefaultDependencyProvider] = None
 ) -> Dict[str, Any]:
     """
     Get parameters for a specific dataset with enhanced testability.
     
     This function supports comprehensive dependency injection for testing scenarios
-    through the _deps parameter, enabling pytest.monkeypatch patterns.
+    through the _deps parameter, enabling pytest.monkeypatch patterns. It now accepts
+    Pydantic models directly for improved type safety.
     
     Args:
-        config_path: Path to the YAML configuration file
-        config: Pre-loaded configuration dictionary (can be a Kedro-style parameters dictionary)
+        config: Pre-loaded configuration dictionary, Pydantic model, or LegacyConfigAdapter
         dataset_name: Name of the dataset to get parameters for
+        config_path: Path to the YAML configuration file (alternative to config)
         _deps: Optional dependency provider for testing injection (internal parameter)
         
     Returns:
@@ -1310,6 +1375,18 @@ def get_dataset_parameters(
         FileNotFoundError: If the config file doesn't exist
         KeyError: If the dataset doesn't exist in the config
         ValueError: If neither config_path nor config is provided, or if both are provided
+        
+    Example:
+        >>> # Using Pydantic model directly
+        >>> config = create_config(
+        ...     project_name="fly_behavior",
+        ...     base_directory="/data/experiments"
+        ... )
+        >>> params = get_dataset_parameters(
+        ...     config=config,
+        ...     dataset_name="plume_tracking"
+        ... )
+        >>> print(f"Found {len(params)} parameters")
     """
     operation_name = "get_dataset_parameters"
     
@@ -1318,9 +1395,6 @@ def get_dataset_parameters(
         _deps = get_dependency_provider()
     
     logger.info(f"Getting parameters for dataset '{dataset_name}'")
-    
-    # Enhanced parameter validation with detailed error messages
-    _validate_config_parameters(config_path, config, operation_name)
     
     # Validate dataset_name parameter
     if not dataset_name or not isinstance(dataset_name, str):
@@ -1331,8 +1405,22 @@ def get_dataset_parameters(
         logger.error(error_msg)
         raise FlyRigLoaderError(error_msg)
     
-    # Load and validate configuration with enhanced error handling
-    config_dict = _load_and_validate_config(config_path, config, operation_name, _deps)
+    # Handle Pydantic model directly or load from config_path
+    if config is not None:
+        # Support direct Pydantic model usage
+        logger.debug("Using provided configuration object (Pydantic model, LegacyConfigAdapter, or dict)")
+        config_dict = config
+    elif config_path is not None:
+        # Load from file path
+        logger.debug(f"Loading configuration from file: {config_path}")
+        config_dict = _load_and_validate_config(config_path, None, operation_name, _deps)
+    else:
+        error_msg = (
+            f"Either 'config' or 'config_path' must be provided for {operation_name}. "
+            "Please provide either a configuration object or a path to a configuration file."
+        )
+        logger.error(error_msg)
+        raise FlyRigLoaderError(error_msg)
     
     # Get dataset info with enhanced error handling
     try:
@@ -1357,6 +1445,25 @@ def get_dataset_parameters(
     return parameters
 
 
+def deprecated(reason: str, alternative: str):
+    """Decorator for marking deprecated functions."""
+    def decorator(func):
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            warnings.warn(
+                f"{func.__name__} is deprecated. {reason}. Use {alternative} instead.",
+                DeprecationWarning,
+                stacklevel=2
+            )
+            return func(*args, **kwargs)
+        return wrapper
+    return decorator
+
+
+@deprecated(
+    reason="Monolithic approach is less flexible. Use the new decoupled architecture",
+    alternative="load_data_file() + transform_to_dataframe()"
+)
 def process_experiment_data(
     data_path: Union[str, Path],
     *,
@@ -1367,6 +1474,10 @@ def process_experiment_data(
 ) -> pd.DataFrame:
     """
     Process experimental data and return a pandas DataFrame with a guaranteed `file_path` column.
+    
+    .. deprecated:: 
+        This function is deprecated. The monolithic approach is less flexible. 
+        Use the new decoupled architecture with load_data_file() + transform_to_dataframe() instead.
     
     This function maintains backward compatibility while internally using the new decoupled
     architecture (load_data_file + transform_to_dataframe). It provides the same API surface
@@ -1391,7 +1502,13 @@ def process_experiment_data(
         ValueError: If required columns are missing from the data or path is invalid
         
     Example:
+        >>> # Deprecated approach
         >>> df = process_experiment_data("experiment_data.pkl")
+        >>> print(f"Processed {len(df)} rows with columns: {list(df.columns)}")
+        
+        >>> # New decoupled approach (recommended)
+        >>> raw_data = load_data_file("experiment_data.pkl")
+        >>> df = transform_to_dataframe(raw_data, file_path="experiment_data.pkl")
         >>> print(f"Processed {len(df)} rows with columns: {list(df.columns)}")
     """
     operation_name = "process_experiment_data"
