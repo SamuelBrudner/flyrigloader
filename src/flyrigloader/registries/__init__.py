@@ -257,6 +257,9 @@ class LoaderRegistry(BaseRegistry):
         Returns:
             Loader class if registered, None otherwise
         """
+        if extension is None:
+            return None
+            
         if not extension.startswith('.'):
             extension = f'.{extension}'
         
@@ -304,9 +307,23 @@ class LoaderRegistry(BaseRegistry):
         if not isinstance(item, type):
             return False
         
-        # Check if class implements BaseLoader protocol
+        # Check if class implements BaseLoader protocol by checking required methods
+        required_methods = ['load', 'supports_extension']
+        required_properties = ['priority']
+        
         try:
-            return issubclass(item, BaseLoader) or isinstance(item(), BaseLoader)
+            # Check if all required methods exist
+            for method in required_methods:
+                if not hasattr(item, method):
+                    return False
+            
+            # Check if all required properties exist by creating instance
+            instance = item()
+            for prop in required_properties:
+                if not hasattr(instance, prop):
+                    return False
+            
+            return True
         except (TypeError, AttributeError):
             return False
     
@@ -466,9 +483,23 @@ class SchemaRegistry(BaseRegistry):
         if not isinstance(item, type):
             return False
         
-        # Check if class implements BaseSchema protocol
+        # Check if class implements BaseSchema protocol by checking required methods
+        required_methods = ['validate']
+        required_properties = ['schema_name', 'supported_types']
+        
         try:
-            return issubclass(item, BaseSchema) or isinstance(item(), BaseSchema)
+            # Check if all required methods exist
+            for method in required_methods:
+                if not hasattr(item, method):
+                    return False
+            
+            # Check if all required properties exist by creating instance
+            instance = item()
+            for prop in required_properties:
+                if not hasattr(instance, prop):
+                    return False
+            
+            return True
         except (TypeError, AttributeError):
             return False
     
