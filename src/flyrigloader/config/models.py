@@ -62,7 +62,7 @@ class ProjectConfig(BaseModel):
     )
     
     ignore_substrings: Optional[List[str]] = Field(
-        default=None,
+        default_factory=lambda: ["._", "temp", "backup", ".tmp", "~", ".DS_Store"],
         description="List of substring patterns to ignore during file discovery",
         json_schema_extra={
             "example": ["._", "temp", "backup"]
@@ -78,7 +78,12 @@ class ProjectConfig(BaseModel):
     )
     
     extraction_patterns: Optional[List[str]] = Field(
-        default=None,
+        default_factory=lambda: [
+            r"(?P<date>\d{4}-\d{2}-\d{2})",  # ISO date format
+            r"(?P<date>\d{8})",  # Compact date format
+            r"(?P<subject>\w+)",  # Subject identifier
+            r"(?P<rig>rig\d+)",  # Rig identifier
+        ],
         description="List of regex patterns for extracting metadata from filenames",
         json_schema_extra={
             "example": [r"(?P<date>\d{4}-\d{2}-\d{2})", r"(?P<subject>\w+)"]
@@ -237,7 +242,16 @@ class DatasetConfig(BaseModel):
     )
     
     metadata: Optional[Dict[str, Any]] = Field(
-        default=None,
+        default_factory=lambda: {
+            "created_by": "flyrigloader",
+            "dataset_type": "behavioral",
+            "extraction_patterns": [
+                r"(?P<temperature>\d+)C",
+                r"(?P<humidity>\d+)%",
+                r"(?P<trial_number>\d+)",
+                r"(?P<condition>\w+_condition)",
+            ],
+        },
         description="Optional metadata dictionary for dataset-specific information",
         json_schema_extra={
             "example": {
@@ -376,7 +390,13 @@ class ExperimentConfig(BaseModel):
     )
     
     parameters: Optional[Dict[str, Any]] = Field(
-        default=None,
+        default_factory=lambda: {
+            "analysis_window": 10.0,
+            "sampling_rate": 1000.0,
+            "threshold": 0.5,
+            "method": "correlation",
+            "confidence_level": 0.95,
+        },
         description="Dictionary of experiment-specific parameters",
         json_schema_extra={
             "example": {
@@ -388,7 +408,10 @@ class ExperimentConfig(BaseModel):
     )
     
     filters: Optional[Dict[str, Any]] = Field(
-        default=None,
+        default_factory=lambda: {
+            "ignore_substrings": ["temp", "backup", "test"],
+            "mandatory_experiment_strings": ["experiment", "trial"],
+        },
         description="Dictionary containing filter configurations",
         json_schema_extra={
             "example": {
@@ -399,7 +422,11 @@ class ExperimentConfig(BaseModel):
     )
     
     metadata: Optional[Dict[str, Any]] = Field(
-        default=None,
+        default_factory=lambda: {
+            "created_by": "flyrigloader",
+            "analysis_type": "behavioral",
+            "description": "Automated experiment configuration",
+        },
         description="Optional metadata dictionary for experiment-specific information",
         json_schema_extra={
             "example": {
@@ -719,3 +746,545 @@ class LegacyConfigAdapter(MutableMapping):
         except Exception as e:
             logger.error(f"Configuration validation failed: {e}")
             return False
+
+
+# Builder functions for programmatic configuration creation
+
+def create_config(
+    project_name: str,
+    base_directory: Union[str, Path],
+    datasets: Optional[List[str]] = None,
+    experiments: Optional[List[str]] = None,
+    directories: Optional[Dict[str, Any]] = None,
+    ignore_substrings: Optional[List[str]] = None,
+    mandatory_experiment_strings: Optional[List[str]] = None,
+    extraction_patterns: Optional[List[str]] = None,
+    **kwargs
+) -> ProjectConfig:
+    """
+    Builder function for creating validated ProjectConfig objects programmatically.
+    
+    This function provides a convenient way to create project configurations without
+    requiring YAML files, reducing configuration boilerplate and enabling code-driven
+    configuration creation with comprehensive defaults.
+    
+    Args:
+        project_name: Name of the project for identification
+        base_directory: Base directory path for the project
+        datasets: List of dataset names to include in the project
+        experiments: List of experiment names to include in the project
+        directories: Dictionary of directory paths (auto-populated with defaults)
+        ignore_substrings: List of substring patterns to ignore during file discovery
+        mandatory_experiment_strings: List of strings that must be present in experiment files
+        extraction_patterns: List of regex patterns for extracting metadata from filenames
+        **kwargs: Additional fields for forward compatibility
+    
+    Returns:
+        ProjectConfig: Validated Pydantic model instance
+    
+    Raises:
+        ValueError: If configuration validation fails
+        
+    Example:
+        >>> config = create_config(
+        ...     project_name="fly_behavior_analysis",
+        ...     base_directory="/data/fly_experiments",
+        ...     datasets=["plume_tracking", "odor_response"],
+        ...     experiments=["navigation_test", "choice_assay"]
+        ... )
+        >>> print(config.directories["major_data_directory"])
+        /data/fly_experiments
+    """
+    logger.debug(f"Creating ProjectConfig for project: {project_name}")
+    
+    # Ensure base_directory is a Path object
+    base_path = Path(base_directory)
+    
+    # Auto-populate directories with sensible defaults
+    if directories is None:
+        directories = {}
+    
+    # Provide default major_data_directory if not specified
+    if "major_data_directory" not in directories:
+        directories["major_data_directory"] = str(base_path)
+    
+    # Add common directory defaults
+    directories.setdefault("backup_directory", str(base_path / "backup"))
+    directories.setdefault("processed_directory", str(base_path / "processed"))
+    directories.setdefault("output_directory", str(base_path / "output"))
+    
+    # Provide sensible defaults for ignore patterns
+    if ignore_substrings is None:
+        ignore_substrings = ["._", "temp", "backup", ".tmp", "~", ".DS_Store"]
+    
+    # Provide default extraction patterns for common use cases
+    if extraction_patterns is None:
+        extraction_patterns = [
+            r"(?P<date>\d{4}-\d{2}-\d{2})",  # ISO date format
+            r"(?P<date>\d{8})",  # Compact date format
+            r"(?P<subject>\w+)",  # Subject identifier
+            r"(?P<experiment>\w+_experiment)",  # Experiment identifier
+            r"(?P<rig>rig\d+)",  # Rig identifier
+        ]
+    
+    # Combine all configuration data
+    config_data = {
+        "directories": directories,
+        "ignore_substrings": ignore_substrings,
+        "mandatory_experiment_strings": mandatory_experiment_strings,
+        "extraction_patterns": extraction_patterns,
+        **kwargs
+    }
+    
+    try:
+        project_config = ProjectConfig(**config_data)
+        logger.info(f"Successfully created ProjectConfig for project: {project_name}")
+        return project_config
+    except Exception as e:
+        logger.error(f"Failed to create ProjectConfig for project {project_name}: {e}")
+        raise ValueError(f"Configuration validation failed: {e}") from e
+
+
+def create_experiment(
+    name: str,
+    datasets: List[str],
+    parameters: Optional[Dict[str, Any]] = None,
+    filters: Optional[Dict[str, Any]] = None,
+    metadata: Optional[Dict[str, Any]] = None,
+    **kwargs
+) -> ExperimentConfig:
+    """
+    Builder function for creating validated ExperimentConfig objects programmatically.
+    
+    This function provides a convenient way to create experiment configurations with
+    comprehensive defaults and validation, reducing boilerplate code for common
+    experiment setup patterns.
+    
+    Args:
+        name: Name of the experiment for identification
+        datasets: List of dataset names to include in this experiment
+        parameters: Dictionary of experiment-specific parameters
+        filters: Dictionary containing filter configurations
+        metadata: Optional metadata dictionary for experiment-specific information
+        **kwargs: Additional fields for forward compatibility
+    
+    Returns:
+        ExperimentConfig: Validated Pydantic model instance
+    
+    Raises:
+        ValueError: If configuration validation fails
+        
+    Example:
+        >>> config = create_experiment(
+        ...     name="navigation_test",
+        ...     datasets=["plume_tracking", "odor_response"],
+        ...     parameters={"analysis_window": 10.0, "threshold": 0.5},
+        ...     metadata={"description": "Navigation behavior analysis"}
+        ... )
+        >>> print(config.datasets)
+        ['plume_tracking', 'odor_response']
+    """
+    logger.debug(f"Creating ExperimentConfig for experiment: {name}")
+    
+    # Provide default parameters for common analysis patterns
+    if parameters is None:
+        parameters = {}
+    
+    # Add common parameter defaults
+    parameters.setdefault("analysis_window", 10.0)
+    parameters.setdefault("sampling_rate", 1000.0)
+    parameters.setdefault("threshold", 0.5)
+    parameters.setdefault("method", "correlation")
+    parameters.setdefault("confidence_level", 0.95)
+    
+    # Provide default filters
+    if filters is None:
+        filters = {}
+    
+    # Add common filter defaults
+    filters.setdefault("ignore_substrings", ["temp", "backup", "test"])
+    filters.setdefault("mandatory_experiment_strings", ["experiment", "trial"])
+    
+    # Provide default metadata
+    if metadata is None:
+        metadata = {}
+    
+    # Add common metadata defaults
+    metadata.setdefault("created_by", "flyrigloader")
+    metadata.setdefault("analysis_type", "behavioral")
+    metadata.setdefault("description", f"Automated experiment configuration for {name}")
+    
+    # Combine all configuration data
+    config_data = {
+        "datasets": datasets,
+        "parameters": parameters,
+        "filters": filters,
+        "metadata": metadata,
+        **kwargs
+    }
+    
+    try:
+        experiment_config = ExperimentConfig(**config_data)
+        logger.info(f"Successfully created ExperimentConfig for experiment: {name}")
+        return experiment_config
+    except Exception as e:
+        logger.error(f"Failed to create ExperimentConfig for experiment {name}: {e}")
+        raise ValueError(f"Configuration validation failed: {e}") from e
+
+
+def create_dataset(
+    name: str,
+    rig: str,
+    dates_vials: Optional[Dict[str, List[int]]] = None,
+    metadata: Optional[Dict[str, Any]] = None,
+    **kwargs
+) -> DatasetConfig:
+    """
+    Builder function for creating validated DatasetConfig objects programmatically.
+    
+    This function provides a convenient way to create dataset configurations with
+    sensible defaults and validation, supporting common dataset patterns while
+    maintaining flexibility for specific use cases.
+    
+    Args:
+        name: Name of the dataset for identification
+        rig: Rig identifier string
+        dates_vials: Dictionary mapping date strings to lists of vial numbers
+        metadata: Optional metadata dictionary for dataset-specific information
+        **kwargs: Additional fields for forward compatibility
+    
+    Returns:
+        DatasetConfig: Validated Pydantic model instance
+    
+    Raises:
+        ValueError: If configuration validation fails
+        
+    Example:
+        >>> config = create_dataset(
+        ...     name="plume_tracking",
+        ...     rig="rig1",
+        ...     dates_vials={"2023-05-01": [1, 2, 3, 4]},
+        ...     metadata={"description": "Plume tracking behavioral data"}
+        ... )
+        >>> print(config.rig)
+        rig1
+    """
+    logger.debug(f"Creating DatasetConfig for dataset: {name}")
+    
+    # Provide default dates_vials if not specified
+    if dates_vials is None:
+        dates_vials = {}
+    
+    # Provide default metadata
+    if metadata is None:
+        metadata = {}
+    
+    # Add common metadata defaults
+    metadata.setdefault("created_by", "flyrigloader")
+    metadata.setdefault("dataset_type", "behavioral")
+    metadata.setdefault("description", f"Automated dataset configuration for {name}")
+    
+    # Add common extraction patterns for dataset-specific metadata
+    if "extraction_patterns" not in metadata:
+        metadata["extraction_patterns"] = [
+            r"(?P<temperature>\d+)C",  # Temperature extraction
+            r"(?P<humidity>\d+)%",  # Humidity extraction
+            r"(?P<trial_number>\d+)",  # Trial number extraction
+            r"(?P<condition>\w+_condition)",  # Condition extraction
+        ]
+    
+    # Combine all configuration data
+    config_data = {
+        "rig": rig,
+        "dates_vials": dates_vials,
+        "metadata": metadata,
+        **kwargs
+    }
+    
+    try:
+        dataset_config = DatasetConfig(**config_data)
+        logger.info(f"Successfully created DatasetConfig for dataset: {name}")
+        return dataset_config
+    except Exception as e:
+        logger.error(f"Failed to create DatasetConfig for dataset {name}: {e}")
+        raise ValueError(f"Configuration validation failed: {e}") from e
+
+
+# Factory methods for common configuration patterns
+
+def create_standard_fly_config(
+    project_name: str,
+    base_directory: Union[str, Path],
+    rigs: Optional[List[str]] = None,
+    **kwargs
+) -> ProjectConfig:
+    """
+    Factory method for creating standard fly behavior experiment configurations.
+    
+    This factory provides a pre-configured setup optimized for typical fly behavior
+    experiments, including common patterns, extraction rules, and directory structures.
+    
+    Args:
+        project_name: Name of the fly behavior project
+        base_directory: Base directory path for the project
+        rigs: List of rig identifiers (defaults to common rig names)
+        **kwargs: Additional configuration options
+    
+    Returns:
+        ProjectConfig: Pre-configured project configuration for fly experiments
+        
+    Example:
+        >>> config = create_standard_fly_config(
+        ...     project_name="courtship_behavior",
+        ...     base_directory="/data/fly_experiments",
+        ...     rigs=["rig1", "rig2", "rig3"]
+        ... )
+    """
+    logger.debug(f"Creating standard fly config for project: {project_name}")
+    
+    # Default rigs for fly experiments
+    if rigs is None:
+        rigs = ["rig1", "rig2", "rig3", "rig4"]
+    
+    # Fly-specific ignore patterns
+    ignore_substrings = [
+        "._", "temp", "backup", ".tmp", "~", ".DS_Store",
+        "calibration", "test", "debug", "practice"
+    ]
+    
+    # Fly-specific mandatory strings
+    mandatory_experiment_strings = [
+        "experiment", "trial", "fly", "behavior"
+    ]
+    
+    # Fly-specific extraction patterns
+    extraction_patterns = [
+        r"(?P<date>\d{4}-\d{2}-\d{2})",  # ISO date format
+        r"(?P<date>\d{8})",  # Compact date format
+        r"(?P<fly_id>fly\d+)",  # Fly identifier
+        r"(?P<genotype>\w+_\w+)",  # Genotype pattern
+        r"(?P<sex>[MF])",  # Sex designation
+        r"(?P<age>\d+)d",  # Age in days
+        r"(?P<rig>rig\d+)",  # Rig identifier
+        r"(?P<condition>\w+_condition)",  # Experimental condition
+        r"(?P<trial_number>trial\d+)",  # Trial number
+        r"(?P<temperature>\d+)C",  # Temperature
+        r"(?P<humidity>\d+)%",  # Humidity
+    ]
+    
+    return create_config(
+        project_name=project_name,
+        base_directory=base_directory,
+        ignore_substrings=ignore_substrings,
+        mandatory_experiment_strings=mandatory_experiment_strings,
+        extraction_patterns=extraction_patterns,
+        **kwargs
+    )
+
+
+def create_plume_tracking_experiment(
+    datasets: List[str],
+    analysis_window: float = 10.0,
+    tracking_threshold: float = 0.3,
+    **kwargs
+) -> ExperimentConfig:
+    """
+    Factory method for creating plume tracking experiment configurations.
+    
+    This factory provides a pre-configured setup optimized for plume tracking
+    behavioral experiments, including specialized parameters and filters.
+    
+    Args:
+        datasets: List of dataset names for plume tracking
+        analysis_window: Time window for analysis in seconds
+        tracking_threshold: Threshold for plume detection
+        **kwargs: Additional configuration options
+    
+    Returns:
+        ExperimentConfig: Pre-configured experiment configuration for plume tracking
+        
+    Example:
+        >>> config = create_plume_tracking_experiment(
+        ...     datasets=["plume_data_rig1", "plume_data_rig2"],
+        ...     analysis_window=15.0,
+        ...     tracking_threshold=0.4
+        ... )
+    """
+    logger.debug("Creating plume tracking experiment configuration")
+    
+    # Plume tracking specific parameters
+    parameters = {
+        "analysis_window": analysis_window,
+        "tracking_threshold": tracking_threshold,
+        "sampling_rate": 1000.0,
+        "method": "optical_flow",
+        "confidence_level": 0.95,
+        "smoothing_window": 5,
+        "velocity_threshold": 10.0,
+        "direction_bins": 36,
+        "distance_threshold": 50.0,
+    }
+    
+    # Plume tracking specific filters
+    filters = {
+        "ignore_substrings": ["calibration", "test", "debug", "background"],
+        "mandatory_experiment_strings": ["plume", "tracking", "behavior"],
+    }
+    
+    # Plume tracking specific metadata
+    metadata = {
+        "experiment_type": "plume_tracking",
+        "analysis_type": "behavioral",
+        "description": "Plume tracking behavioral analysis experiment",
+        "output_format": "trajectory_data",
+        "coordinate_system": "cartesian",
+    }
+    
+    return create_experiment(
+        name="plume_tracking",
+        datasets=datasets,
+        parameters=parameters,
+        filters=filters,
+        metadata=metadata,
+        **kwargs
+    )
+
+
+def create_choice_assay_experiment(
+    datasets: List[str],
+    choice_duration: float = 300.0,
+    decision_threshold: float = 0.8,
+    **kwargs
+) -> ExperimentConfig:
+    """
+    Factory method for creating choice assay experiment configurations.
+    
+    This factory provides a pre-configured setup optimized for choice assay
+    behavioral experiments, including specialized parameters and analysis settings.
+    
+    Args:
+        datasets: List of dataset names for choice assay
+        choice_duration: Duration of choice period in seconds
+        decision_threshold: Threshold for decision detection
+        **kwargs: Additional configuration options
+    
+    Returns:
+        ExperimentConfig: Pre-configured experiment configuration for choice assay
+        
+    Example:
+        >>> config = create_choice_assay_experiment(
+        ...     datasets=["choice_data_rig1", "choice_data_rig2"],
+        ...     choice_duration=600.0,
+        ...     decision_threshold=0.9
+        ... )
+    """
+    logger.debug("Creating choice assay experiment configuration")
+    
+    # Choice assay specific parameters
+    parameters = {
+        "choice_duration": choice_duration,
+        "decision_threshold": decision_threshold,
+        "sampling_rate": 100.0,
+        "method": "preference_index",
+        "confidence_level": 0.95,
+        "baseline_duration": 60.0,
+        "response_window": 30.0,
+        "spatial_bins": 20,
+        "temporal_bins": 60,
+    }
+    
+    # Choice assay specific filters
+    filters = {
+        "ignore_substrings": ["calibration", "test", "debug", "control"],
+        "mandatory_experiment_strings": ["choice", "assay", "preference"],
+    }
+    
+    # Choice assay specific metadata
+    metadata = {
+        "experiment_type": "choice_assay",
+        "analysis_type": "behavioral",
+        "description": "Choice assay behavioral analysis experiment",
+        "output_format": "preference_data",
+        "scoring_method": "preference_index",
+    }
+    
+    return create_experiment(
+        name="choice_assay",
+        datasets=datasets,
+        parameters=parameters,
+        filters=filters,
+        metadata=metadata,
+        **kwargs
+    )
+
+
+def create_rig_dataset(
+    rig_name: str,
+    start_date: str,
+    end_date: str,
+    vials_per_day: int = 8,
+    **kwargs
+) -> DatasetConfig:
+    """
+    Factory method for creating rig-specific dataset configurations.
+    
+    This factory provides a convenient way to create dataset configurations
+    for specific rigs with automatic date range and vial number generation.
+    
+    Args:
+        rig_name: Name of the rig (e.g., "rig1", "rig2")
+        start_date: Start date in YYYY-MM-DD format
+        end_date: End date in YYYY-MM-DD format
+        vials_per_day: Number of vials per day (default: 8)
+        **kwargs: Additional configuration options
+    
+    Returns:
+        DatasetConfig: Pre-configured dataset configuration for the specified rig
+        
+    Example:
+        >>> config = create_rig_dataset(
+        ...     rig_name="rig1",
+        ...     start_date="2023-05-01",
+        ...     end_date="2023-05-07",
+        ...     vials_per_day=12
+        ... )
+    """
+    logger.debug(f"Creating rig dataset configuration for {rig_name}")
+    
+    # Generate date range and vial numbers
+    from datetime import datetime, timedelta
+    
+    try:
+        start = datetime.strptime(start_date, "%Y-%m-%d")
+        end = datetime.strptime(end_date, "%Y-%m-%d")
+    except ValueError as e:
+        raise ValueError(f"Invalid date format. Use YYYY-MM-DD: {e}")
+    
+    dates_vials = {}
+    current_date = start
+    vial_counter = 1
+    
+    while current_date <= end:
+        date_str = current_date.strftime("%Y-%m-%d")
+        vials_for_day = list(range(vial_counter, vial_counter + vials_per_day))
+        dates_vials[date_str] = vials_for_day
+        vial_counter += vials_per_day
+        current_date += timedelta(days=1)
+    
+    # Rig-specific metadata
+    metadata = {
+        "rig_type": "behavioral",
+        "dataset_type": "longitudinal",
+        "description": f"Automated dataset configuration for {rig_name}",
+        "date_range": f"{start_date} to {end_date}",
+        "total_vials": vial_counter - 1,
+        "vials_per_day": vials_per_day,
+    }
+    
+    return create_dataset(
+        name=f"{rig_name}_dataset",
+        rig=rig_name,
+        dates_vials=dates_vials,
+        metadata=metadata,
+        **kwargs
+    )

@@ -3,6 +3,9 @@ File discovery functionality.
 
 Advanced utilities for finding files based on patterns with dependency injection
 support for comprehensive testing and mocking capabilities.
+
+This module implements the discovery phase of the decoupled pipeline architecture,
+focusing exclusively on metadata extraction without data loading.
 """
 from typing import List, Optional, Iterable, Union, Dict, Any, Tuple, Set, Callable, Protocol
 from pathlib import Path
@@ -10,10 +13,97 @@ import re
 from datetime import datetime
 import fnmatch
 from abc import ABC, abstractmethod
+from dataclasses import dataclass, field
 
 from flyrigloader import logger
 from flyrigloader.discovery.patterns import PatternMatcher, match_files_to_patterns
 from flyrigloader.discovery.stats import get_file_stats, attach_file_stats
+
+
+@dataclass
+class FileInfo:
+    """Information about a discovered file without loading its content."""
+    
+    path: str
+    size: Optional[int] = None
+    mtime: Optional[float] = None
+    ctime: Optional[float] = None
+    creation_time: Optional[float] = None
+    extracted_metadata: Dict[str, Any] = field(default_factory=dict)
+    parsed_date: Optional[datetime] = None
+
+
+@dataclass
+class FileStatistics:
+    """Statistics about the discovered files."""
+    
+    total_files: int
+    total_size: int
+    file_types: Dict[str, int] = field(default_factory=dict)
+    date_range: Optional[Tuple[datetime, datetime]] = None
+    discovery_time: Optional[float] = None
+
+
+@dataclass
+class FileManifest:
+    """
+    Container for discovered files metadata without loading actual data.
+    
+    This class represents the result of the discovery phase in the decoupled
+    pipeline architecture, containing only metadata about discovered files.
+    """
+    
+    files: List[FileInfo]
+    metadata: Dict[str, Any] = field(default_factory=dict)
+    statistics: Optional[FileStatistics] = None
+    
+    def __post_init__(self):
+        """Initialize computed properties after instantiation."""
+        if self.statistics is None and self.files:
+            self._compute_statistics()
+    
+    def _compute_statistics(self) -> None:
+        """Compute basic statistics from the discovered files."""
+        if not self.files:
+            return
+        
+        total_files = len(self.files)
+        total_size = sum(f.size or 0 for f in self.files)
+        
+        # Count file types by extension
+        file_types = {}
+        dates = []
+        
+        for file_info in self.files:
+            # Extract extension
+            path = Path(file_info.path)
+            ext = path.suffix.lower()
+            file_types[ext] = file_types.get(ext, 0) + 1
+            
+            # Collect dates for range calculation
+            if file_info.parsed_date:
+                dates.append(file_info.parsed_date)
+        
+        # Compute date range
+        date_range = None
+        if dates:
+            dates.sort()
+            date_range = (dates[0], dates[-1])
+        
+        self.statistics = FileStatistics(
+            total_files=total_files,
+            total_size=total_size,
+            file_types=file_types,
+            date_range=date_range
+        )
+    
+    def get_files_by_type(self, extension: str) -> List[FileInfo]:
+        """Get files filtered by extension."""
+        return [f for f in self.files if f.path.lower().endswith(extension.lower())]
+    
+    def get_files_by_pattern(self, pattern: str) -> List[FileInfo]:
+        """Get files matching a specific pattern."""
+        return [f for f in self.files if fnmatch.fnmatch(Path(f.path).name, pattern)]
 
 
 class FilesystemProvider(Protocol):
@@ -113,14 +203,20 @@ class FileDiscoverer:
     """
     Class for discovering files and extracting metadata from file paths.
     
-    This class encapsulates the file discovery logic with dependency injection support
-    for comprehensive testing and mocking capabilities. Provides methods for:
+    This class implements the discovery phase of the decoupled pipeline architecture,
+    focusing exclusively on metadata extraction without data loading. It provides:
     - Finding files based on patterns with configurable filesystem access
     - Extracting metadata using configurable regex patterns
     - Parsing dates from filenames with configurable datetime providers
     - Collecting file statistics (size, modification time) with configurable providers
+    - Support for pluggable pattern matchers through registry-based extensibility
     
-    Supports TST-REF-001 requirements for dependency injection patterns.
+    The FileDiscoverer returns only metadata without loading actual file content,
+    enabling fast directory traversal and independent validation as part of the
+    refactored three-stage pipeline: discover → load → transform.
+    
+    Supports TST-REF-001 requirements for dependency injection patterns and 
+    registry-based pattern matcher extensibility.
     """
     
     def __init__(
@@ -175,8 +271,9 @@ class FileDiscoverer:
         }
         
         # Create or use provided pattern matcher (TST-REF-002)
+        # Enhanced with registry-based extensibility for pluggable pattern matchers
         if pattern_matcher:
-            logger.debug("Using provided pattern matcher")
+            logger.debug("Using provided pattern matcher (supports registry-based extensibility)")
             self.pattern_matcher = pattern_matcher
             self.named_extract_patterns = getattr(pattern_matcher, 'patterns', None)
         elif extract_patterns:
@@ -184,7 +281,7 @@ class FileDiscoverer:
             self.named_extract_patterns = self._convert_to_named_patterns(extract_patterns)
             self.pattern_matcher = PatternMatcher(self.named_extract_patterns)
         else:
-            logger.debug("No pattern matcher configured")
+            logger.debug("No pattern matcher configured - registry can be used for dynamic pattern registration")
             self.pattern_matcher = None
             self.named_extract_patterns = None
         
@@ -534,6 +631,10 @@ class FileDiscoverer:
         """
         Discover files and extract metadata based on the configured options.
         
+        This method implements the discovery phase of the decoupled pipeline architecture,
+        focusing exclusively on metadata extraction without data loading. It enables fast
+        directory traversal and independent validation.
+        
         Enhanced with structured logging for Section 2.2.8 requirements.
         
         Args:
@@ -547,7 +648,7 @@ class FileDiscoverer:
             
         Returns:
             If extract_patterns, parse_dates, or include_stats is configured: Dictionary mapping 
-            file paths to extracted metadata.
+            file paths to extracted metadata (NO data loading occurs).
             Otherwise: List of matched file paths.
         """
         logger.info(f"Starting file discovery process with pattern: {pattern}")
@@ -618,6 +719,159 @@ class FileDiscoverer:
             Dictionary mapping file paths to metadata dictionaries
         """
         return self.extract_metadata(files)
+    
+    def register_pattern_matcher(self, pattern_matcher: PatternMatcher) -> None:
+        """
+        Register a new pattern matcher for enhanced pluggable pattern matching.
+        
+        This method supports registry-based extensibility for pluggable pattern matchers
+        as mentioned in Section 0.2.1 of the refactoring requirements.
+        
+        Args:
+            pattern_matcher: The pattern matcher instance to register
+        """
+        logger.debug(f"Registering new pattern matcher: {type(pattern_matcher).__name__}")
+        self.pattern_matcher = pattern_matcher
+        self.named_extract_patterns = getattr(pattern_matcher, 'patterns', None)
+        logger.info(f"Pattern matcher registered successfully: {type(pattern_matcher).__name__}")
+    
+    def get_supported_patterns(self) -> List[str]:
+        """
+        Get list of supported patterns from the current pattern matcher.
+        
+        Returns:
+            List of supported pattern names, or empty list if no matcher is configured
+        """
+        if self.pattern_matcher and hasattr(self.pattern_matcher, 'patterns'):
+            return list(self.pattern_matcher.patterns.keys()) if isinstance(self.pattern_matcher.patterns, dict) else []
+        return []
+
+
+def discover_experiment_manifest(
+    config: Union[Dict[str, Any], Any],
+    experiment_name: str,
+    patterns: Optional[List[str]] = None,
+    parse_dates: bool = True,
+    include_stats: bool = True,
+    filesystem_provider: Optional[FilesystemProvider] = None,
+    pattern_matcher: Optional[PatternMatcher] = None,
+    datetime_provider: Optional[DateTimeProvider] = None,
+    test_mode: bool = False
+) -> FileManifest:
+    """
+    Discover experiment files and return metadata-only manifest.
+    
+    This function implements the discovery phase of the decoupled pipeline architecture,
+    focusing exclusively on metadata extraction without data loading.
+    
+    Args:
+        config: Configuration object or dictionary containing discovery settings
+        experiment_name: Name of the experiment to discover files for
+        patterns: Optional list of regex patterns to extract metadata from filenames
+        parse_dates: If True, attempt to parse dates from filenames
+        include_stats: If True, include file statistics in the manifest
+        filesystem_provider: Optional filesystem provider for testing scenarios
+        pattern_matcher: Optional pre-configured pattern matcher
+        datetime_provider: Optional datetime provider for testing scenarios
+        test_mode: If True, enables test-specific behavior
+    
+    Returns:
+        FileManifest containing discovered files metadata without loading data
+    """
+    logger.info(f"Discovering experiment manifest for '{experiment_name}'")
+    
+    try:
+        # Extract configuration parameters
+        if hasattr(config, 'get'):
+            # Dictionary-like access for backward compatibility
+            base_directory = config.get('base_directory', '.')
+            experiment_patterns = config.get('patterns', {}).get(experiment_name, ['*'])
+            ignore_patterns = config.get('ignore_patterns', [])
+            extensions = config.get('extensions', [])
+            recursive = config.get('recursive', True)
+        else:
+            # Pydantic model or object access
+            base_directory = getattr(config, 'base_directory', '.')
+            experiment_patterns = getattr(config, 'patterns', {}).get(experiment_name, ['*'])
+            ignore_patterns = getattr(config, 'ignore_patterns', [])
+            extensions = getattr(config, 'extensions', [])
+            recursive = getattr(config, 'recursive', True)
+        
+        # Build search directory for the experiment
+        search_directory = Path(base_directory) / experiment_name
+        
+        # Create FileDiscoverer with metadata extraction enabled
+        discoverer = FileDiscoverer(
+            extract_patterns=patterns or getattr(config, 'extract_patterns', None),
+            parse_dates=parse_dates,
+            include_stats=include_stats,
+            filesystem_provider=filesystem_provider,
+            pattern_matcher=pattern_matcher,
+            datetime_provider=datetime_provider,
+            test_mode=test_mode
+        )
+        
+        # Discover files for each pattern
+        all_files = []
+        experiment_metadata = {
+            'experiment_name': experiment_name,
+            'base_directory': str(base_directory),
+            'search_directory': str(search_directory),
+            'patterns_used': experiment_patterns,
+            'discovery_settings': {
+                'recursive': recursive,
+                'parse_dates': parse_dates,
+                'include_stats': include_stats,
+                'extensions': extensions,
+                'ignore_patterns': ignore_patterns
+            }
+        }
+        
+        for pattern in experiment_patterns:
+            logger.debug(f"Discovering files with pattern: {pattern}")
+            
+            # Use the existing discover method
+            discovered = discoverer.discover(
+                directory=str(search_directory),
+                pattern=pattern,
+                recursive=recursive,
+                extensions=extensions,
+                ignore_patterns=ignore_patterns
+            )
+            
+            # Convert discovered files to FileInfo objects
+            if isinstance(discovered, dict):
+                # Files with metadata
+                for file_path, metadata in discovered.items():
+                    file_info = FileInfo(
+                        path=file_path,
+                        size=metadata.get('size'),
+                        mtime=metadata.get('mtime'),
+                        ctime=metadata.get('ctime'),
+                        creation_time=metadata.get('creation_time'),
+                        extracted_metadata=metadata,
+                        parsed_date=metadata.get('parsed_date')
+                    )
+                    all_files.append(file_info)
+            else:
+                # Simple file list
+                for file_path in discovered:
+                    file_info = FileInfo(path=file_path)
+                    all_files.append(file_info)
+        
+        # Create and return FileManifest
+        logger.info(f"Created manifest with {len(all_files)} files for experiment '{experiment_name}'")
+        return FileManifest(
+            files=all_files,
+            metadata=experiment_metadata
+        )
+        
+    except Exception as e:
+        logger.error(f"Error discovering experiment manifest for '{experiment_name}': {e}")
+        if test_mode:
+            logger.warning("Test mode enabled, returning empty manifest despite error")
+            return FileManifest(files=[], metadata={'experiment_name': experiment_name, 'error': str(e)})
+        raise
 
 
 def discover_files(
@@ -639,6 +893,11 @@ def discover_files(
 ) -> Union[List[str], Dict[str, Dict[str, Any]]]:
     """
     Discover files matching the given pattern and criteria with test hook support.
+    
+    This function implements the discovery phase of the decoupled pipeline architecture,
+    focusing exclusively on metadata extraction without data loading. For the new
+    decoupled workflow, consider using discover_experiment_manifest() which returns
+    structured FileManifest objects.
     
     Enhanced with test-specific entry points for TST-REF-003 requirements enabling
     controlled behavior during test execution with comprehensive mocking support.
@@ -664,7 +923,7 @@ def discover_files(
     
     Returns:
         If extract_patterns, parse_dates, or include_stats is used: Dictionary mapping file paths
-        to extracted metadata.
+        to extracted metadata (NO data loading occurs).
         Otherwise: List of matched file paths.
     """
     logger.info(f"discover_files called with pattern='{pattern}', test_mode={test_mode}")
@@ -709,6 +968,9 @@ def get_latest_file(
 ) -> Optional[str]:
     """
     Return the most recently modified file from the list with test hook support.
+    
+    This utility function supports the discovery phase of the decoupled pipeline
+    architecture by providing file selection based on modification time metadata.
     
     Enhanced with test-specific entry points for TST-REF-003 requirements enabling
     controlled behavior during test execution.

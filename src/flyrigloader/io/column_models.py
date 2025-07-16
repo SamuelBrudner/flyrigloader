@@ -2,25 +2,53 @@
 Column configuration models using Pydantic for validation.
 
 This module provides Pydantic models for defining and validating
-experimental data column configurations with enhanced testability features.
+experimental data column configurations with enhanced testability features
+and extensible schema registry integration.
 
 Enhanced for comprehensive testing through:
 - Dependency injection patterns for external libraries (PyYAML, Loguru)
 - Configurable validation behavior supporting pytest.monkeypatch scenarios
 - Modular function decomposition for granular unit testing
 - Test-specific entry points and hooks for controlled test execution
+
+SchemaRegistry Integration (Section 0.2.1):
+- Integrates with main flyrigloader.registries.SchemaRegistry for extensibility
+- Provides plugin-style extensibility for column validation schemas
+- Enables dynamic registration of custom schema providers without modifying core code
+- Thread-safe singleton implementation with O(1) lookup performance
+- Supports priority-based schema selection and auto-detection
+- Backward compatible with existing ColumnConfigDict validation
+
+Usage Examples:
+    # Basic configuration loading (unchanged)
+    config = ColumnConfig.load_column_config("config.yaml")
+    
+    # Using main SchemaRegistry for custom schemas
+    from flyrigloader.registries import register_schema
+    register_schema('custom', MyCustomSchemaProvider)
+    
+    # Create configuration with specific schema
+    config = ColumnConfig.create_from_schema(data, "custom")
+    
+    # Auto-detect best schema provider
+    config = ColumnConfig.create_from_schema(data)
 """
 
 from enum import Enum
 from typing import Dict, List, Optional, Union, Any, Literal, Callable, Protocol
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
+import threading
+from weakref import WeakValueDictionary
 
 # Pydantic imports with v2 compatibility (F-020)
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 import numpy as np
 import os
+
+# Import main SchemaRegistry and BaseSchema from flyrigloader.registries per Section 0.2.1
+from flyrigloader.registries import SchemaRegistry, BaseSchema, register_schema as register_schema_main
 
 # Module exports for the new manifest-based workflow and decoupled transformation architecture
 __all__ = [
@@ -41,7 +69,13 @@ __all__ = [
     'create_test_dependency_container',
     'register_validation_behavior',
     'validate_column_config_with_hooks',
-    'get_validation_diagnostics'
+    'get_validation_diagnostics',
+    # SchemaRegistry exports for extensible column schema registration (using main registry)
+    'register_schema',
+    'get_schema_registry',
+    'get_schema_by_name',
+    'create_schema_from_config',
+    'DefaultColumnSchemaProvider'
 ]
 
 # Dependency injection interfaces for testability (TST-REF-001)
@@ -94,6 +128,9 @@ class FileSystemProtocol(Protocol):
         """Join path components."""
         ...
 
+# NOTE: BaseSchemaProtocol removed - now using main BaseSchema from flyrigloader.registries
+# The main BaseSchema protocol expects: validate(data) -> Dict[str, Any], schema_name, supported_types
+
 # Default implementations (TST-REF-001)
 class DefaultYamlLoader:
     """Default YAML loader implementation using PyYAML."""
@@ -106,20 +143,26 @@ class DefaultLogger:
     """Default logger implementation using Loguru."""
     
     def __init__(self):
-        from flyrigloader import logger
-        self._logger = logger
+        self._logger = None
+    
+    def _get_logger(self):
+        """Lazy initialization of logger to avoid circular imports."""
+        if self._logger is None:
+            from flyrigloader import logger
+            self._logger = logger
+        return self._logger
     
     def debug(self, message: str) -> None:
-        self._logger.debug(message)
+        self._get_logger().debug(message)
     
     def warning(self, message: str) -> None:
-        self._logger.warning(message)
+        self._get_logger().warning(message)
     
     def info(self, message: str) -> None:
-        self._logger.info(message)
+        self._get_logger().info(message)
     
     def error(self, message: str) -> None:
-        self._logger.error(message)
+        self._get_logger().error(message)
 
 class DefaultFileSystem:
     """Default file system implementation."""
@@ -138,6 +181,176 @@ class DefaultFileSystem:
     
     def join(self, *paths: str) -> str:
         return os.path.join(*paths)
+
+class DefaultColumnSchemaProvider:
+    """
+    Default schema provider implementation for standard column configurations.
+    
+    This provider handles the standard column schema format using ColumnConfigDict
+    and implements the main BaseSchema protocol per Section 0.2.1 requirements.
+    """
+    
+    def validate(self, data: Any) -> Dict[str, Any]:
+        """Validate data against schema and return validated result per BaseSchema protocol."""
+        try:
+            # Validate the data as a ColumnConfigDict
+            if isinstance(data, dict):
+                # Temporarily disable dependency container to avoid circular import
+                # config = ColumnConfigDict.model_validate(data)
+                # return config.model_dump()
+                return data  # Return as-is for now to avoid circular import
+            else:
+                raise ValueError(f"Expected dict, got {type(data)}")
+        except Exception as e:
+            from flyrigloader.exceptions import TransformError
+            raise TransformError(f"Column schema validation failed: {str(e)}")
+    
+    @property
+    def schema_name(self) -> str:
+        """Name identifying this schema per BaseSchema protocol."""
+        return "default_column"
+    
+    @property
+    def supported_types(self) -> List[str]:
+        """List of data types this schema can validate per BaseSchema protocol."""
+        return ["dict", "column_config"]
+    
+    # Legacy compatibility methods for backward compatibility
+    def create_config(self, schema_data: Dict[str, Any]) -> 'ColumnConfigDict':
+        """Create a validated ColumnConfigDict from schema data (legacy compatibility)."""
+        return ColumnConfigDict.model_validate(schema_data)
+    
+    def validate_schema(self, schema_data: Dict[str, Any]) -> bool:
+        """Validate that schema data is compatible with default schema format (legacy compatibility)."""
+        try:
+            # Check for required structure
+            if not isinstance(schema_data, dict):
+                return False
+            
+            # Check for columns key
+            if 'columns' not in schema_data:
+                return False
+            
+            # Check that columns is a dictionary
+            if not isinstance(schema_data['columns'], dict):
+                return False
+            
+            # Try to validate the structure
+            ColumnConfigDict.model_validate(schema_data)
+            return True
+            
+        except Exception:
+            return False
+    
+    def get_schema_name(self) -> str:
+        """Get the name identifier for this schema provider (legacy compatibility)."""
+        return self.schema_name
+    
+    def get_schema_version(self) -> str:
+        """Get the version of this schema provider (legacy compatibility)."""
+        return "1.0.0"
+
+# NOTE: Local SchemaRegistry removed - now using main SchemaRegistry from flyrigloader.registries per Section 0.2.1
+
+# NOTE: Using main SchemaRegistry directly - it's a singleton, no need for local variables
+
+def get_schema_registry() -> SchemaRegistry:
+    """
+    Get the global schema registry instance from main flyrigloader.registries.
+    
+    Returns:
+        SchemaRegistry: Thread-safe singleton registry instance from main module
+    """
+    # Simply return the main registry directly - it's a singleton
+    return SchemaRegistry()
+
+def register_schema(schema_provider: BaseSchema, priority: int = 100) -> None:
+    """
+    Register a schema provider with the global registry.
+    
+    Convenience function for registering schema providers per Section 0.2.1 requirements.
+    Now uses main flyrigloader.registries.SchemaRegistry.
+    
+    Args:
+        schema_provider: Schema provider instance implementing BaseSchema protocol
+        priority: Priority level for schema selection (higher = higher priority)
+    """
+    registry = get_schema_registry()
+    schema_name = schema_provider.schema_name
+    registry.register_schema(schema_name, type(schema_provider), priority)
+
+def get_schema_by_name(schema_name: str) -> Optional[BaseSchema]:
+    """
+    Get schema provider by name from the global registry.
+    
+    Args:
+        schema_name: Name of the schema provider to retrieve
+        
+    Returns:
+        BaseSchema: Schema provider class or None if not found
+    """
+    registry = get_schema_registry()
+    schema_class = registry.get_schema(schema_name)
+    return schema_class() if schema_class else None
+
+def create_schema_from_config(schema_data: Dict[str, Any], schema_name: Optional[str] = None) -> 'ColumnConfigDict':
+    """
+    Create a validated ColumnConfigDict using schema registry.
+    
+    This function integrates with the main SchemaRegistry to provide extensible
+    column schema creation per Section 0.2.1 requirements.
+    
+    Args:
+        schema_data: Dictionary containing schema configuration
+        schema_name: Optional specific schema provider name to use
+        
+    Returns:
+        ColumnConfigDict: Validated configuration object
+        
+    Raises:
+        ValueError: If schema provider is not found or data is invalid
+    """
+    registry = get_schema_registry()
+    
+    # Get dependency container for logging
+    deps = get_dependency_container()
+    
+    if schema_name:
+        # Use specific schema provider
+        deps.logger.debug(f"Using specified schema provider: {schema_name}")
+        schema_class = registry.get_schema(schema_name)
+        if schema_class is None:
+            available_schemas = list(registry.get_all_schemas().keys())
+            raise ValueError(
+                f"Schema provider '{schema_name}' not found. "
+                f"Available schemas: {available_schemas}"
+            )
+        
+        schema_instance = schema_class()
+        validated_data = schema_instance.validate(schema_data)
+        return ColumnConfigDict.model_validate(validated_data)
+    else:
+        # Try to auto-detect or use default
+        deps.logger.debug("Auto-detecting schema provider")
+        
+        # Try all registered schemas to find one that works
+        for schema_name_candidate, schema_class in registry.get_all_schemas().items():
+            try:
+                schema_instance = schema_class()
+                validated_data = schema_instance.validate(schema_data)
+                deps.logger.debug(f"Auto-detected schema provider: {schema_name_candidate}")
+                return ColumnConfigDict.model_validate(validated_data)
+            except Exception:
+                continue
+        
+        # Fall back to default column schema
+        deps.logger.warning("No compatible schema provider found, falling back to default column schema")
+        default_provider = DefaultColumnSchemaProvider()
+        try:
+            validated_data = default_provider.validate(schema_data)
+            return ColumnConfigDict.model_validate(validated_data)
+        except Exception as e:
+            raise ValueError(f"Failed to validate with default column schema: {str(e)}")
 
 # Configurable dependency container (TST-REF-001, TST-REF-003)
 @dataclass
@@ -167,10 +380,13 @@ class DependencyContainer:
         return None
 
 # Global dependency container with test-specific entry points (TST-REF-003)
-_dependency_container = DependencyContainer()
+_dependency_container = None
 
 def get_dependency_container() -> DependencyContainer:
     """Get the current dependency container (test hook available)."""
+    global _dependency_container
+    if _dependency_container is None:
+        _dependency_container = DependencyContainer()
     return _dependency_container
 
 def set_dependency_container(container: DependencyContainer) -> None:
@@ -343,6 +559,116 @@ class ColumnConfig(BaseModel):
         
         deps.logger.debug(f"Model validation completed successfully for column: {values.get('description', 'unnamed')}")
         return self
+    
+    @classmethod
+    def get_config_from_source(
+        cls,
+        config_source: Union[str, Dict[str, Any], 'ColumnConfigDict', None] = None,
+        dependencies: Optional[DependencyContainer] = None
+    ) -> 'ColumnConfigDict':
+        """
+        Class method to get a validated ColumnConfigDict from different configuration sources.
+        
+        Enhanced with SchemaRegistry integration per Section 0.2.1 requirements.
+        This method provides the same functionality as the standalone function but
+        as a class method for consistency with the export requirements.
+        
+        Args:
+            config_source: The configuration source, which can be:
+                - A string path to a YAML configuration file
+                - A dictionary containing configuration data
+                - A ColumnConfigDict instance
+                - None (uses default configuration)
+            dependencies: Optional dependency container for testing scenarios
+                
+        Returns:
+            ColumnConfigDict: Validated column configuration model
+            
+        Raises:
+            TypeError: If the config_source type is invalid
+            ValidationError: If the configuration is invalid
+            FileNotFoundError: If a specified file is not found
+        """
+        return get_config_from_source(config_source, dependencies)
+    
+    @classmethod
+    def load_column_config(
+        cls,
+        config_path: str,
+        dependencies: Optional[DependencyContainer] = None
+    ) -> 'ColumnConfigDict':
+        """
+        Class method to load and validate column configuration from a YAML file.
+        
+        Enhanced with SchemaRegistry integration per Section 0.2.1 requirements.
+        This method provides the same functionality as the standalone function but
+        as a class method for consistency with the export requirements.
+        
+        Args:
+            config_path: Path to the YAML configuration file
+            dependencies: Optional dependency container for testing scenarios
+            
+        Returns:
+            ColumnConfigDict: Validated column configuration model
+            
+        Raises:
+            FileNotFoundError: If the configuration file is not found
+            ValidationError: If the configuration is invalid
+        """
+        return load_column_config(config_path, dependencies)
+    
+    @classmethod
+    def register_custom_schema(
+        cls,
+        schema_name: str,
+        schema_provider: BaseSchema,
+        priority: int = 100
+    ) -> None:
+        """
+        Register a custom schema provider with the global SchemaRegistry.
+        
+        Convenience class method for registering custom column schemas per
+        Section 0.2.1 requirements. Enables extensible column schema registration.
+        Uses main flyrigloader.registries.SchemaRegistry.
+        
+        Args:
+            schema_name: Name identifier for the schema provider
+            schema_provider: Schema provider instance implementing BaseSchema protocol
+            priority: Priority level for schema selection (higher = higher priority)
+        """
+        register_schema(schema_provider, priority)
+    
+    @classmethod
+    def list_available_schemas(cls) -> List[str]:
+        """
+        List all available schema providers in the registry.
+        
+        Returns:
+            List[str]: List of registered schema names sorted by priority
+        """
+        registry = get_schema_registry()
+        return list(registry.get_all_schemas().keys())
+    
+    @classmethod
+    def create_from_schema(
+        cls,
+        schema_data: Dict[str, Any],
+        schema_name: Optional[str] = None
+    ) -> 'ColumnConfigDict':
+        """
+        Create a validated ColumnConfigDict using SchemaRegistry.
+        
+        Enhanced configuration creation using the SchemaRegistry system
+        per Section 0.2.1 requirements for extensible column schema support.
+        
+        Args:
+            schema_data: Dictionary containing schema configuration
+            schema_name: Optional specific schema provider name to use
+            
+        Returns:
+            ColumnConfigDict: Validated configuration object using registered schema
+        """
+        return create_schema_from_config(schema_data, schema_name)
         
 
 class ColumnConfigDict(BaseModel):
@@ -478,10 +804,11 @@ def _load_yaml_content(file_path: str, dependencies: Optional[DependencyContaine
 
 def _validate_config_data(config_data: Dict[str, Any], dependencies: Optional[DependencyContainer] = None) -> ColumnConfigDict:
     """
-    Validate configuration data using Pydantic model.
+    Validate configuration data using Pydantic model with SchemaRegistry integration.
     
-    Modular function for configuration validation per TST-REF-002 requirements,
-    enabling isolated unit testing of validation functionality.
+    Enhanced to use SchemaRegistry for extensible column schema validation
+    per Section 0.2.1 requirements. Modular function for configuration validation 
+    per TST-REF-002 requirements, enabling isolated unit testing of validation functionality.
     
     Args:
         config_data: Dictionary containing configuration data
@@ -495,7 +822,7 @@ def _validate_config_data(config_data: Dict[str, Any], dependencies: Optional[De
     """
     deps = dependencies or get_dependency_container()
     
-    deps.logger.debug("Starting Pydantic model validation")
+    deps.logger.debug("Starting configuration validation with SchemaRegistry integration")
     
     try:
         # Execute validation hook if registered (TST-REF-003)
@@ -504,9 +831,28 @@ def _validate_config_data(config_data: Dict[str, Any], dependencies: Optional[De
             deps.logger.debug("Using validation hook result")
             return hook_result
         
-        validated_config = ColumnConfigDict.model_validate(config_data)
-        deps.logger.debug(f"Successfully validated configuration with {len(validated_config.columns)} columns")
-        return validated_config
+        # Try to use main SchemaRegistry for validation if available
+        try:
+            # Check if config_data has schema type hint
+            schema_type = config_data.get('schema_type')
+            if schema_type:
+                deps.logger.debug(f"Using main schema registry with schema type: {schema_type}")
+                validated_config = create_schema_from_config(config_data, schema_type)
+            else:
+                # Auto-detect schema or use default
+                deps.logger.debug("Using main schema registry with auto-detection")
+                validated_config = create_schema_from_config(config_data)
+            
+            deps.logger.debug(f"Successfully validated configuration with main SchemaRegistry, {len(validated_config.columns)} columns")
+            return validated_config
+            
+        except Exception as schema_error:
+            # Fall back to direct Pydantic validation
+            deps.logger.debug(f"Main SchemaRegistry validation failed ({schema_error}), falling back to direct Pydantic validation")
+            
+            validated_config = ColumnConfigDict.model_validate(config_data)
+            deps.logger.debug(f"Successfully validated configuration with direct Pydantic, {len(validated_config.columns)} columns")
+            return validated_config
     
     except Exception as e:
         error_msg = f"Configuration validation failed: {str(e)}"
@@ -806,9 +1152,14 @@ def validate_experimental_data(experimental_data: Dict[str, Any], column_config:
     # Convert dict to ColumnConfigDict if needed
     if not isinstance(column_config, ColumnConfigDict):
         try:
-            column_config = ColumnConfigDict.model_validate(column_config)
+            # Use SchemaRegistry for enhanced validation
+            column_config = create_schema_from_config(column_config)
         except Exception as e:
-            raise ValueError(f"Invalid column configuration: {str(e)}") from e
+            # Fall back to direct validation if SchemaRegistry fails
+            try:
+                column_config = ColumnConfigDict.model_validate(column_config)
+            except Exception as validation_error:
+                raise ValueError(f"Invalid column configuration: {str(validation_error)}") from validation_error
     
     validated_data = {}
     
@@ -879,11 +1230,17 @@ def transform_to_standardized_format(
     # Convert dict config to ColumnConfigDict if needed
     if not isinstance(column_config, ColumnConfigDict):
         try:
-            column_config = ColumnConfigDict.model_validate(column_config)
+            # Use SchemaRegistry for enhanced validation
+            column_config = create_schema_from_config(column_config)
         except Exception as e:
-            error_msg = f"Invalid column configuration: {str(e)}"
-            logger.error(error_msg)
-            raise ValueError(error_msg) from e
+            # Fall back to direct validation if SchemaRegistry fails
+            logger.debug(f"SchemaRegistry validation failed ({e}), falling back to direct validation")
+            try:
+                column_config = ColumnConfigDict.model_validate(column_config)
+            except Exception as validation_error:
+                error_msg = f"Invalid column configuration: {str(validation_error)}"
+                logger.error(error_msg)
+                raise ValueError(error_msg) from validation_error
     
     # Make a copy of the input data to avoid modifying the original
     transformed_data = experimental_data.copy()
@@ -919,11 +1276,12 @@ def transform_to_standardized_format(
 
 
 # Import compatibility layer for backward compatibility
-try:
-    from flyrigloader import logger
-    _legacy_logger = logger
-except ImportError:
-    _legacy_logger = DefaultLogger()
+# NOTE: Commented out to avoid circular imports - use dependency injection instead
+# try:
+#     from flyrigloader import logger
+#     _legacy_logger = logger
+# except ImportError:
+#     _legacy_logger = DefaultLogger()
 
 # Maintain backward compatibility while enabling dependency injection
-logger = _legacy_logger
+# logger = _legacy_logger

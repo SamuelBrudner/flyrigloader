@@ -8,14 +8,20 @@ error handling and format detection.
 Data transformation and DataFrame creation logic has been moved to the transformers 
 module for improved separation of concerns. This module maintains the dependency 
 injection patterns for enhanced testability and modular component architecture.
+
+Registry Integration:
+- Supports LoaderRegistry-based automatic format detection
+- Enables plugin-style extensibility for new file formats
+- Provides backward compatibility with existing code
 """
 
 import gzip
 import pickle
 import pandas as pd
 from pathlib import Path
-from typing import Dict, Any, Union, Optional, List, Tuple, Protocol, runtime_checkable
+from typing import Dict, Any, Union, Optional, List, Tuple, Protocol, runtime_checkable, Callable, Type
 from flyrigloader import logger
+from flyrigloader.registries import LoaderRegistry, BaseLoader
 
 
 # Dependency Injection Protocols and Interfaces
@@ -150,11 +156,16 @@ _default_dependencies = DependencyContainer()
 
 class PickleLoader:
     """
-    Enhanced pickle file loader with dependency injection support for comprehensive testing.
+    Enhanced pickle file loader with dependency injection support and registry integration.
     
     This class implements modular component decomposition per TST-REF-002 requirements,
     separating pickle loading operations from DataFrame transformation components to
     reduce coupling and enable controlled I/O behavior during test execution.
+    
+    Registry Integration:
+    - Automatically registers itself for .pkl, .pklz, and .pkl.gz extensions
+    - Supports LoaderRegistry-based format detection
+    - Provides backward compatibility with existing code
     """
     
     def __init__(self, dependencies: Optional[DependencyContainer] = None):
@@ -167,6 +178,47 @@ class PickleLoader:
         """
         self.deps = dependencies or _default_dependencies
         logger.debug("Initialized PickleLoader with dependency injection support")
+    
+    def load(self, path: Union[str, Path]) -> Any:
+        """
+        Load data from a file path (BaseLoader protocol method).
+        
+        This method provides the registry-compatible interface for loading data
+        from pickle files. It delegates to load_pickle_any_format for actual
+        loading logic.
+        
+        Args:
+            path: Path to the pickle file to load
+            
+        Returns:
+            Loaded data object
+        """
+        # Delegate to load_pickle_any_format which handles validation and conversion
+        return self.load_pickle_any_format(path)
+    
+    def supports_extension(self, extension: str) -> bool:
+        """
+        Check if this loader supports the given file extension.
+        
+        Args:
+            extension: File extension to check
+            
+        Returns:
+            True if extension is supported, False otherwise
+        """
+        supported_extensions = {'.pkl', '.pklz', '.pkl.gz'}
+        if not extension.startswith('.'):
+            extension = f'.{extension}'
+        return extension in supported_extensions
+    
+    @property
+    def priority(self) -> int:
+        """Priority for this loader (BaseLoader protocol requirement).
+        
+        Returns:
+            Integer priority (higher values = higher priority)
+        """
+        return 10  # Default priority for pickle loader
     
     def _validate_path_input(self, path: Union[str, Path]) -> Path:
         """
@@ -412,6 +464,98 @@ class PickleLoader:
         )
         logger.error(final_error_msg)
         raise RuntimeError(final_error_msg)
+    
+    def read_pickle_any_format(self, path: Union[str, Path]) -> Union[Dict[str, Any], pd.DataFrame]:
+        """
+        Read a pickle file in any common format with automatic detection (alias for load_pickle_any_format).
+        
+        This method provides an alternative interface name for the same functionality,
+        supporting both naming conventions for backward compatibility and user preference.
+        
+        Args:
+            path: Path to the pickle file to read
+            
+        Returns:
+            Dictionary data (exp_matrix style) or DataFrame
+            
+        Raises:
+            FileNotFoundError: If the file does not exist with detailed path info
+            ValueError: If the path format is invalid with helpful guidance
+            TypeError: If the path type is unexpected
+            PermissionError: If the file cannot be accessed due to permissions
+            RuntimeError: If all loading approaches fail with comprehensive error details
+        """
+        return self.load_pickle_any_format(path)
+
+
+# Registry Integration and Auto-Registration
+
+def _initialize_pickle_loader_registry():
+    """
+    Initialize the LoaderRegistry with default PickleLoader for supported extensions.
+    
+    This function automatically registers the PickleLoader class for all pickle
+    file extensions it supports, enabling registry-based automatic format detection.
+    """
+    registry = LoaderRegistry()
+    supported_extensions = ['.pkl', '.pklz', '.pkl.gz']
+    
+    for extension in supported_extensions:
+        registry.register_loader(extension, PickleLoader, priority=10)
+    
+    logger.debug(f"Registered PickleLoader for extensions: {supported_extensions}")
+
+
+# Initialize registry on module import
+_initialize_pickle_loader_registry()
+
+
+def load_data_file(path: Union[str, Path], loader: Optional[str] = None) -> Any:
+    """
+    Load data from a file using registry-based format detection.
+    
+    This function provides the registry-compatible interface for loading files
+    with automatic format detection based on file extension. If no specific
+    loader is provided, the LoaderRegistry is consulted for format selection.
+    
+    Args:
+        path: Path to the file to load
+        loader: Optional specific loader name to use (defaults to registry lookup)
+        
+    Returns:
+        Loaded data object
+        
+    Raises:
+        RuntimeError: If no suitable loader is found for the file extension
+        FileNotFoundError: If the file does not exist
+        ValueError: If the path format is invalid
+    """
+    if loader is None:
+        registry = LoaderRegistry()
+        path_obj = Path(path)
+        
+        # Handle compressed extensions like .pkl.gz
+        if path_obj.suffix == '.gz' and path_obj.stem.endswith('.pkl'):
+            extension = '.pkl.gz'
+        else:
+            extension = path_obj.suffix
+            
+        loader_class = registry.get_loader_for_extension(extension)
+        if loader_class is None:
+            all_loaders = registry.get_all_loaders()
+            supported_extensions = list(all_loaders.keys())
+            
+            raise RuntimeError(
+                f"No registered loader found for file extension '{extension}'. "
+                f"Supported extensions: {supported_extensions}"
+            )
+        
+        # Create loader instance and load the file
+        loader_instance = loader_class()
+        return loader_instance.load(path_obj)
+    else:
+        # Handle specific loader requests (future extensibility)
+        raise NotImplementedError("Specific loader selection not yet implemented")
 
 
 
@@ -476,10 +620,11 @@ def load_experimental_data(path: Union[str, Path]) -> Dict[str, Any]:
 
 def read_pickle_any_format(path: Union[str, Path]) -> Union[Dict[str, Any], pd.DataFrame]:
     """
-    Convenience function for reading pickle files using the default PickleLoader.
+    Convenience function for reading pickle files using registry-based format detection.
     
-    This function maintains backward compatibility while providing access to the
-    enhanced dependency injection capabilities for testing scenarios.
+    This function provides backward compatibility while leveraging the new registry
+    system for automatic format detection. It first attempts to use the registry
+    for format selection, then falls back to the default PickleLoader if needed.
     
     Args:
         path: Path to the pickle file to read
@@ -493,8 +638,13 @@ def read_pickle_any_format(path: Union[str, Path]) -> Union[Dict[str, Any], pd.D
         PermissionError: If the file cannot be accessed due to permissions
         RuntimeError: If all loading approaches fail
     """
-    loader = PickleLoader()
-    return loader.load_pickle_any_format(path)
+    try:
+        # First try registry-based loading
+        return load_data_file(path)
+    except RuntimeError:
+        # Fall back to direct PickleLoader if registry fails
+        loader = PickleLoader()
+        return loader.load_pickle_any_format(path)
 
 
 # Test helper factory functions
@@ -527,3 +677,46 @@ def create_test_pickle_loader(
         dataframe_provider=dataframe_provider
     )
     return PickleLoader(test_deps)
+
+
+# Registry Test Helper Functions
+
+def register_test_loader(extension: str, loader_class: Type[BaseLoader], priority: int = 0) -> None:
+    """
+    Register a test loader for a specific file extension.
+    
+    This function is intended for testing scenarios where custom loaders
+    need to be registered for specific file extensions during test execution.
+    
+    Args:
+        extension: File extension (e.g., '.test', '.mock')
+        loader_class: Test loader class implementing BaseLoader protocol
+        priority: Priority for the loader (higher = higher priority)
+    """
+    registry = LoaderRegistry()
+    registry.register_loader(extension, loader_class, priority)
+    logger.debug(f"Registered test loader for extension: {extension}")
+
+
+def clear_loader_registry() -> None:
+    """
+    Clear all registered loaders for testing isolation.
+    
+    This function provides a clean slate for each test by clearing all
+    registered loaders and re-initializing with the default PickleLoader.
+    """
+    registry = LoaderRegistry()
+    registry.clear()
+    _initialize_pickle_loader_registry()
+    logger.debug("Cleared and reinitialized loader registry")
+
+
+def get_registered_loaders() -> Dict[str, Type[BaseLoader]]:
+    """
+    Get all registered loaders for testing verification.
+    
+    Returns:
+        Dictionary mapping file extensions to their registered loader classes
+    """
+    registry = LoaderRegistry()
+    return registry.get_all_loaders()
