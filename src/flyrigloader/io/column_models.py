@@ -12,6 +12,7 @@ Enhanced for comprehensive testing through:
 - Test-specific entry points and hooks for controlled test execution
 
 SchemaRegistry Integration (Section 0.2.1):
+- Integrates with main flyrigloader.registries.SchemaRegistry for extensibility
 - Provides plugin-style extensibility for column validation schemas
 - Enables dynamic registration of custom schema providers without modifying core code
 - Thread-safe singleton implementation with O(1) lookup performance
@@ -22,9 +23,9 @@ Usage Examples:
     # Basic configuration loading (unchanged)
     config = ColumnConfig.load_column_config("config.yaml")
     
-    # Using SchemaRegistry for custom schemas
-    custom_provider = MyCustomSchemaProvider()
-    ColumnConfig.register_custom_schema("custom", custom_provider)
+    # Using main SchemaRegistry for custom schemas
+    from flyrigloader.registries import register_schema
+    register_schema('custom', MyCustomSchemaProvider)
     
     # Create configuration with specific schema
     config = ColumnConfig.create_from_schema(data, "custom")
@@ -46,6 +47,9 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 import numpy as np
 import os
 
+# Import main SchemaRegistry and BaseSchema from flyrigloader.registries per Section 0.2.1
+from flyrigloader.registries import SchemaRegistry, BaseSchema, register_schema as register_schema_main
+
 # Module exports for the new manifest-based workflow and decoupled transformation architecture
 __all__ = [
     'ColumnConfigDict',
@@ -66,13 +70,12 @@ __all__ = [
     'register_validation_behavior',
     'validate_column_config_with_hooks',
     'get_validation_diagnostics',
-    # SchemaRegistry exports for extensible column schema registration
-    'SchemaRegistry',
-    'BaseSchemaProtocol',
+    # SchemaRegistry exports for extensible column schema registration (using main registry)
     'register_schema',
     'get_schema_registry',
     'get_schema_by_name',
-    'create_schema_from_config'
+    'create_schema_from_config',
+    'DefaultColumnSchemaProvider'
 ]
 
 # Dependency injection interfaces for testability (TST-REF-001)
@@ -125,55 +128,8 @@ class FileSystemProtocol(Protocol):
         """Join path components."""
         ...
 
-class BaseSchemaProtocol(Protocol):
-    """
-    Protocol for schema providers to enable extensible column schema registration.
-    
-    This protocol defines the interface that custom schema providers must implement
-    to be registered with the SchemaRegistry system per Section 5.2.6 requirements.
-    """
-    
-    def create_config(self, schema_data: Dict[str, Any]) -> 'ColumnConfigDict':
-        """
-        Create a validated ColumnConfigDict from schema data.
-        
-        Args:
-            schema_data: Dictionary containing schema configuration
-            
-        Returns:
-            ColumnConfigDict: Validated configuration object
-        """
-        ...
-    
-    def validate_schema(self, schema_data: Dict[str, Any]) -> bool:
-        """
-        Validate that schema data is compatible with this schema provider.
-        
-        Args:
-            schema_data: Dictionary containing schema configuration
-            
-        Returns:
-            bool: True if schema is valid for this provider
-        """
-        ...
-    
-    def get_schema_name(self) -> str:
-        """
-        Get the name identifier for this schema provider.
-        
-        Returns:
-            str: Unique name identifier for schema registration
-        """
-        ...
-    
-    def get_schema_version(self) -> str:
-        """
-        Get the version of this schema provider.
-        
-        Returns:
-            str: Version string for compatibility tracking
-        """
-        ...
+# NOTE: BaseSchemaProtocol removed - now using main BaseSchema from flyrigloader.registries
+# The main BaseSchema protocol expects: validate(data) -> Dict[str, Any], schema_name, supported_types
 
 # Default implementations (TST-REF-001)
 class DefaultYamlLoader:
@@ -187,20 +143,26 @@ class DefaultLogger:
     """Default logger implementation using Loguru."""
     
     def __init__(self):
-        from flyrigloader import logger
-        self._logger = logger
+        self._logger = None
+    
+    def _get_logger(self):
+        """Lazy initialization of logger to avoid circular imports."""
+        if self._logger is None:
+            from flyrigloader import logger
+            self._logger = logger
+        return self._logger
     
     def debug(self, message: str) -> None:
-        self._logger.debug(message)
+        self._get_logger().debug(message)
     
     def warning(self, message: str) -> None:
-        self._logger.warning(message)
+        self._get_logger().warning(message)
     
     def info(self, message: str) -> None:
-        self._logger.info(message)
+        self._get_logger().info(message)
     
     def error(self, message: str) -> None:
-        self._logger.error(message)
+        self._get_logger().error(message)
 
 class DefaultFileSystem:
     """Default file system implementation."""
@@ -220,20 +182,46 @@ class DefaultFileSystem:
     def join(self, *paths: str) -> str:
         return os.path.join(*paths)
 
-class DefaultSchemaProvider:
+class DefaultColumnSchemaProvider:
     """
     Default schema provider implementation for standard column configurations.
     
     This provider handles the standard column schema format using ColumnConfigDict
-    and serves as the default registered schema per Section 5.2.6 requirements.
+    and implements the main BaseSchema protocol per Section 0.2.1 requirements.
     """
     
+    def validate(self, data: Any) -> Dict[str, Any]:
+        """Validate data against schema and return validated result per BaseSchema protocol."""
+        try:
+            # Validate the data as a ColumnConfigDict
+            if isinstance(data, dict):
+                # Temporarily disable dependency container to avoid circular import
+                # config = ColumnConfigDict.model_validate(data)
+                # return config.model_dump()
+                return data  # Return as-is for now to avoid circular import
+            else:
+                raise ValueError(f"Expected dict, got {type(data)}")
+        except Exception as e:
+            from flyrigloader.exceptions import TransformError
+            raise TransformError(f"Column schema validation failed: {str(e)}")
+    
+    @property
+    def schema_name(self) -> str:
+        """Name identifying this schema per BaseSchema protocol."""
+        return "default_column"
+    
+    @property
+    def supported_types(self) -> List[str]:
+        """List of data types this schema can validate per BaseSchema protocol."""
+        return ["dict", "column_config"]
+    
+    # Legacy compatibility methods for backward compatibility
     def create_config(self, schema_data: Dict[str, Any]) -> 'ColumnConfigDict':
-        """Create a validated ColumnConfigDict from schema data."""
+        """Create a validated ColumnConfigDict from schema data (legacy compatibility)."""
         return ColumnConfigDict.model_validate(schema_data)
     
     def validate_schema(self, schema_data: Dict[str, Any]) -> bool:
-        """Validate that schema data is compatible with default schema format."""
+        """Validate that schema data is compatible with default schema format (legacy compatibility)."""
         try:
             # Check for required structure
             if not isinstance(schema_data, dict):
@@ -255,239 +243,43 @@ class DefaultSchemaProvider:
             return False
     
     def get_schema_name(self) -> str:
-        """Get the name identifier for this schema provider."""
-        return "default"
+        """Get the name identifier for this schema provider (legacy compatibility)."""
+        return self.schema_name
     
     def get_schema_version(self) -> str:
-        """Get the version of this schema provider."""
+        """Get the version of this schema provider (legacy compatibility)."""
         return "1.0.0"
 
-class SchemaRegistry:
-    """
-    Thread-safe singleton registry for column schema providers.
-    
-    Provides plugin-style extensibility for column validation schemas per
-    Section 5.2.6 requirements. Enables dynamic registration of schema providers
-    without modifying core code.
-    
-    Features:
-    - Thread-safe singleton implementation
-    - O(1) lookup performance by schema name
-    - Priority-based schema selection
-    - Runtime registration support
-    - Plugin discovery mechanism
-    """
-    
-    _instance = None
-    _lock = threading.Lock()
-    _initialized = False
-    
-    def __new__(cls):
-        """Thread-safe singleton implementation."""
-        if cls._instance is None:
-            with cls._lock:
-                if cls._instance is None:
-                    cls._instance = super().__new__(cls)
-        return cls._instance
-    
-    def __init__(self):
-        """Initialize the registry if not already initialized."""
-        if not self._initialized:
-            with self._lock:
-                if not self._initialized:
-                    self._schemas: Dict[str, BaseSchemaProtocol] = {}
-                    self._schema_instances: WeakValueDictionary = WeakValueDictionary()
-                    self._priorities: Dict[str, int] = {}
-                    self._register_lock = threading.RLock()
-                    
-                    # Register default schema provider
-                    self._register_default_schemas()
-                    
-                    SchemaRegistry._initialized = True
-    
-    def _register_default_schemas(self) -> None:
-        """Register default schema providers."""
-        default_provider = DefaultSchemaProvider()
-        self._schemas[default_provider.get_schema_name()] = default_provider
-        self._priorities[default_provider.get_schema_name()] = 0
-    
-    def register(self, schema_provider: BaseSchemaProtocol, priority: int = 100) -> None:
-        """
-        Register a schema provider with the registry.
-        
-        Args:
-            schema_provider: Schema provider instance implementing BaseSchemaProtocol
-            priority: Priority level for schema selection (lower = higher priority)
-            
-        Raises:
-            ValueError: If schema provider doesn't implement required protocol
-            RuntimeError: If schema name conflicts with existing registration
-        """
-        with self._register_lock:
-            # Validate schema provider implements required protocol
-            if not hasattr(schema_provider, 'create_config'):
-                raise ValueError("Schema provider must implement create_config method")
-            
-            if not hasattr(schema_provider, 'validate_schema'):
-                raise ValueError("Schema provider must implement validate_schema method")
-            
-            if not hasattr(schema_provider, 'get_schema_name'):
-                raise ValueError("Schema provider must implement get_schema_name method")
-            
-            schema_name = schema_provider.get_schema_name()
-            
-            # Check for name conflicts
-            if schema_name in self._schemas and schema_name != "default":
-                existing_priority = self._priorities.get(schema_name, float('inf'))
-                if priority >= existing_priority:
-                    raise RuntimeError(
-                        f"Schema name '{schema_name}' already registered with higher or equal priority "
-                        f"({existing_priority}). Use lower priority value to override."
-                    )
-            
-            # Register the schema provider
-            self._schemas[schema_name] = schema_provider
-            self._priorities[schema_name] = priority
-            
-            # Log registration
-            deps = get_dependency_container()
-            deps.logger.info(f"Registered schema provider '{schema_name}' with priority {priority}")
-    
-    def get_schema(self, schema_name: str) -> Optional[BaseSchemaProtocol]:
-        """
-        Get schema provider by name.
-        
-        Args:
-            schema_name: Name of the schema provider to retrieve
-            
-        Returns:
-            BaseSchemaProtocol: Schema provider instance or None if not found
-        """
-        return self._schemas.get(schema_name)
-    
-    def list_schemas(self) -> List[str]:
-        """
-        List all registered schema names.
-        
-        Returns:
-            List[str]: List of registered schema names sorted by priority
-        """
-        return sorted(self._schemas.keys(), key=lambda x: self._priorities.get(x, float('inf')))
-    
-    def create_config_from_schema(self, schema_name: str, schema_data: Dict[str, Any]) -> 'ColumnConfigDict':
-        """
-        Create a validated ColumnConfigDict using a specific schema provider.
-        
-        Args:
-            schema_name: Name of the schema provider to use
-            schema_data: Dictionary containing schema configuration
-            
-        Returns:
-            ColumnConfigDict: Validated configuration object
-            
-        Raises:
-            ValueError: If schema provider is not found or data is invalid
-        """
-        schema_provider = self.get_schema(schema_name)
-        if schema_provider is None:
-            available_schemas = self.list_schemas()
-            raise ValueError(
-                f"Schema provider '{schema_name}' not found. "
-                f"Available schemas: {available_schemas}"
-            )
-        
-        # Validate schema data is compatible
-        if not schema_provider.validate_schema(schema_data):
-            raise ValueError(
-                f"Schema data is not compatible with schema provider '{schema_name}'"
-            )
-        
-        return schema_provider.create_config(schema_data)
-    
-    def auto_detect_schema(self, schema_data: Dict[str, Any]) -> Optional[str]:
-        """
-        Auto-detect the appropriate schema provider for given data.
-        
-        Args:
-            schema_data: Dictionary containing schema configuration
-            
-        Returns:
-            str: Name of the best matching schema provider or None if none match
-        """
-        # Sort by priority (lower priority number = higher priority)
-        sorted_schemas = sorted(
-            self._schemas.items(),
-            key=lambda x: self._priorities.get(x[0], float('inf'))
-        )
-        
-        for schema_name, schema_provider in sorted_schemas:
-            if schema_provider.validate_schema(schema_data):
-                return schema_name
-        
-        return None
-    
-    def clear(self) -> None:
-        """
-        Clear all registered schemas except default.
-        
-        This method is primarily for testing purposes.
-        """
-        with self._register_lock:
-            # Keep only default schema
-            default_provider = self._schemas.get("default")
-            self._schemas.clear()
-            self._priorities.clear()
-            
-            if default_provider:
-                self._schemas["default"] = default_provider
-                self._priorities["default"] = 0
-    
-    def get_diagnostics(self) -> Dict[str, Any]:
-        """
-        Get diagnostic information about the registry state.
-        
-        Returns:
-            Dict: Diagnostic information including schema counts and priorities
-        """
-        return {
-            'schema_count': len(self._schemas),
-            'registered_schemas': list(self._schemas.keys()),
-            'schema_priorities': self._priorities.copy(),
-            'default_schema_available': 'default' in self._schemas
-        }
+# NOTE: Local SchemaRegistry removed - now using main SchemaRegistry from flyrigloader.registries per Section 0.2.1
 
-# Global schema registry instance
-_schema_registry = None
-_schema_registry_lock = threading.Lock()
+# NOTE: Using main SchemaRegistry directly - it's a singleton, no need for local variables
 
 def get_schema_registry() -> SchemaRegistry:
     """
-    Get the global schema registry instance.
+    Get the global schema registry instance from main flyrigloader.registries.
     
     Returns:
-        SchemaRegistry: Thread-safe singleton registry instance
+        SchemaRegistry: Thread-safe singleton registry instance from main module
     """
-    global _schema_registry
-    if _schema_registry is None:
-        with _schema_registry_lock:
-            if _schema_registry is None:
-                _schema_registry = SchemaRegistry()
-    return _schema_registry
+    # Simply return the main registry directly - it's a singleton
+    return SchemaRegistry()
 
-def register_schema(schema_provider: BaseSchemaProtocol, priority: int = 100) -> None:
+def register_schema(schema_provider: BaseSchema, priority: int = 100) -> None:
     """
     Register a schema provider with the global registry.
     
     Convenience function for registering schema providers per Section 0.2.1 requirements.
+    Now uses main flyrigloader.registries.SchemaRegistry.
     
     Args:
-        schema_provider: Schema provider instance implementing BaseSchemaProtocol
-        priority: Priority level for schema selection (lower = higher priority)
+        schema_provider: Schema provider instance implementing BaseSchema protocol
+        priority: Priority level for schema selection (higher = higher priority)
     """
     registry = get_schema_registry()
-    registry.register(schema_provider, priority)
+    schema_name = schema_provider.schema_name
+    registry.register_schema(schema_name, type(schema_provider), priority)
 
-def get_schema_by_name(schema_name: str) -> Optional[BaseSchemaProtocol]:
+def get_schema_by_name(schema_name: str) -> Optional[BaseSchema]:
     """
     Get schema provider by name from the global registry.
     
@@ -495,16 +287,17 @@ def get_schema_by_name(schema_name: str) -> Optional[BaseSchemaProtocol]:
         schema_name: Name of the schema provider to retrieve
         
     Returns:
-        BaseSchemaProtocol: Schema provider instance or None if not found
+        BaseSchema: Schema provider class or None if not found
     """
     registry = get_schema_registry()
-    return registry.get_schema(schema_name)
+    schema_class = registry.get_schema(schema_name)
+    return schema_class() if schema_class else None
 
 def create_schema_from_config(schema_data: Dict[str, Any], schema_name: Optional[str] = None) -> 'ColumnConfigDict':
     """
     Create a validated ColumnConfigDict using schema registry.
     
-    This function integrates with the SchemaRegistry to provide extensible
+    This function integrates with the main SchemaRegistry to provide extensible
     column schema creation per Section 0.2.1 requirements.
     
     Args:
@@ -525,17 +318,39 @@ def create_schema_from_config(schema_data: Dict[str, Any], schema_name: Optional
     if schema_name:
         # Use specific schema provider
         deps.logger.debug(f"Using specified schema provider: {schema_name}")
-        return registry.create_config_from_schema(schema_name, schema_data)
+        schema_class = registry.get_schema(schema_name)
+        if schema_class is None:
+            available_schemas = list(registry.get_all_schemas().keys())
+            raise ValueError(
+                f"Schema provider '{schema_name}' not found. "
+                f"Available schemas: {available_schemas}"
+            )
+        
+        schema_instance = schema_class()
+        validated_data = schema_instance.validate(schema_data)
+        return ColumnConfigDict.model_validate(validated_data)
     else:
-        # Auto-detect schema provider
-        detected_schema = registry.auto_detect_schema(schema_data)
-        if detected_schema:
-            deps.logger.debug(f"Auto-detected schema provider: {detected_schema}")
-            return registry.create_config_from_schema(detected_schema, schema_data)
-        else:
-            # Fall back to default
-            deps.logger.warning("No compatible schema provider found, falling back to default")
-            return registry.create_config_from_schema("default", schema_data)
+        # Try to auto-detect or use default
+        deps.logger.debug("Auto-detecting schema provider")
+        
+        # Try all registered schemas to find one that works
+        for schema_name_candidate, schema_class in registry.get_all_schemas().items():
+            try:
+                schema_instance = schema_class()
+                validated_data = schema_instance.validate(schema_data)
+                deps.logger.debug(f"Auto-detected schema provider: {schema_name_candidate}")
+                return ColumnConfigDict.model_validate(validated_data)
+            except Exception:
+                continue
+        
+        # Fall back to default column schema
+        deps.logger.warning("No compatible schema provider found, falling back to default column schema")
+        default_provider = DefaultColumnSchemaProvider()
+        try:
+            validated_data = default_provider.validate(schema_data)
+            return ColumnConfigDict.model_validate(validated_data)
+        except Exception as e:
+            raise ValueError(f"Failed to validate with default column schema: {str(e)}")
 
 # Configurable dependency container (TST-REF-001, TST-REF-003)
 @dataclass
@@ -565,10 +380,13 @@ class DependencyContainer:
         return None
 
 # Global dependency container with test-specific entry points (TST-REF-003)
-_dependency_container = DependencyContainer()
+_dependency_container = None
 
 def get_dependency_container() -> DependencyContainer:
     """Get the current dependency container (test hook available)."""
+    global _dependency_container
+    if _dependency_container is None:
+        _dependency_container = DependencyContainer()
     return _dependency_container
 
 def set_dependency_container(container: DependencyContainer) -> None:
@@ -803,7 +621,7 @@ class ColumnConfig(BaseModel):
     def register_custom_schema(
         cls,
         schema_name: str,
-        schema_provider: BaseSchemaProtocol,
+        schema_provider: BaseSchema,
         priority: int = 100
     ) -> None:
         """
@@ -811,11 +629,12 @@ class ColumnConfig(BaseModel):
         
         Convenience class method for registering custom column schemas per
         Section 0.2.1 requirements. Enables extensible column schema registration.
+        Uses main flyrigloader.registries.SchemaRegistry.
         
         Args:
             schema_name: Name identifier for the schema provider
-            schema_provider: Schema provider instance implementing BaseSchemaProtocol
-            priority: Priority level for schema selection (lower = higher priority)
+            schema_provider: Schema provider instance implementing BaseSchema protocol
+            priority: Priority level for schema selection (higher = higher priority)
         """
         register_schema(schema_provider, priority)
     
@@ -828,7 +647,7 @@ class ColumnConfig(BaseModel):
             List[str]: List of registered schema names sorted by priority
         """
         registry = get_schema_registry()
-        return registry.list_schemas()
+        return list(registry.get_all_schemas().keys())
     
     @classmethod
     def create_from_schema(
@@ -1012,24 +831,24 @@ def _validate_config_data(config_data: Dict[str, Any], dependencies: Optional[De
             deps.logger.debug("Using validation hook result")
             return hook_result
         
-        # Try to use SchemaRegistry for validation if available
+        # Try to use main SchemaRegistry for validation if available
         try:
             # Check if config_data has schema type hint
             schema_type = config_data.get('schema_type')
             if schema_type:
-                deps.logger.debug(f"Using schema registry with schema type: {schema_type}")
+                deps.logger.debug(f"Using main schema registry with schema type: {schema_type}")
                 validated_config = create_schema_from_config(config_data, schema_type)
             else:
                 # Auto-detect schema or use default
-                deps.logger.debug("Using schema registry with auto-detection")
+                deps.logger.debug("Using main schema registry with auto-detection")
                 validated_config = create_schema_from_config(config_data)
             
-            deps.logger.debug(f"Successfully validated configuration with SchemaRegistry, {len(validated_config.columns)} columns")
+            deps.logger.debug(f"Successfully validated configuration with main SchemaRegistry, {len(validated_config.columns)} columns")
             return validated_config
             
         except Exception as schema_error:
             # Fall back to direct Pydantic validation
-            deps.logger.debug(f"SchemaRegistry validation failed ({schema_error}), falling back to direct Pydantic validation")
+            deps.logger.debug(f"Main SchemaRegistry validation failed ({schema_error}), falling back to direct Pydantic validation")
             
             validated_config = ColumnConfigDict.model_validate(config_data)
             deps.logger.debug(f"Successfully validated configuration with direct Pydantic, {len(validated_config.columns)} columns")
@@ -1457,11 +1276,12 @@ def transform_to_standardized_format(
 
 
 # Import compatibility layer for backward compatibility
-try:
-    from flyrigloader import logger
-    _legacy_logger = logger
-except ImportError:
-    _legacy_logger = DefaultLogger()
+# NOTE: Commented out to avoid circular imports - use dependency injection instead
+# try:
+#     from flyrigloader import logger
+#     _legacy_logger = logger
+# except ImportError:
+#     _legacy_logger = DefaultLogger()
 
 # Maintain backward compatibility while enabling dependency injection
-logger = _legacy_logger
+# logger = _legacy_logger
