@@ -19,105 +19,9 @@ import gzip
 import pickle
 import pandas as pd
 from pathlib import Path
-from typing import Dict, Any, Union, Optional, List, Tuple, Protocol, runtime_checkable, Callable
+from typing import Dict, Any, Union, Optional, List, Tuple, Protocol, runtime_checkable, Callable, Type
 from flyrigloader import logger
-
-
-# Registry Integration Protocols and Interfaces
-
-@runtime_checkable
-class BaseLoader(Protocol):
-    """Protocol for registry-compatible file loaders."""
-    
-    def load(self, path: Union[str, Path]) -> Any:
-        """Load data from a file path."""
-        ...
-    
-    def supports_extension(self, extension: str) -> bool:
-        """Check if this loader supports the given file extension."""
-        ...
-
-
-class LoaderRegistry:
-    """
-    Registry for file format loaders supporting automatic format detection.
-    
-    This class implements the registry pattern for extensible file loading,
-    allowing plugins to register new file format handlers without modifying
-    core code. Thread-safe singleton implementation with O(1) lookup performance.
-    """
-    
-    _instance = None
-    _loaders: Dict[str, BaseLoader] = {}
-    
-    def __new__(cls):
-        """Singleton pattern implementation."""
-        if cls._instance is None:
-            cls._instance = super().__new__(cls)
-        return cls._instance
-    
-    @classmethod
-    def register(cls, extension: str, loader: BaseLoader) -> None:
-        """
-        Register a loader for a specific file extension.
-        
-        Args:
-            extension: File extension (e.g., '.pkl', '.pklz')
-            loader: Loader instance implementing BaseLoader protocol
-        """
-        if not extension.startswith('.'):
-            extension = f'.{extension}'
-        
-        cls._loaders[extension] = loader
-        logger.debug(f"Registered loader for extension: {extension}")
-    
-    @classmethod
-    def get_loader(cls, extension: str) -> Optional[BaseLoader]:
-        """
-        Get registered loader for file extension.
-        
-        Args:
-            extension: File extension to look up
-            
-        Returns:
-            Loader instance or None if not found
-        """
-        if not extension.startswith('.'):
-            extension = f'.{extension}'
-            
-        return cls._loaders.get(extension)
-    
-    @classmethod
-    def get_loader_for_file(cls, path: Union[str, Path]) -> Optional[BaseLoader]:
-        """
-        Get registered loader for a file path.
-        
-        Args:
-            path: File path to determine extension from
-            
-        Returns:
-            Loader instance or None if not found
-        """
-        path_obj = Path(path)
-        
-        # Handle compressed extensions like .pkl.gz
-        if path_obj.suffix == '.gz' and path_obj.stem.endswith('.pkl'):
-            extension = '.pkl.gz'
-        else:
-            extension = path_obj.suffix
-            
-        return cls.get_loader(extension)
-    
-    @classmethod
-    def get_registered_extensions(cls) -> List[str]:
-        """Get list of all registered file extensions."""
-        return list(cls._loaders.keys())
-    
-    @classmethod
-    def clear_registry(cls) -> None:
-        """Clear all registered loaders (primarily for testing)."""
-        cls._loaders.clear()
-        logger.debug("Cleared loader registry")
+from flyrigloader.registries import LoaderRegistry, BaseLoader
 
 
 # Dependency Injection Protocols and Interfaces
@@ -289,6 +193,7 @@ class PickleLoader:
         Returns:
             Loaded data object
         """
+        # Delegate to load_pickle_any_format which handles validation and conversion
         return self.load_pickle_any_format(path)
     
     def supports_extension(self, extension: str) -> bool:
@@ -305,6 +210,15 @@ class PickleLoader:
         if not extension.startswith('.'):
             extension = f'.{extension}'
         return extension in supported_extensions
+    
+    @property
+    def priority(self) -> int:
+        """Priority for this loader (BaseLoader protocol requirement).
+        
+        Returns:
+            Integer priority (higher values = higher priority)
+        """
+        return 10  # Default priority for pickle loader
     
     def _validate_path_input(self, path: Union[str, Path]) -> Path:
         """
@@ -583,11 +497,11 @@ def _initialize_pickle_loader_registry():
     This function automatically registers the PickleLoader class for all pickle
     file extensions it supports, enabling registry-based automatic format detection.
     """
-    pickle_loader = PickleLoader()
+    registry = LoaderRegistry()
     supported_extensions = ['.pkl', '.pklz', '.pkl.gz']
     
     for extension in supported_extensions:
-        LoaderRegistry.register(extension, pickle_loader)
+        registry.register_loader(extension, PickleLoader, priority=10)
     
     logger.debug(f"Registered PickleLoader for extensions: {supported_extensions}")
 
@@ -617,19 +531,28 @@ def load_data_file(path: Union[str, Path], loader: Optional[str] = None) -> Any:
         ValueError: If the path format is invalid
     """
     if loader is None:
-        registered_loader = LoaderRegistry.get_loader_for_file(path)
-        if registered_loader is None:
-            path_obj = Path(path)
+        registry = LoaderRegistry()
+        path_obj = Path(path)
+        
+        # Handle compressed extensions like .pkl.gz
+        if path_obj.suffix == '.gz' and path_obj.stem.endswith('.pkl'):
+            extension = '.pkl.gz'
+        else:
             extension = path_obj.suffix
-            if path_obj.suffix == '.gz' and path_obj.stem.endswith('.pkl'):
-                extension = '.pkl.gz'
+            
+        loader_class = registry.get_loader_for_extension(extension)
+        if loader_class is None:
+            all_loaders = registry.get_all_loaders()
+            supported_extensions = list(all_loaders.keys())
             
             raise RuntimeError(
                 f"No registered loader found for file extension '{extension}'. "
-                f"Supported extensions: {LoaderRegistry.get_registered_extensions()}"
+                f"Supported extensions: {supported_extensions}"
             )
         
-        return registered_loader.load(path)
+        # Create loader instance and load the file
+        loader_instance = loader_class()
+        return loader_instance.load(path_obj)
     else:
         # Handle specific loader requests (future extensibility)
         raise NotImplementedError("Specific loader selection not yet implemented")
@@ -758,7 +681,7 @@ def create_test_pickle_loader(
 
 # Registry Test Helper Functions
 
-def register_test_loader(extension: str, loader: BaseLoader) -> None:
+def register_test_loader(extension: str, loader_class: Type[BaseLoader], priority: int = 0) -> None:
     """
     Register a test loader for a specific file extension.
     
@@ -767,9 +690,11 @@ def register_test_loader(extension: str, loader: BaseLoader) -> None:
     
     Args:
         extension: File extension (e.g., '.test', '.mock')
-        loader: Test loader instance implementing BaseLoader protocol
+        loader_class: Test loader class implementing BaseLoader protocol
+        priority: Priority for the loader (higher = higher priority)
     """
-    LoaderRegistry.register(extension, loader)
+    registry = LoaderRegistry()
+    registry.register_loader(extension, loader_class, priority)
     logger.debug(f"Registered test loader for extension: {extension}")
 
 
@@ -780,16 +705,18 @@ def clear_loader_registry() -> None:
     This function provides a clean slate for each test by clearing all
     registered loaders and re-initializing with the default PickleLoader.
     """
-    LoaderRegistry.clear_registry()
+    registry = LoaderRegistry()
+    registry.clear()
     _initialize_pickle_loader_registry()
     logger.debug("Cleared and reinitialized loader registry")
 
 
-def get_registered_loaders() -> Dict[str, BaseLoader]:
+def get_registered_loaders() -> Dict[str, Type[BaseLoader]]:
     """
     Get all registered loaders for testing verification.
     
     Returns:
-        Dictionary mapping file extensions to their registered loaders
+        Dictionary mapping file extensions to their registered loader classes
     """
-    return LoaderRegistry._loaders.copy()
+    registry = LoaderRegistry()
+    return registry.get_all_loaders()
