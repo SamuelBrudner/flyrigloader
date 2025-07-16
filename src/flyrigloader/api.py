@@ -31,6 +31,7 @@ from flyrigloader.config.models import LegacyConfigAdapter, create_config
 from flyrigloader.discovery.files import discover_experiment_manifest as _discover_experiment_manifest
 from flyrigloader.io.loaders import load_data_file as _load_data_file
 from flyrigloader.io.transformers import transform_to_dataframe as _transform_to_dataframe
+from flyrigloader.exceptions import FlyRigLoaderError
 import warnings
 import functools
 
@@ -67,10 +68,6 @@ MISSING_DATA_DIR_ERROR = (
     "No data directory specified. Either provide base_directory parameter "
     "or ensure 'major_data_directory' is set in config."
 )
-
-
-class FlyRigLoaderError(Exception):
-    """Custom exception for flyrigloader user-visible failures."""
 
 
 class ConfigProvider(Protocol):
