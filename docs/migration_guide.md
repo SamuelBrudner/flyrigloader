@@ -117,7 +117,7 @@ current_version = ConfigVersion.V1_0_0
 oldest_supported = ConfigVersion.V0_1_0
 
 # Semantic version comparison
-version_obj = Version.parse(current_version.value)
+version_obj = Version(current_version.value)
 print(f"Current major version: {version_obj.major}")  # 1
 ```
 
@@ -171,16 +171,14 @@ legacy_config = {
 
 # Execute migration with audit trail
 try:
-    migrated_config = migrator.migrate_config(legacy_config, "1.0.0")
+    migrated_config, report = migrator.migrate(legacy_config, "0.1.0", "1.0.0")
     print("Migration successful!")
     print(f"New schema version: {migrated_config['schema_version']}")
     
     # Access migration report
-    report = migrated_config.get('_migration_report')
-    if report:
-        print(f"Migration completed: {report.from_version} -> {report.to_version}")
-        print(f"Applied migrations: {report.applied_migrations}")
-        print(f"Timestamp: {report.timestamp}")
+    print(f"Migration completed: {report.from_version} -> {report.to_version}")
+    print(f"Applied migrations: {report.applied_migrations}")
+    print(f"Timestamp: {report.timestamp}")
         
 except Exception as e:
     print(f"Migration failed: {e}")
@@ -209,7 +207,11 @@ def migrate_with_validation(config_data, target_version="1.0.0"):
     
     # Execute migration
     try:
-        migrated_config = migrator.migrate_config(config_data, target_version)
+        # Detect the from_version first
+        from flyrigloader.migration.versions import detect_config_version
+        detected_version = detect_config_version(config_data)
+        
+        migrated_config, migration_report = migrator.migrate(config_data, detected_version.value, target_version)
         
         # Post-migration validation using the new validate_config_with_migration
         from flyrigloader.migration.validators import validate_config_with_migration
@@ -252,10 +254,12 @@ from datetime import datetime
 report = MigrationReport(
     from_version="0.2.0",
     to_version="1.0.0", 
-    timestamp=datetime.now(),
-    applied_migrations=["migrate_v0_2_to_v1_0"],
-    warnings=["Legacy date_range format converted to datasets"]
+    timestamp=datetime.now()
 )
+
+# Add applied migrations and warnings after creation
+report.applied_migrations.append("migrate_v0_2_to_v1_0")
+report.warnings.append("Legacy date_range format converted to datasets")
 
 # Convert to dictionary for serialization
 report_dict = report.to_dict()
@@ -324,12 +328,8 @@ from flyrigloader.config.models import create_config
 config = create_config(
     project_name="behavior_analysis",
     base_directory="/data/experiments",
-    experiments={
-        "plume_navigation": {
-            "datasets": ["plume_tracking"],
-            "parameters": {"threshold": 0.5}
-        }
-    }
+    experiments=["plume_navigation"],
+    datasets=["plume_tracking"]
 )
 
 # Discover experiment manifest
@@ -381,12 +381,11 @@ print(f"Data directory: {data_dir}")
 adapter['project']['name'] = "migrated_project"
 print(f"Project name: {adapter['project']['name']}")
 
-# Automatic migration when accessed
-try:
-    migrated_config = adapter.migrate_config()
-    print(f"Migrated to version: {migrated_config['schema_version']}")
-except Exception as e:
-    print(f"Migration failed: {e}")
+# Validate all configuration sections
+if adapter.validate_all():
+    print("All configuration sections are valid")
+else:
+    print("Some configuration sections failed validation")
 ```
 
 #### LegacyConfigAdapter with Deprecation Warnings
@@ -420,12 +419,8 @@ from flyrigloader.config.models import create_config
 modern_config = create_config(
     project_name="modern_project",
     base_directory="/data",
-    experiments={
-        "exp1": {
-            "datasets": ["dataset1"],
-            "parameters": {"threshold": 0.5}
-        }
-    }
+    experiments=["exp1"],
+    datasets=["dataset1"]
 )
 
 print(f"Modern config version: {modern_config.schema_version}")
@@ -1799,7 +1794,7 @@ except Exception as e:
     modern_config = create_config(
         project_name="migrated_project",
         base_directory="/data",
-        experiments={"exp1": {"parameters": {}}}
+        experiments=["exp1"]
     )
     
     print(f"Modern config created with version: {modern_config.schema_version}")
