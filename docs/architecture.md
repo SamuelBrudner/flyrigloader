@@ -183,7 +183,7 @@ migrated = ProjectConfig.model_validate(legacy_config)  # Auto-migrates with war
 **Purpose:** Pattern-based file discovery with metadata extraction
 
 **Key Components:**
-- `flyrigloader.discovery.files.FileDiscoverer` - Core discovery engine
+- `flyrigloader.discovery.files.FileDiscoverer` - Core discovery engine with `discover()` method
 - `flyrigloader.discovery.files.FileManifest` - Metadata-only results container
 - Pattern matching with configurable ignore filters
 
@@ -191,9 +191,9 @@ migrated = ProjectConfig.model_validate(legacy_config)  # Auto-migrates with war
 ```python
 from flyrigloader.discovery.files import FileDiscoverer
 
-discoverer = FileDiscoverer(config)
+discoverer = FileDiscoverer(extract_patterns=['experiment_(.+)'])
 # Returns metadata only, no data loading
-manifest = discoverer.discover_files(experiment_pattern)
+manifest = discoverer.discover(directory=data_path, patterns=['*.pkl'], recursive=True)
 
 # FileManifest contains FileInfo objects with metadata
 for file_info in manifest.files:
@@ -202,7 +202,7 @@ for file_info in manifest.files:
 
 **Performance Characteristics:**
 - Optimized for >10,000 files with <5 second discovery time
-- Supports recursive and non-recursive discovery modes
+- Supports recursive and non-recursive discovery modes via `discover()` method
 - Memory-efficient metadata extraction
 
 ### Migration Layer
@@ -330,7 +330,7 @@ dataset = FlyRigLoaderDataSet(
 # Kedro pipeline integration
 data = dataset.load()  # Returns processed DataFrame with Kedro-compatible metadata
 exists = dataset.exists()  # Checks configuration file existence
-description = dataset.describe()  # Provides dataset metadata
+description = dataset._describe()  # Provides dataset metadata (via Kedro's AbstractDataset interface)
 
 # Programmatic catalog entry generation
 catalog_entry = create_flyrigloader_catalog_entry(
@@ -430,13 +430,14 @@ from flyrigloader.exceptions import TransformError
 try:
     df = transform_to_dataframe(raw_data, schema)
 except ValueError as e:
-    # Context preservation with method chaining
+    # Context preservation with method chaining - note: error includes context in string representation
     raise TransformError("Schema validation failed").with_context({
         "original_error": str(e),
         "data_shape": raw_data.shape,
         "schema_name": schema.schema_name,
         "transformation_step": "column_validation"
     })
+    # String representation will be: "Schema validation failed [Error Code: TRANSFORM_001, Context: ...]"
 ```
 
 ### Error Codes for Programmatic Handling
@@ -805,8 +806,9 @@ legacy_config = {
 }
 
 # Automatic version detection and migration execution
-detected_version = migrator.detect_config_version(legacy_config)
-migrated_config, report = migrator.migrate(legacy_config, detected_version, CURRENT_VERSION)
+from flyrigloader.migration.versions import detect_config_version
+detected_version = detect_config_version(legacy_config)
+migrated_config, report = migrator.migrate(legacy_config, str(detected_version), CURRENT_VERSION)
 
 print(f"Migration from {report.from_version} to {report.to_version}")
 print(f"Applied migrations: {', '.join(report.applied_migrations)}")
