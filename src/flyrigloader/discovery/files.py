@@ -655,21 +655,26 @@ class FileDiscoverer:
         initial_count = len(files)
 
         # Filter by extensions if specified
-        if extensions:
+        if extensions is not None:
             logger.debug(f"Applying extension filter: {extensions}")
-            # Normalize extensions for case-insensitive comparison and ensure dot prefix
-            ext_filters = [
-                (ext if ext.startswith(".") else f".{ext}").lower()
-                for ext in extensions
-            ]
-            logger.debug(f"Normalized extension filters: {ext_filters}")
-            
-            # Filter files by extensions, ignoring case
-            filtered_files = [
-                f
-                for f in filtered_files
-                if any(f.lower().endswith(ext) for ext in ext_filters)
-            ]
+            if not extensions:
+                # Empty extension list should return no files
+                logger.debug("Empty extension list provided - returning no files")
+                filtered_files = []
+            else:
+                # Normalize extensions for case-insensitive comparison and ensure dot prefix
+                ext_filters = [
+                    (ext if ext.startswith(".") else f".{ext}").lower()
+                    for ext in extensions
+                ]
+                logger.debug(f"Normalized extension filters: {ext_filters}")
+                
+                # Filter files by extensions, ignoring case
+                filtered_files = [
+                    f
+                    for f in filtered_files
+                    if any(f.lower().endswith(ext) for ext in ext_filters)
+                ]
             logger.debug(f"After extension filtering: {len(filtered_files)} files (removed {initial_count - len(filtered_files)})")
             initial_count = len(filtered_files)
 
