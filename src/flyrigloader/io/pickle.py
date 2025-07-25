@@ -163,7 +163,9 @@ _default_dependencies = DependencyContainer()
 _registration_lock = RLock()
 
 
-@auto_register(['.pkl', '.pklz', '.pkl.gz'], priority=RegistryPriority.BUILTIN)
+@auto_register(registry_type="loader", key=".pkl", priority=RegistryPriority.BUILTIN.value, priority_enum=RegistryPriority.BUILTIN)
+@auto_register(registry_type="loader", key=".pklz", priority=RegistryPriority.BUILTIN.value, priority_enum=RegistryPriority.BUILTIN)
+@auto_register(registry_type="loader", key=".pkl.gz", priority=RegistryPriority.BUILTIN.value, priority_enum=RegistryPriority.BUILTIN)
 class PickleLoader:
     """
     Enhanced pickle file loader with dependency injection support and registry integration.
