@@ -383,7 +383,9 @@ def create_kedro_dataset(
     experiment_name: str,
     dataset_type: str = "data",  # "data" or "manifest"
     **options: Any
-) -> Union[FlyRigLoaderDataSet, FlyRigManifestDataSet]
+) -> Union[FlyRigLoaderDataSet, FlyRigManifestDataSet]:
+    """Factory function for creating Kedro datasets."""
+    pass
 ```
 
 #### Usage Examples
