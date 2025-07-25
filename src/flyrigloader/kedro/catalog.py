@@ -348,6 +348,7 @@ def validate_catalog_config(
         if (strict_validation and 
             "filepath" in catalog_config and 
             catalog_config["filepath"] and
+            isinstance(catalog_config["filepath"], (str, Path)) and
             Path(catalog_config["filepath"]).exists()):
             
             try:
