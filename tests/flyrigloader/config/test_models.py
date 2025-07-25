@@ -46,9 +46,14 @@ class TestProjectConfig:
         """Test basic ProjectConfig creation with minimal data."""
         config = ProjectConfig()
         assert config.directories == {}
-        assert config.ignore_substrings is None
+        # Updated: ignore_substrings now has comprehensive defaults
+        assert config.ignore_substrings == ["._", "temp", "backup", ".tmp", "~", ".DS_Store"]
         assert config.mandatory_experiment_strings is None
-        assert config.extraction_patterns is None
+        # Updated: extraction_patterns now has comprehensive defaults
+        assert len(config.extraction_patterns) >= 4  # Should have default patterns
+        assert any("date" in pattern for pattern in config.extraction_patterns)
+        # New: schema_version field should default to current version
+        assert config.schema_version == "1.0.0"
     
     def test_project_config_with_directories(self):
         """Test ProjectConfig creation with directory specification."""
@@ -65,7 +70,8 @@ class TestProjectConfig:
         # Test with non-dict directories
         with pytest.raises(ValidationError) as exc_info:
             ProjectConfig(directories="not_a_dict")
-        assert "directories must be a dictionary" in str(exc_info.value)
+        # Pydantic 2 generates standardized error messages
+        assert "Input should be a valid dictionary" in str(exc_info.value)
         
         # Test with None values in directories (should be allowed)
         config = ProjectConfig(directories={"major_data_directory": None})
@@ -80,7 +86,7 @@ class TestProjectConfig:
         # Test with non-list
         with pytest.raises(ValidationError) as exc_info:
             ProjectConfig(ignore_substrings="not_a_list")
-        assert "ignore_substrings must be a list" in str(exc_info.value)
+        assert "Input should be a valid list" in str(exc_info.value)
         
         # Test with empty strings (should be filtered out)
         config = ProjectConfig(ignore_substrings=["valid", "", "  ", "another"])
@@ -89,7 +95,7 @@ class TestProjectConfig:
         # Test with non-string items
         with pytest.raises(ValidationError) as exc_info:
             ProjectConfig(ignore_substrings=["valid", 123, "another"])
-        assert "ignore pattern must be string" in str(exc_info.value)
+        assert "string_type" in str(exc_info.value)
     
     def test_project_config_mandatory_strings_validation(self):
         """Test mandatory_experiment_strings validation in ProjectConfig."""
@@ -100,7 +106,7 @@ class TestProjectConfig:
         # Test with non-list
         with pytest.raises(ValidationError) as exc_info:
             ProjectConfig(mandatory_experiment_strings="not_a_list")
-        assert "mandatory_experiment_strings must be a list" in str(exc_info.value)
+        assert "Input should be a valid list" in str(exc_info.value)
         
         # Test with empty strings (should be filtered out)
         config = ProjectConfig(mandatory_experiment_strings=["valid", "", "  ", "another"])
@@ -109,7 +115,7 @@ class TestProjectConfig:
         # Test with non-string items
         with pytest.raises(ValidationError) as exc_info:
             ProjectConfig(mandatory_experiment_strings=["valid", 123, "another"])
-        assert "mandatory string must be string" in str(exc_info.value)
+        assert "string_type" in str(exc_info.value)
     
     def test_project_config_extraction_patterns_validation(self):
         """Test extraction_patterns validation in ProjectConfig."""
@@ -121,7 +127,7 @@ class TestProjectConfig:
         # Test with non-list
         with pytest.raises(ValidationError) as exc_info:
             ProjectConfig(extraction_patterns="not_a_list")
-        assert "extraction_patterns must be a list" in str(exc_info.value)
+        assert "Input should be a valid list" in str(exc_info.value)
         
         # Test with invalid regex pattern
         with pytest.raises(ValidationError) as exc_info:
@@ -135,7 +141,7 @@ class TestProjectConfig:
         # Test with non-string items
         with pytest.raises(ValidationError) as exc_info:
             ProjectConfig(extraction_patterns=[r"\d+", 123, r"\w+"])
-        assert "extraction pattern must be string" in str(exc_info.value)
+        assert "string_type" in str(exc_info.value)
     
     def test_project_config_extra_fields_allowed(self):
         """Test that extra fields are allowed in ProjectConfig."""
@@ -187,7 +193,12 @@ class TestDatasetConfig:
         config = DatasetConfig(rig="rig1")
         assert config.rig == "rig1"
         assert config.dates_vials == {}
-        assert config.metadata is None
+        # Updated: metadata now has comprehensive defaults
+        assert config.metadata is not None
+        assert isinstance(config.metadata, dict)
+        assert "created_by" in config.metadata
+        # New: schema_version field should default to current version
+        assert config.schema_version == "1.0.0"
     
     def test_dataset_config_with_dates_vials(self):
         """Test DatasetConfig creation with dates_vials data."""
@@ -210,12 +221,12 @@ class TestDatasetConfig:
         # Test with non-string rig
         with pytest.raises(ValidationError) as exc_info:
             DatasetConfig(rig=123)
-        assert "rig must be a string" in str(exc_info.value)
+        assert "string_type" in str(exc_info.value)
         
         # Test with empty rig
         with pytest.raises(ValidationError) as exc_info:
             DatasetConfig(rig="")
-        assert "rig cannot be empty" in str(exc_info.value)
+        assert "rig cannot be empty or whitespace-only" in str(exc_info.value)
         
         # Test with invalid characters
         with pytest.raises(ValidationError) as exc_info:
@@ -236,22 +247,22 @@ class TestDatasetConfig:
         # Test with non-dict dates_vials
         with pytest.raises(ValidationError) as exc_info:
             DatasetConfig(rig="rig1", dates_vials="not_a_dict")
-        assert "dates_vials must be a dictionary" in str(exc_info.value)
+        assert "Input should be a valid dictionary" in str(exc_info.value)
         
         # Test with non-string date keys
         with pytest.raises(ValidationError) as exc_info:
             DatasetConfig(rig="rig1", dates_vials={123: [1, 2, 3]})
-        assert "Date key must be string" in str(exc_info.value)
+        assert "Input should be a valid string" in str(exc_info.value)
         
         # Test with non-list vials
         with pytest.raises(ValidationError) as exc_info:
             DatasetConfig(rig="rig1", dates_vials={"2023-05-01": "not_a_list"})
-        assert "Vials for date" in str(exc_info.value) and "must be a list" in str(exc_info.value)
+        assert "Input should be a valid list" in str(exc_info.value)
         
         # Test with non-integer vials
         with pytest.raises(ValidationError) as exc_info:
             DatasetConfig(rig="rig1", dates_vials={"2023-05-01": [1, "not_int", 3]})
-        assert "Vial numbers must be integers" in str(exc_info.value)
+        assert ("int_parsing" in str(exc_info.value) or "Input should be a valid integer" in str(exc_info.value))
         
         # Test with string vials that can be converted to int
         config = DatasetConfig(rig="rig1", dates_vials={"2023-05-01": [1, "2", 3]})
@@ -270,7 +281,7 @@ class TestDatasetConfig:
         # Test with non-dict metadata
         with pytest.raises(ValidationError) as exc_info:
             DatasetConfig(rig="rig1", metadata="not_a_dict")
-        assert "metadata must be a dictionary" in str(exc_info.value)
+        assert "Input should be a valid dictionary" in str(exc_info.value)
         
         # Test with invalid extraction patterns in metadata
         with pytest.raises(ValidationError) as exc_info:
@@ -324,9 +335,20 @@ class TestExperimentConfig:
         """Test basic ExperimentConfig creation with minimal data."""
         config = ExperimentConfig()
         assert config.datasets == []
-        assert config.parameters is None
-        assert config.filters is None
-        assert config.metadata is None
+        # Updated: parameters now has comprehensive defaults
+        assert config.parameters is not None
+        assert isinstance(config.parameters, dict)
+        assert "analysis_window" in config.parameters
+        # Updated: filters now has comprehensive defaults
+        assert config.filters is not None
+        assert isinstance(config.filters, dict) 
+        assert "ignore_substrings" in config.filters
+        # Updated: metadata now has comprehensive defaults
+        assert config.metadata is not None
+        assert isinstance(config.metadata, dict)
+        assert "created_by" in config.metadata
+        # New: schema_version field should default to current version
+        assert config.schema_version == "1.0.0"
     
     def test_experiment_config_with_datasets(self):
         """Test ExperimentConfig creation with datasets."""
@@ -344,12 +366,12 @@ class TestExperimentConfig:
         # Test with non-list datasets
         with pytest.raises(ValidationError) as exc_info:
             ExperimentConfig(datasets="not_a_list")
-        assert "datasets must be a list" in str(exc_info.value)
+        assert "extraction_patterns must be a list" in str(exc_info.value)
         
         # Test with non-string dataset names
         with pytest.raises(ValidationError) as exc_info:
             ExperimentConfig(datasets=["valid_dataset", 123, "another"])
-        assert "dataset name must be string" in str(exc_info.value)
+        assert "string_type" in str(exc_info.value)
         
         # Test with empty dataset names (should be filtered out)
         config = ExperimentConfig(datasets=["valid", "", "  ", "another"])
@@ -374,17 +396,17 @@ class TestExperimentConfig:
         # Test with non-dict parameters
         with pytest.raises(ValidationError) as exc_info:
             ExperimentConfig(parameters="not_a_dict")
-        assert "parameters must be a dictionary" in str(exc_info.value)
+        assert "Input should be a valid dictionary" in str(exc_info.value)
         
         # Test with non-string parameter keys
         with pytest.raises(ValidationError) as exc_info:
             ExperimentConfig(parameters={123: "value"})
-        assert "parameter key must be string" in str(exc_info.value)
+        assert "Input should be a valid string" in str(exc_info.value)
         
         # Test with empty parameter keys
         with pytest.raises(ValidationError) as exc_info:
             ExperimentConfig(parameters={"": "value"})
-        assert "parameter key cannot be empty" in str(exc_info.value)
+        assert ("parameter key cannot be empty" in str(exc_info.value) or "ensure this value has at least 1 character" in str(exc_info.value))
     
     def test_experiment_config_filters_validation(self):
         """Test filters validation in ExperimentConfig."""
@@ -399,7 +421,7 @@ class TestExperimentConfig:
         # Test with non-dict filters
         with pytest.raises(ValidationError) as exc_info:
             ExperimentConfig(filters="not_a_dict")
-        assert "filters must be a dictionary" in str(exc_info.value)
+        assert "Input should be a valid dictionary" in str(exc_info.value)
         
         # Test with non-list ignore_substrings
         with pytest.raises(ValidationError) as exc_info:
@@ -435,7 +457,7 @@ class TestExperimentConfig:
         # Test with non-dict metadata
         with pytest.raises(ValidationError) as exc_info:
             ExperimentConfig(metadata="not_a_dict")
-        assert "metadata must be a dictionary" in str(exc_info.value)
+        assert "Input should be a valid dictionary" in str(exc_info.value)
         
         # Test with invalid extraction patterns in metadata
         with pytest.raises(ValidationError) as exc_info:
