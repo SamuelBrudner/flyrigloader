@@ -793,6 +793,115 @@ def ensure_1d_array(array, name):
         )
 
 
+def monitor_transformation_performance(
+    transformation_func: Callable,
+    performance_targets: Optional[Dict[str, float]] = None
+) -> Callable:
+    """
+    Monitor transformation performance to maintain <2x data size memory overhead target.
+    
+    This decorator function provides high-resolution timing utilities for performance
+    monitoring during Kedro-compatible DataFrame transformation to maintain the
+    performance targets specified in Section 5.2.4 scaling considerations.
+    
+    Args:
+        transformation_func: Function to monitor
+        performance_targets: Dictionary of performance targets to validate against
+        
+    Returns:
+        Callable: Wrapped function with performance monitoring
+        
+    Example:
+        >>> @monitor_transformation_performance
+        ... def my_transform(data):
+        ...     return transform_to_dataframe(data)
+        >>> result = my_transform(exp_matrix)
+    """
+    if performance_targets is None:
+        performance_targets = {
+            'max_memory_overhead_ratio': 2.0,  # <2x data size
+            'max_duration_per_100mb': 1.0,     # <1s per 100MB
+            'max_manifest_time': 0.1           # <100ms for manifest operations
+        }
+    
+    @wraps(transformation_func)
+    def performance_monitored_transform(*args, **kwargs):
+        """Wrapper function with comprehensive performance monitoring."""
+        start_time = perf_counter()
+        
+        # Estimate input data size
+        input_size_bytes = 0
+        if args:
+            first_arg = args[0]
+            if isinstance(first_arg, dict):
+                for value in first_arg.values():
+                    if hasattr(value, 'nbytes'):
+                        input_size_bytes += value.nbytes
+                    elif hasattr(value, '__len__'):
+                        input_size_bytes += len(str(value).encode('utf-8'))
+        
+        input_size_mb = input_size_bytes / (1024 * 1024)
+        logger.debug(f"Monitoring transformation of {input_size_mb:.2f} MB input data")
+        
+        # Execute transformation
+        try:
+            result = transformation_func(*args, **kwargs)
+            end_time = perf_counter()
+            duration = end_time - start_time
+            
+            # Calculate performance metrics
+            metrics = {
+                'duration_seconds': duration,
+                'input_size_mb': input_size_mb,
+                'duration_per_100mb': (duration / max(input_size_mb / 100, 0.01)),  # Avoid division by zero
+            }
+            
+            # Estimate output size for memory overhead calculation
+            if isinstance(result, pd.DataFrame):
+                output_size_bytes = result.memory_usage(deep=True).sum()
+                output_size_mb = output_size_bytes / (1024 * 1024)
+                memory_overhead_ratio = output_size_mb / max(input_size_mb, 0.01)
+                
+                metrics.update({
+                    'output_size_mb': output_size_mb,
+                    'memory_overhead_ratio': memory_overhead_ratio
+                })
+                
+                logger.info(f"Transformation performance: {duration:.3f}s, "
+                          f"memory overhead: {memory_overhead_ratio:.2f}x, "
+                          f"rate: {input_size_mb/duration:.2f} MB/s")
+            
+            # Check performance targets
+            warnings_issued = []
+            
+            if 'memory_overhead_ratio' in metrics:
+                if metrics['memory_overhead_ratio'] > performance_targets['max_memory_overhead_ratio']:
+                    warning_msg = (f"Memory overhead {metrics['memory_overhead_ratio']:.2f}x exceeds "
+                                 f"target {performance_targets['max_memory_overhead_ratio']:.2f}x")
+                    warnings_issued.append(warning_msg)
+                    logger.warning(warning_msg)
+            
+            if metrics['duration_per_100mb'] > performance_targets['max_duration_per_100mb']:
+                warning_msg = (f"Processing rate {metrics['duration_per_100mb']:.2f}s/100MB exceeds "
+                             f"target {performance_targets['max_duration_per_100mb']:.2f}s/100MB")
+                warnings_issued.append(warning_msg)
+                logger.warning(warning_msg)
+            
+            # Add performance metadata to result if it's a DataFrame
+            if isinstance(result, pd.DataFrame) and not warnings_issued:
+                logger.debug("Performance targets met, transformation successful")
+            
+            return result
+            
+        except Exception as e:
+            end_time = perf_counter()
+            duration = end_time - start_time
+            logger.error(f"Transformation failed after {duration:.3f}s: {e}")
+            raise
+    
+    return performance_monitored_transform
+
+
 @monitor_transformation_performance
 def transform_to_dataframe(
     exp_matrix: Dict[str, Any],
@@ -1467,115 +1576,6 @@ def _stream_transform_data(
     
     logger.info(f"Streaming transformation completed, final shape: {final_df.shape}")
     return final_df
-
-
-def monitor_transformation_performance(
-    transformation_func: Callable,
-    performance_targets: Optional[Dict[str, float]] = None
-) -> Callable:
-    """
-    Monitor transformation performance to maintain <2x data size memory overhead target.
-    
-    This decorator function provides high-resolution timing utilities for performance
-    monitoring during Kedro-compatible DataFrame transformation to maintain the
-    performance targets specified in Section 5.2.4 scaling considerations.
-    
-    Args:
-        transformation_func: Function to monitor
-        performance_targets: Dictionary of performance targets to validate against
-        
-    Returns:
-        Callable: Wrapped function with performance monitoring
-        
-    Example:
-        >>> @monitor_transformation_performance
-        ... def my_transform(data):
-        ...     return transform_to_dataframe(data)
-        >>> result = my_transform(exp_matrix)
-    """
-    if performance_targets is None:
-        performance_targets = {
-            'max_memory_overhead_ratio': 2.0,  # <2x data size
-            'max_duration_per_100mb': 1.0,     # <1s per 100MB
-            'max_manifest_time': 0.1           # <100ms for manifest operations
-        }
-    
-    @wraps(transformation_func)
-    def performance_monitored_transform(*args, **kwargs):
-        """Wrapper function with comprehensive performance monitoring."""
-        start_time = perf_counter()
-        
-        # Estimate input data size
-        input_size_bytes = 0
-        if args:
-            first_arg = args[0]
-            if isinstance(first_arg, dict):
-                for value in first_arg.values():
-                    if hasattr(value, 'nbytes'):
-                        input_size_bytes += value.nbytes
-                    elif hasattr(value, '__len__'):
-                        input_size_bytes += len(str(value).encode('utf-8'))
-        
-        input_size_mb = input_size_bytes / (1024 * 1024)
-        logger.debug(f"Monitoring transformation of {input_size_mb:.2f} MB input data")
-        
-        # Execute transformation
-        try:
-            result = transformation_func(*args, **kwargs)
-            end_time = perf_counter()
-            duration = end_time - start_time
-            
-            # Calculate performance metrics
-            metrics = {
-                'duration_seconds': duration,
-                'input_size_mb': input_size_mb,
-                'duration_per_100mb': (duration / max(input_size_mb / 100, 0.01)),  # Avoid division by zero
-            }
-            
-            # Estimate output size for memory overhead calculation
-            if isinstance(result, pd.DataFrame):
-                output_size_bytes = result.memory_usage(deep=True).sum()
-                output_size_mb = output_size_bytes / (1024 * 1024)
-                memory_overhead_ratio = output_size_mb / max(input_size_mb, 0.01)
-                
-                metrics.update({
-                    'output_size_mb': output_size_mb,
-                    'memory_overhead_ratio': memory_overhead_ratio
-                })
-                
-                logger.info(f"Transformation performance: {duration:.3f}s, "
-                          f"memory overhead: {memory_overhead_ratio:.2f}x, "
-                          f"rate: {input_size_mb/duration:.2f} MB/s")
-            
-            # Check performance targets
-            warnings_issued = []
-            
-            if 'memory_overhead_ratio' in metrics:
-                if metrics['memory_overhead_ratio'] > performance_targets['max_memory_overhead_ratio']:
-                    warning_msg = (f"Memory overhead {metrics['memory_overhead_ratio']:.2f}x exceeds "
-                                 f"target {performance_targets['max_memory_overhead_ratio']:.2f}x")
-                    warnings_issued.append(warning_msg)
-                    logger.warning(warning_msg)
-            
-            if metrics['duration_per_100mb'] > performance_targets['max_duration_per_100mb']:
-                warning_msg = (f"Processing rate {metrics['duration_per_100mb']:.2f}s/100MB exceeds "
-                             f"target {performance_targets['max_duration_per_100mb']:.2f}s/100MB")
-                warnings_issued.append(warning_msg)
-                logger.warning(warning_msg)
-            
-            # Add performance metadata to result if it's a DataFrame
-            if isinstance(result, pd.DataFrame) and not warnings_issued:
-                logger.debug("Performance targets met, transformation successful")
-            
-            return result
-            
-        except Exception as e:
-            end_time = perf_counter()
-            duration = end_time - start_time
-            logger.error(f"Transformation failed after {duration:.3f}s: {e}")
-            raise
-    
-    return performance_monitored_transform
 
 
 def create_test_dataframe_transformer() -> DataFrameTransformer:
