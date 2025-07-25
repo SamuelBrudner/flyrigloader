@@ -2,14 +2,17 @@
 
 ## Overview
 
-This guide helps you migrate from the legacy dictionary-based configuration system to the new Pydantic model-based validation system in FlyRigLoader. The migration addresses four key improvements:
+This guide helps you migrate from the legacy dictionary-based configuration system to the new Pydantic model-based validation system in FlyRigLoader. The migration addresses six key improvements:
 
 1. **Structured Configuration**: Replace ad-hoc dictionary handling with validated Pydantic models
 2. **Clear Data Path Resolution**: Eliminate path ambiguity with explicit precedence and logging
 3. **Decoupled Architecture**: Separate data discovery, loading, and transformation concerns
-4. **Comprehensive Documentation**: Complete API documentation with concrete examples
+4. **Configuration Version Management**: Automatic version detection, migration, and compatibility handling
+5. **Enhanced Registry System**: Plugin-style extensibility with automatic loader registration
+6. **Comprehensive Documentation**: Complete API documentation with concrete examples and version migration workflows
 
 **Migration Time**: ~5 minutes for most existing configurations
+**Version Migration**: Automatic with comprehensive audit trails and rollback support
 
 ## Quick Start (2-Minute Migration)
 
@@ -58,6 +61,374 @@ for file_info in manifest.files:
     # Step 3: Optional transformation
     if need_dataframe:
         df = transform_to_dataframe(raw_data, config)
+```
+
+## Configuration Version Management System
+
+FlyRigLoader now includes a comprehensive version management system that automatically handles configuration schema evolution, migration, and backward compatibility. This system ensures zero breaking changes during system upgrades while enabling continuous research workflows.
+
+### Version Detection and Schema Management
+
+#### Schema Version Field
+
+All modern FlyRigLoader configurations include an embedded `schema_version` field that enables automatic version detection and migration:
+
+```yaml
+# Modern configuration with version tracking
+schema_version: "1.0.0"
+project:
+  name: "fly_behavior_analysis"
+  directories:
+    major_data_directory: "/data/experiments"
+  
+datasets:
+  plume_tracking:
+    rig: "rig1"
+    dates_vials:
+      2023-05-01: [1, 2, 3, 4]
+
+experiments:
+  plume_navigation:
+    datasets: ["plume_tracking"]
+    parameters:
+      threshold: 0.5
+```
+
+#### Automatic Version Detection
+
+The system can automatically detect configuration versions even without explicit `schema_version` fields:
+
+```python
+from flyrigloader.migration.versions import ConfigVersion, detect_config_version
+from semantic_version import Version
+
+# Legacy configuration without version field
+legacy_config = {
+    'project': {'directories': {'major_data_directory': '/data'}},
+    'experiments': {'exp1': {'date_range': ['2024-01-01', '2024-01-31']}}
+}
+
+# Automatic version detection
+detected_version = detect_config_version(legacy_config)
+print(f"Detected version: {detected_version.value}")  # "0.1.0"
+
+# Access version constants
+current_version = ConfigVersion.V1_0_0
+oldest_supported = ConfigVersion.V0_1_0
+
+# Semantic version comparison
+version_obj = Version.parse(current_version.value)
+print(f"Current major version: {version_obj.major}")  # 1
+```
+
+#### Configuration Version Compatibility Matrix
+
+The system uses a compatibility matrix to determine valid migration paths:
+
+```python
+from flyrigloader.migration.versions import COMPATIBILITY_MATRIX, is_migration_available, get_migration_path
+
+# Check if migration is available
+can_migrate = is_migration_available("0.1.0", "1.0.0")
+print(f"Can migrate 0.1.0 -> 1.0.0: {can_migrate}")  # True
+
+# Get the migration path
+migration_path = get_migration_path("0.1.0", "1.0.0")
+print(f"Migration path: {[str(v) for v in migration_path]}")  # ['0.1.0', '1.0.0']
+
+# View full compatibility matrix
+print("Supported migration paths:")
+for from_version, to_versions in COMPATIBILITY_MATRIX.items():
+    print(f"  {from_version.value} -> {[v.value for v in to_versions]}")
+```
+
+### ConfigMigrator Usage Patterns
+
+#### Basic Migration Execution
+
+The `ConfigMigrator` class orchestrates the migration process with comprehensive error handling and audit trails:
+
+```python
+from flyrigloader.migration.migrators import ConfigMigrator, MigrationReport
+from flyrigloader.migration.versions import ConfigVersion
+
+# Initialize migrator
+migrator = ConfigMigrator()
+
+# Legacy configuration to migrate
+legacy_config = {
+    'project': {
+        'directories': {'major_data_directory': '/data/fly_experiments'},
+        'ignore_substrings': ['temp_', 'backup_']
+    },
+    'experiments': {
+        'plume_tracking': {
+            'date_range': ['2024-01-01', '2024-01-31'],
+            'rig_names': ['rig1', 'rig2']
+        }
+    }
+}
+
+# Execute migration with audit trail
+try:
+    migrated_config = migrator.migrate_config(legacy_config, "1.0.0")
+    print("Migration successful!")
+    print(f"New schema version: {migrated_config['schema_version']}")
+    
+    # Access migration report
+    report = migrated_config.get('_migration_report')
+    if report:
+        print(f"Migration completed: {report.from_version} -> {report.to_version}")
+        print(f"Applied migrations: {report.applied_migrations}")
+        print(f"Timestamp: {report.timestamp}")
+        
+except Exception as e:
+    print(f"Migration failed: {e}")
+```
+
+#### Advanced Migration with Custom Options
+
+```python
+from flyrigloader.migration.migrators import ConfigMigrator, migrate_v0_1_to_v1_0, migrate_v0_2_to_v1_0
+
+# Advanced migration with detailed reporting
+migrator = ConfigMigrator()
+
+# Migration with validation
+def migrate_with_validation(config_data, target_version="1.0.0"):
+    """Enhanced migration with pre/post validation."""
+    
+    # Pre-migration validation
+    from flyrigloader.migration.validators import validate_legacy_config_format
+    is_valid, detected_format, messages = validate_legacy_config_format(config_data)
+    
+    if not is_valid:
+        raise ValueError(f"Invalid legacy format: {messages}")
+    
+    print(f"Validated legacy format: {detected_format}")
+    
+    # Execute migration
+    try:
+        migrated_config = migrator.migrate_config(config_data, target_version)
+        
+        # Post-migration validation using the new validate_config_with_migration
+        from flyrigloader.migration.validators import validate_config_with_migration
+        is_valid, final_version, validation_messages, final_config = validate_config_with_migration(
+            migrated_config, 
+            target_version, 
+            auto_migrate=False  # Already migrated
+        )
+        
+        if not is_valid:
+            raise ValueError(f"Post-migration validation failed: {validation_messages}")
+        
+        print(f"Migration validation passed: {final_version}")
+        return final_config
+        
+    except Exception as e:
+        print(f"Migration failed: {e}")
+        raise
+
+# Usage with comprehensive validation
+legacy_config = {
+    'project': {'directories': {'major_data_directory': '/data'}},
+    'datasets': {'ds1': {'rig': 'rig1', 'dates_vials': {'2024-01-01': [1, 2]}}},
+    'experiments': {'exp1': {'datasets': ['ds1']}}
+}
+
+validated_config = migrate_with_validation(legacy_config)
+print(f"Final configuration with version: {validated_config['schema_version']}")
+```
+
+#### Migration Report Analysis
+
+The `MigrationReport` class provides comprehensive audit trails for migration operations:
+
+```python
+from flyrigloader.migration.migrators import MigrationReport
+from datetime import datetime
+
+# Create migration report for audit
+report = MigrationReport(
+    from_version="0.2.0",
+    to_version="1.0.0", 
+    timestamp=datetime.now(),
+    applied_migrations=["migrate_v0_2_to_v1_0"],
+    warnings=["Legacy date_range format converted to datasets"]
+)
+
+# Convert to dictionary for serialization
+report_dict = report.to_dict()
+print("Migration Audit Trail:")
+for key, value in report_dict.items():
+    print(f"  {key}: {value}")
+
+# Example output:
+# Migration Audit Trail:
+#   from_version: 0.2.0
+#   to_version: 1.0.0
+#   timestamp: 2024-01-01T10:00:00
+#   applied_migrations: ['migrate_v0_2_to_v1_0']
+#   warnings: ['Legacy date_range format converted to datasets']
+```
+
+### Automatic Migration and Validation
+
+#### Using validate_config_with_migration
+
+The system provides a comprehensive validation function that combines version detection, compatibility checking, and automatic migration:
+
+```python
+from flyrigloader.migration.validators import validate_config_with_migration
+
+# Configuration with automatic migration
+legacy_config = {
+    'project': {
+        'directories': {'major_data_directory': '/data/experiments'}
+    },
+    'experiments': {
+        'baseline_study': {
+            'date_range': ['2024-01-01', '2024-01-31']
+        }
+    }
+}
+
+# Automatic migration with comprehensive validation
+is_valid, final_version, messages, migrated_config = validate_config_with_migration(
+    legacy_config,
+    target_version="1.0.0",
+    auto_migrate=True
+)
+
+if is_valid:
+    print(f"Configuration successfully migrated to {final_version}")
+    print(f"Schema version: {migrated_config['schema_version']}")
+    print("Migration messages:")
+    for message in messages:
+        print(f"  - {message}")
+else:
+    print("Migration failed:")
+    for message in messages:
+        print(f"  - {message}")
+```
+
+#### Pre-flight Validation with validate_manifest
+
+The enhanced API includes pre-flight validation capabilities for comprehensive testing:
+
+```python
+from flyrigloader.api import validate_manifest
+from flyrigloader.config.models import create_config
+
+# Create configuration using builder pattern
+config = create_config(
+    project_name="behavior_analysis",
+    base_directory="/data/experiments",
+    experiments={
+        "plume_navigation": {
+            "datasets": ["plume_tracking"],
+            "parameters": {"threshold": 0.5}
+        }
+    }
+)
+
+# Discover experiment manifest
+from flyrigloader.api import discover_experiment_manifest
+manifest = discover_experiment_manifest(config, "plume_navigation")
+
+# Pre-flight validation without side effects
+validation_result = validate_manifest(manifest, config, strict_validation=True)
+
+if validation_result['is_valid']:
+    print("Manifest validation passed")
+    print(f"Validated {validation_result['file_count']} files")
+    print(f"Total size: {validation_result['total_size_mb']} MB")
+else:
+    print("Manifest validation failed:")
+    for error in validation_result['validation_errors']:
+        print(f"  - {error}")
+        
+    if validation_result['missing_files']:
+        print("Missing files:")
+        for file_path in validation_result['missing_files']:
+            print(f"  - {file_path}")
+```
+
+### LegacyConfigAdapter Integration
+
+The `LegacyConfigAdapter` now includes comprehensive version migration support while maintaining backward compatibility:
+
+```python
+from flyrigloader.config.models import LegacyConfigAdapter
+
+# Create adapter for legacy configuration
+legacy_dict_config = {
+    'project': {'directories': {'major_data_directory': '/data'}},
+    'experiments': {'exp1': {'date_range': ['2024-01-01', '2024-01-31']}}
+}
+
+# Enhanced adapter with version migration support
+adapter = LegacyConfigAdapter(legacy_dict_config)
+
+# Access schema version (automatically detected and added)
+print(f"Schema version: {adapter.schema_version}")  # "0.1.0"
+
+# Dictionary-style access (preserved for backward compatibility)
+data_dir = adapter['project']['directories']['major_data_directory']
+print(f"Data directory: {data_dir}")
+
+# Set operations with validation
+adapter['project']['name'] = "migrated_project"
+print(f"Project name: {adapter['project']['name']}")
+
+# Automatic migration when accessed
+try:
+    migrated_config = adapter.migrate_config()
+    print(f"Migrated to version: {migrated_config['schema_version']}")
+except Exception as e:
+    print(f"Migration failed: {e}")
+```
+
+#### LegacyConfigAdapter with Deprecation Warnings
+
+```python
+import warnings
+from flyrigloader.config.models import LegacyConfigAdapter
+
+# Enable deprecation warnings
+warnings.filterwarnings("always", category=DeprecationWarning)
+
+# Using legacy adapter triggers appropriate warnings
+with warnings.catch_warnings(record=True) as w:
+    warnings.simplefilter("always")
+    
+    adapter = LegacyConfigAdapter({
+        'project': {'directories': {'major_data_directory': '/data'}},
+        'experiments': {'exp1': {}}
+    })
+    
+    # Access triggers deprecation warning
+    data_dir = adapter['project']['directories']['major_data_directory']
+    
+    if w:
+        print(f"Deprecation warning: {w[-1].message}")
+        print("Recommendation: Use Pydantic models with create_config() builder")
+
+# Modern approach with builder pattern
+from flyrigloader.config.models import create_config
+
+modern_config = create_config(
+    project_name="modern_project",
+    base_directory="/data",
+    experiments={
+        "exp1": {
+            "datasets": ["dataset1"],
+            "parameters": {"threshold": 0.5}
+        }
+    }
+)
+
+print(f"Modern config version: {modern_config.schema_version}")
 ```
 
 ## Configuration Migration
@@ -957,17 +1328,502 @@ def process_data_with_builders(parameters: Dict[str, Any]):
     return pd.concat(dataframes, ignore_index=True) if dataframes else pd.DataFrame()
 ```
 
+## Configuration Version Migration Workflows
+
+### End-to-End Migration Example
+
+Here's a comprehensive example showing the complete configuration version migration workflow:
+
+```python
+"""
+Complete configuration version migration workflow example.
+Demonstrates version detection, migration execution, validation, and audit trail generation.
+"""
+
+import warnings
+from datetime import datetime
+from pathlib import Path
+from typing import Dict, Any
+
+# Import version management utilities
+from flyrigloader.migration.versions import ConfigVersion, detect_config_version, is_migration_available
+from flyrigloader.migration.migrators import ConfigMigrator, MigrationReport
+from flyrigloader.migration.validators import (
+    validate_config_with_migration, 
+    validate_legacy_config_format,
+    validate_schema_compatibility
+)
+from flyrigloader.config.models import LegacyConfigAdapter
+from flyrigloader.api import validate_manifest
+from semantic_version import Version
+
+class ConfigurationMigrationWorkflow:
+    """Complete configuration migration workflow with audit trails."""
+    
+    def __init__(self, config_path: str):
+        self.config_path = Path(config_path)
+        self.migration_reports = []
+        
+    def execute_migration_workflow(self, target_version: str = "1.0.0") -> Dict[str, Any]:
+        """Execute complete migration workflow with comprehensive validation."""
+        
+        workflow_result = {
+            'success': False,
+            'original_version': None,
+            'final_version': None,
+            'migration_applied': False,
+            'validation_passed': False,
+            'audit_trail': [],
+            'migrated_config': None,
+            'errors': []
+        }
+        
+        try:
+            # Step 1: Load original configuration
+            print(f"Loading configuration from: {self.config_path}")
+            
+            if self.config_path.suffix.lower() == '.yaml':
+                import yaml
+                with open(self.config_path, 'r') as f:
+                    original_config = yaml.safe_load(f)
+            else:
+                # Assume it's a Python dict for demonstration
+                original_config = self._load_demo_config()
+            
+            workflow_result['audit_trail'].append(f"Loaded configuration from {self.config_path}")
+            
+            # Step 2: Detect current version
+            try:
+                detected_version = detect_config_version(original_config)
+                workflow_result['original_version'] = detected_version.value
+                print(f"Detected configuration version: {detected_version.value}")
+                workflow_result['audit_trail'].append(f"Detected version: {detected_version.value}")
+            except Exception as e:
+                workflow_result['errors'].append(f"Version detection failed: {e}")
+                return workflow_result
+            
+            # Step 3: Check if migration is needed
+            if detected_version.value == target_version:
+                print(f"Configuration already at target version {target_version}")
+                workflow_result['success'] = True
+                workflow_result['final_version'] = target_version
+                workflow_result['migrated_config'] = original_config
+                workflow_result['validation_passed'] = True
+                return workflow_result
+            
+            # Step 4: Validate legacy format
+            is_valid_legacy, format_type, legacy_messages = validate_legacy_config_format(
+                original_config, expected_version=detected_version.value
+            )
+            
+            if not is_valid_legacy:
+                workflow_result['errors'].extend(legacy_messages)
+                print(f"Legacy format validation failed: {legacy_messages}")
+                return workflow_result
+            
+            print(f"Legacy format validated: {format_type}")
+            workflow_result['audit_trail'].append(f"Legacy format validated: {format_type}")
+            
+            # Step 5: Check migration compatibility
+            is_compatible, _, compatibility_issues = validate_schema_compatibility(
+                original_config, target_version
+            )
+            
+            workflow_result['audit_trail'].extend(compatibility_issues)
+            
+            if not is_migration_available(detected_version.value, target_version):
+                workflow_result['errors'].append(f"No migration path available: {detected_version.value} -> {target_version}")
+                return workflow_result
+            
+            # Step 6: Execute migration with validation
+            print(f"Executing migration: {detected_version.value} -> {target_version}")
+            
+            is_valid, final_version, migration_messages, migrated_config = validate_config_with_migration(
+                original_config,
+                target_version=target_version,
+                auto_migrate=True
+            )
+            
+            workflow_result['migration_applied'] = True
+            workflow_result['audit_trail'].extend(migration_messages)
+            
+            if not is_valid:
+                workflow_result['errors'].extend(migration_messages)
+                print(f"Migration validation failed: {migration_messages}")
+                return workflow_result
+            
+            # Step 7: Final validation and manifest check
+            workflow_result['final_version'] = final_version
+            workflow_result['migrated_config'] = migrated_config
+            workflow_result['validation_passed'] = True
+            
+            print(f"Migration completed successfully: {detected_version.value} -> {final_version}")
+            workflow_result['audit_trail'].append(f"Migration completed: {detected_version.value} -> {final_version}")
+            
+            # Step 8: Generate migration report
+            migration_report = MigrationReport(
+                from_version=detected_version.value,
+                to_version=final_version,
+                timestamp=datetime.now(),
+                applied_migrations=[f"migrate_{detected_version.value.replace('.', '_')}_to_{final_version.replace('.', '_')}"],
+                warnings=[msg for msg in migration_messages if 'warning' in msg.lower()]
+            )
+            
+            self.migration_reports.append(migration_report)
+            workflow_result['audit_trail'].append(f"Migration report generated: {migration_report.to_dict()}")
+            
+            workflow_result['success'] = True
+            return workflow_result
+            
+        except Exception as e:
+            workflow_result['errors'].append(f"Unexpected error: {str(e)}")
+            print(f"Workflow failed with error: {e}")
+            return workflow_result
+    
+    def _load_demo_config(self) -> Dict[str, Any]:
+        """Load demonstration configuration for workflow example."""
+        return {
+            'project': {
+                'directories': {'major_data_directory': '/data/fly_experiments'},
+                'ignore_substrings': ['temp_', 'backup_']
+            },
+            'datasets': {
+                'plume_tracking': {
+                    'rig': 'rig1',
+                    'dates_vials': {'2024-01-01': [1, 2, 3, 4]}
+                }
+            },
+            'experiments': {
+                'baseline_study': {
+                    'datasets': ['plume_tracking'],
+                    'parameters': {'threshold': 0.5}
+                }
+            }
+        }
+    
+    def save_migrated_config(self, migrated_config: Dict[str, Any], output_path: str) -> None:
+        """Save migrated configuration with proper formatting."""
+        import yaml
+        
+        output_file = Path(output_path)
+        
+        # Ensure schema_version is at the top
+        ordered_config = {'schema_version': migrated_config.get('schema_version', '1.0.0')}
+        for key, value in migrated_config.items():
+            if key != 'schema_version':
+                ordered_config[key] = value
+        
+        with open(output_file, 'w') as f:
+            yaml.dump(ordered_config, f, default_flow_style=False, sort_keys=False)
+        
+        print(f"Migrated configuration saved to: {output_file}")
+
+# Usage example
+if __name__ == "__main__":
+    # Execute complete migration workflow
+    workflow = ConfigurationMigrationWorkflow("legacy_config.yaml")
+    result = workflow.execute_migration_workflow(target_version="1.0.0")
+    
+    if result['success']:
+        print("\n=== Migration Workflow Completed Successfully ===")
+        print(f"Original version: {result['original_version']}")
+        print(f"Final version: {result['final_version']}")
+        print(f"Migration applied: {result['migration_applied']}")
+        print(f"Validation passed: {result['validation_passed']}")
+        
+        print("\nAudit Trail:")
+        for i, entry in enumerate(result['audit_trail'], 1):
+            print(f"  {i}. {entry}")
+        
+        # Save migrated configuration
+        if result['migrated_config']:
+            workflow.save_migrated_config(
+                result['migrated_config'], 
+                "migrated_config.yaml"
+            )
+    else:
+        print("\n=== Migration Workflow Failed ===")
+        print("Errors:")
+        for error in result['errors']:
+            print(f"  - {error}")
+```
+
+### Version-Aware Configuration Loading
+
+Here's how to implement version-aware configuration loading in your applications:
+
+```python
+"""
+Version-aware configuration loading with automatic migration and fallback handling.
+"""
+
+from flyrigloader.config.yaml_config import load_config
+from flyrigloader.migration.validators import validate_config_with_migration
+from flyrigloader.config.models import LegacyConfigAdapter
+import warnings
+import logging
+
+# Configure logging for migration tracking
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+def load_version_aware_config(
+    config_path: str, 
+    target_version: str = "1.0.0",
+    allow_auto_migration: bool = True,
+    legacy_fallback: bool = True
+) -> tuple:
+    """
+    Load configuration with comprehensive version handling.
+    
+    Returns:
+        tuple: (config_object, was_migrated, migration_messages)
+    """
+    
+    try:
+        # Step 1: Attempt to load with modern loader
+        config = load_config(config_path, legacy_mode=False)
+        
+        # Check if it's already the target version
+        if hasattr(config, 'schema_version') and config.schema_version == target_version:
+            logger.info(f"Configuration already at target version {target_version}")
+            return config, False, []
+        
+        # Step 2: Check if migration is needed
+        config_dict = config if isinstance(config, dict) else config.dict()
+        
+        is_valid, final_version, messages, migrated_config = validate_config_with_migration(
+            config_dict,
+            target_version=target_version,
+            auto_migrate=allow_auto_migration
+        )
+        
+        if is_valid and migrated_config:
+            logger.info(f"Configuration migrated to {final_version}")
+            
+            # Load migrated configuration as Pydantic model
+            from flyrigloader.config.models import create_config
+            migrated_pydantic = create_config(**migrated_config)
+            return migrated_pydantic, True, messages
+        
+        elif not allow_auto_migration:
+            logger.warning("Auto-migration disabled, returning original configuration")
+            return config, False, messages
+        
+        else:
+            raise ValueError(f"Migration failed: {messages}")
+    
+    except Exception as e:
+        if legacy_fallback:
+            logger.warning(f"Modern loading failed ({e}), attempting legacy fallback")
+            
+            try:
+                # Step 3: Legacy fallback with adapter
+                legacy_config = load_config(config_path, legacy_mode=True)
+                
+                if isinstance(legacy_config, dict):
+                    adapter = LegacyConfigAdapter(legacy_config)
+                    
+                    # Emit deprecation warning
+                    warnings.warn(
+                        f"Loaded configuration using legacy adapter. "
+                        f"Consider migrating to schema version {target_version}.",
+                        DeprecationWarning,
+                        stacklevel=2
+                    )
+                    
+                    return adapter, False, [f"Legacy fallback applied: {str(e)}"]
+                else:
+                    return legacy_config, False, []
+            
+            except Exception as fallback_error:
+                logger.error(f"Legacy fallback also failed: {fallback_error}")
+                raise ValueError(f"All loading methods failed. Original error: {e}, Fallback error: {fallback_error}")
+        else:
+            raise
+
+# Example usage in application code
+def initialize_application_config(config_path: str):
+    """Initialize application with version-aware configuration loading."""
+    
+    try:
+        config, was_migrated, messages = load_version_aware_config(
+            config_path,
+            target_version="1.0.0",
+            allow_auto_migration=True,
+            legacy_fallback=True
+        )
+        
+        if was_migrated:
+            print("Configuration was automatically migrated:")
+            for message in messages:
+                print(f"  - {message}")
+            
+            # Optionally save migrated configuration
+            save_choice = input("Save migrated configuration? (y/n): ")
+            if save_choice.lower() == 'y':
+                migrated_path = config_path.replace('.yaml', '_migrated.yaml')
+                
+                if hasattr(config, 'dict'):
+                    import yaml
+                    with open(migrated_path, 'w') as f:
+                        yaml.dump(config.dict(), f, default_flow_style=False)
+                    print(f"Migrated configuration saved to: {migrated_path}")
+        
+        return config
+        
+    except Exception as e:
+        print(f"Configuration loading failed: {e}")
+        raise
+
+# Usage example
+if __name__ == "__main__":
+    config = initialize_application_config("experiment_config.yaml")
+    print(f"Loaded configuration with schema version: {config.schema_version}")
+```
+
+### Migration Troubleshooting Guide
+
+#### Common Version Migration Issues
+
+**Issue 1: Version Detection Failure**
+
+```python
+# Problem: Configuration structure doesn't match any known pattern
+from flyrigloader.migration.validators import validate_legacy_config_format
+
+problematic_config = {
+    'custom_section': {'data': 'value'},
+    # Missing required 'project' and 'experiments' sections
+}
+
+try:
+    is_valid, format_type, messages = validate_legacy_config_format(problematic_config)
+    if not is_valid:
+        print("Format validation failed:")
+        for message in messages:
+            print(f"  - {message}")
+        
+        # Solution: Add missing required sections
+        fixed_config = problematic_config.copy()
+        fixed_config.update({
+            'project': {'directories': {'major_data_directory': '/data'}},
+            'experiments': {'default_exp': {'parameters': {}}}
+        })
+        
+        print("Fixed configuration structure")
+except Exception as e:
+    print(f"Version detection error: {e}")
+```
+
+**Issue 2: Migration Path Not Available**
+
+```python
+# Problem: Trying to migrate from unsupported version
+from flyrigloader.migration.versions import is_migration_available, COMPATIBILITY_MATRIX
+
+from_version = "0.0.1"  # Hypothetical unsupported version
+to_version = "1.0.0"
+
+if not is_migration_available(from_version, to_version):
+    print(f"No migration path available: {from_version} -> {to_version}")
+    
+    # Solution: Check available migration paths
+    print("Available migration paths:")
+    for source, targets in COMPATIBILITY_MATRIX.items():
+        target_versions = [v.value for v in targets]
+        print(f"  {source.value} -> {target_versions}")
+    
+    # Manual migration required
+    print("Consider manual configuration update or contact support")
+```
+
+**Issue 3: Post-Migration Validation Failure**
+
+```python
+# Problem: Migrated configuration fails Pydantic validation
+from flyrigloader.migration.validators import validate_config_with_migration
+from pydantic import ValidationError
+
+legacy_config = {
+    'project': {'directories': {'major_data_directory': '/nonexistent/path'}},
+    'experiments': {'exp1': {'invalid_field': 'invalid_value'}}
+}
+
+try:
+    is_valid, version, messages, migrated = validate_config_with_migration(legacy_config)
+    
+    if not is_valid:
+        print("Post-migration validation failed:")
+        for message in messages:
+            print(f"  - {message}")
+        
+        # Solution: Fix validation errors manually
+        print("Fixing validation errors...")
+        
+        # Check for specific Pydantic validation errors
+        for message in messages:
+            if "path" in message.lower() and "exist" in message.lower():
+                print("  Fix: Update directory paths to existing locations")
+            elif "field" in message.lower():
+                print("  Fix: Remove or correct invalid configuration fields")
+                
+except Exception as e:
+    print(f"Migration validation error: {e}")
+```
+
+**Issue 4: LegacyConfigAdapter Compatibility Problems**
+
+```python
+# Problem: Dictionary operations fail with adapter
+from flyrigloader.config.models import LegacyConfigAdapter
+
+legacy_dict = {
+    'project': {'directories': {'major_data_directory': '/data'}},
+    'experiments': {'exp1': {}}
+}
+
+try:
+    adapter = LegacyConfigAdapter(legacy_dict)
+    
+    # This might fail if the underlying Pydantic model is strict
+    adapter['project']['new_field'] = 'new_value'
+    
+except Exception as e:
+    print(f"Adapter operation failed: {e}")
+    
+    # Solution: Use proper Pydantic model fields or migrate first
+    print("Solution: Migrate to modern configuration format")
+    
+    from flyrigloader.config.models import create_config
+    modern_config = create_config(
+        project_name="migrated_project",
+        base_directory="/data",
+        experiments={"exp1": {"parameters": {}}}
+    )
+    
+    print(f"Modern config created with version: {modern_config.schema_version}")
+```
+
 ## Migration Checklist
 
-### Week 1: Configuration Validation and Error Handling
+### Week 1: Configuration Validation and Version Migration
+- [ ] **New**: Test configuration version detection with `detect_config_version()`
+- [ ] **New**: Validate migration paths using `is_migration_available()`
+- [ ] **New**: Execute test migrations with `validate_config_with_migration()`
+- [ ] **New**: Update configurations with `schema_version` field
 - [ ] Test existing configuration files with `legacy_mode=False`
 - [ ] Fix any validation errors (typically missing required fields)
 - [ ] Add logging to verify path resolution
 - [ ] Update CI/CD to use validated configurations
-- [ ] **New**: Update exception handling to catch specific exception types (ConfigError, DiscoveryError, LoadError, TransformError)
+- [ ] **New**: Update exception handling to catch specific exception types (ConfigError, DiscoveryError, LoadError, TransformError, VersionError)
 - [ ] **New**: Test configuration builder functions (create_config, create_experiment, create_dataset)
+- [ ] **New**: Implement LegacyConfigAdapter integration with deprecation warnings
 
 ### Week 2: API Migration and Registry Setup
+- [ ] **New**: Implement migration audit trails using `MigrationReport`
+- [ ] **New**: Test pre-flight validation with `validate_manifest()`
+- [ ] **New**: Setup automatic migration workflows in application code
 - [ ] Identify monolithic `process_experiment_data` calls
 - [ ] Replace with `discover_experiment_manifest` + `load_data_file` + `transform_to_dataframe`
 - [ ] Test memory usage improvements with decoupled pipeline
@@ -975,8 +1831,12 @@ def process_data_with_builders(parameters: Dict[str, Any]):
 - [ ] **New**: Register any custom loaders with LoaderRegistry
 - [ ] **New**: Register any custom schemas with SchemaRegistry
 - [ ] **New**: Test registry-based extensibility
+- [ ] **New**: Verify version compatibility across all registry components
 
 ### Week 3: Full Migration and Advanced Features
+- [ ] **New**: Deploy version-aware configuration loading in production
+- [ ] **New**: Setup migration monitoring and alerting
+- [ ] **New**: Create migration rollback procedures
 - [ ] Adopt attribute-style configuration access
 - [ ] Use new transformation utilities
 - [ ] Implement custom validation rules
@@ -984,17 +1844,23 @@ def process_data_with_builders(parameters: Dict[str, Any]):
 - [ ] **New**: Implement custom transformation handlers if needed
 - [ ] **New**: Test deprecation warnings and migration paths
 - [ ] **New**: Update error handling to use context preservation
+- [ ] **New**: Validate all migration workflows end-to-end
 
-### Week 4: Registry Extensions and Testing (Optional)
+### Week 4: Version Management and Maintenance (Optional)
+- [ ] **New**: Setup configuration version governance policies
+- [ ] **New**: Implement automated migration testing for new versions
+- [ ] **New**: Create migration path documentation for future versions
+- [ ] **New**: Setup migration report analysis and archiving
 - [ ] **New**: Develop custom loaders for additional file formats
 - [ ] **New**: Implement domain-specific schema validators
 - [ ] **New**: Test plugin discovery through entry points
 - [ ] **New**: Validate transformation chain integrity
 - [ ] **New**: Set up comprehensive error monitoring
+- [ ] **New**: Document version compatibility matrix for dependencies
 
 ## New Architecture Benefits
 
-The decoupled pipeline architecture provides several advantages:
+The decoupled pipeline architecture with comprehensive version management provides several advantages:
 
 ### Memory Efficiency
 - **Selective Processing**: Load only the files you need
@@ -1021,6 +1887,18 @@ The decoupled pipeline architecture provides several advantages:
 - **Type Safety**: Full Pydantic model support with IDE autocomplete
 - **Comprehensive Testing**: Each stage can be tested independently
 
+### Version Management & Migration
+- **Zero Breaking Changes**: Automatic migration preserves research continuity
+- **Audit Trails**: Complete migration reports with timestamp and change tracking
+- **Rollback Support**: Safe migration with comprehensive validation and error handling
+- **Forward Compatibility**: Schema versioning enables future-proof configurations
+
+### Configuration Management
+- **Automatic Detection**: Seamless version detection without manual intervention
+- **Builder Pattern**: Type-safe configuration construction with comprehensive defaults
+- **Legacy Support**: Transparent backward compatibility via LegacyConfigAdapter
+- **Validation Integration**: Embedded validation with clear error messages and migration suggestions
+
 ## Backward Compatibility
 
 The migration preserves complete backward compatibility:
@@ -1036,7 +1914,12 @@ The migration preserves complete backward compatibility:
 ### Documentation
 - [Configuration Guide](configuration_guide.md) - Complete configuration reference
 - [API Documentation](api_reference.md) - Detailed API documentation
+- [Kedro Integration Guide](kedro_integration.md) - Native Kedro DataSet support
 - [Examples](../examples/) - Working examples for all use cases
+- **Migration Resources**: 
+  - Version compatibility matrix in `flyrigloader.migration.versions`
+  - Migration workflow examples in this guide
+  - Automated migration test suite for validation
 
 ### Support
 - Check the [FAQ](faq.md) for common questions
