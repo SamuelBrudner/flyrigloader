@@ -1326,7 +1326,13 @@ def create_kedro_dataset(
         
         # Create the Kedro dataset instance
         logger.debug("Creating FlyRigLoaderDataSet instance")
-        dataset = FlyRigLoaderDataSet(**dataset_kwargs)
+        dataset = FlyRigLoaderDataSet(
+            filepath=dataset_kwargs['config_path'],
+            experiment_name=dataset_kwargs['experiment_name'],
+            recursive=dataset_kwargs['recursive'],
+            extract_metadata=dataset_kwargs['extract_metadata'],
+            parse_dates=dataset_kwargs['parse_dates']
+        )
         
         logger.info(f"✓ Successfully created Kedro dataset for experiment '{experiment_name}'")
         logger.debug(f"  Dataset configuration: {config_path}")
@@ -1396,8 +1402,9 @@ def get_registered_loaders(_deps: Optional[DefaultDependencyProvider] = None) ->
         # Build comprehensive loader information
         loader_info = {}
         
-        # Get all registered extensions
-        registered_extensions = registry.get_supported_extensions()
+        # Get all registered loaders and extract extensions
+        all_loaders = registry.get_all_loaders()
+        registered_extensions = list(all_loaders.keys())
         logger.debug(f"Found {len(registered_extensions)} registered extensions")
         
         for extension in registered_extensions:
@@ -1544,7 +1551,8 @@ def get_loader_capabilities(
             from flyrigloader.registries import LoaderRegistry
             
             registry = LoaderRegistry()
-            registered_extensions = registry.get_supported_extensions()
+            all_loaders = registry.get_all_loaders()
+            registered_extensions = list(all_loaders.keys())
             
             all_capabilities = {}
             for ext in registered_extensions:
