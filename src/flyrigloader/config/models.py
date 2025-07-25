@@ -60,7 +60,7 @@ class ProjectConfig(BaseModel):
         }
     )
     
-    directories: Dict[str, Any] = Field(
+    directories: Optional[Dict[str, Any]] = Field(
         default_factory=dict,
         description="Dictionary of directory paths including major_data_directory",
         json_schema_extra={
@@ -122,8 +122,10 @@ class ProjectConfig(BaseModel):
     
     @field_validator('directories')
     @classmethod
-    def validate_directories(cls, v: Dict[str, Any]) -> Dict[str, Any]:
+    def validate_directories(cls, v: Optional[Dict[str, Any]]) -> Dict[str, Any]:
         """Validate directory paths with security checks and existence validation."""
+        if v is None:
+            return {}
         if not isinstance(v, dict):
             raise ValueError("directories must be a dictionary")
         
