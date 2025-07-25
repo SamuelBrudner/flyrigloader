@@ -68,8 +68,8 @@ from flyrigloader.kedro.datasets import (
     FlyRigManifestDataSet
 )
 
-# Import factory function from api module  
-from flyrigloader.api import create_kedro_dataset
+# Import factory function from api module (lazy import to avoid circular dependency)
+# from flyrigloader.api import create_kedro_dataset  # Moved to lazy import below
 
 # Import catalog configuration helpers from kedro.catalog module
 from flyrigloader.kedro.catalog import (
@@ -85,6 +85,35 @@ from flyrigloader.kedro.catalog import (
 
 # Configure module-level logging
 logger = logging.getLogger(__name__)
+
+# Lazy import function to avoid circular dependency with api.py
+def _get_create_kedro_dataset():
+    """Lazy import of create_kedro_dataset to avoid circular import."""
+    from flyrigloader.api import create_kedro_dataset as _create_kedro_dataset
+    return _create_kedro_dataset
+
+# Make create_kedro_dataset available at module level through lazy import
+def create_kedro_dataset(*args, **kwargs):
+    """
+    Factory function for creating Kedro datasets with FlyRigLoader integration.
+    
+    This function provides a lazy-imported wrapper around flyrigloader.api.create_kedro_dataset
+    to avoid circular import issues while maintaining the expected public API.
+    
+    Args:
+        *args: Positional arguments passed to create_kedro_dataset
+        **kwargs: Keyword arguments passed to create_kedro_dataset
+        
+    Returns:
+        FlyRigLoaderDataSet: Configured Kedro dataset instance
+        
+    Examples:
+        >>> dataset = create_kedro_dataset(
+        ...     config_path="config/experiment.yaml",
+        ...     experiment_name="baseline_study"
+        ... )
+    """
+    return _get_create_kedro_dataset()(*args, **kwargs)
 
 # Log package initialization for debugging and audit trail
 logger.debug("Initializing flyrigloader.kedro package with Kedro integration components")
