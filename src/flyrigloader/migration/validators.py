@@ -21,8 +21,8 @@ from pydantic import ValidationError
 
 # Internal imports for version detection and validation consistency
 from ..migration.versions import detect_config_version, ConfigVersion, CURRENT_VERSION
-from ..config.validators import date_format_validator, path_traversal_protection
-from ..config.models import ExperimentConfig, ProjectConfig, DatasetConfig
+
+
 
 # Set up logger for version validation operations
 logger = logging.getLogger(__name__)
@@ -731,6 +731,8 @@ def _validate_v0_1_0_project_section(project_data: Dict[str, Any]) -> List[str]:
             for dir_name, dir_path in directories.items():
                 if dir_path is not None:
                     try:
+                        # Import locally to avoid circular imports
+                        from ..config.validators import path_traversal_protection
                         path_traversal_protection(str(dir_path))
                     except (ValueError, PermissionError) as e:
                         errors.append(f"Invalid directory path '{dir_name}': {str(e)}")
@@ -788,6 +790,8 @@ def _validate_v0_1_0_experiments_section(experiments_data: Dict[str, Any]) -> Li
             if isinstance(date_range, list) and len(date_range) >= 2:
                 for date_str in date_range[:2]:  # Validate start and end dates
                     try:
+                        # Import locally to avoid circular imports
+                        from ..config.validators import date_format_validator
                         date_format_validator(str(date_str))
                     except (ValueError, TypeError) as e:
                         errors.append(f"Invalid date in experiment '{exp_name}': {str(e)}")
@@ -821,6 +825,8 @@ def _validate_v0_2_0_datasets_section(datasets_data: Dict[str, Any]) -> List[str
             else:
                 for date_str, vials in dates_vials.items():
                     try:
+                        # Import locally to avoid circular imports
+                        from ..config.validators import date_format_validator
                         date_format_validator(date_str)
                     except (ValueError, TypeError) as e:
                         errors.append(f"Invalid date in dataset '{dataset_name}': {str(e)}")
@@ -870,6 +876,8 @@ def _validate_v1_0_0_config(config_data: Dict[str, Any]) -> Tuple[bool, List[str
         
         # Validate project section
         try:
+            # Import locally to avoid circular imports
+            from ..config.models import ProjectConfig
             project_config = ProjectConfig(**project_data)
             logger.debug("Project section validated successfully with Pydantic")
         except ValidationError as e:
@@ -879,6 +887,8 @@ def _validate_v1_0_0_config(config_data: Dict[str, Any]) -> Tuple[bool, List[str
         # Validate datasets section
         for dataset_name, dataset_config in datasets_data.items():
             try:
+                # Import locally to avoid circular imports
+                from ..config.models import DatasetConfig
                 DatasetConfig(**dataset_config)
                 logger.debug(f"Dataset '{dataset_name}' validated successfully with Pydantic")
             except ValidationError as e:
@@ -888,6 +898,8 @@ def _validate_v1_0_0_config(config_data: Dict[str, Any]) -> Tuple[bool, List[str
         # Validate experiments section
         for exp_name, exp_config in experiments_data.items():
             try:
+                # Import locally to avoid circular imports
+                from ..config.models import ExperimentConfig
                 ExperimentConfig(**exp_config)
                 logger.debug(f"Experiment '{exp_name}' validated successfully with Pydantic")
             except ValidationError as e:
