@@ -14,6 +14,8 @@ flyrigloader/
 │       ├── config/          # Configuration handling module (Pydantic models)
 │       ├── io/              # Input/output utilities (separated loading/transformation)
 │       ├── registries/      # Registry infrastructure for extensibility
+│       ├── kedro/           # Kedro integration module (optional)
+│       ├── migration/       # Configuration migration infrastructure
 │       ├── exceptions.py    # Domain-specific exception hierarchy
 │       ├── utils/           # Utility functions and testing support
 │       └── api.py           # High-level API with backward compatibility
@@ -21,6 +23,7 @@ flyrigloader/
 ├── docs/                    # Documentation
 │   ├── architecture.md     # Technical architecture guide
 │   ├── extension_guide.md  # Plugin development guide
+│   ├── kedro_integration.md # Kedro integration guide
 │   └── migration_guide.md  # Migration instructions
 ├── logs/                    # Log files (auto-created)
 ├── config/                  # Configuration files
@@ -37,6 +40,8 @@ The latest version includes a comprehensive refactoring that enhances modularity
 - **Registry-Based Extensibility**: Plugin-style system for custom loaders and schemas
 - **Pydantic Configuration Models**: Type-safe configuration with comprehensive validation
 - **Configuration Builder Functions**: Programmatic configuration creation with sensible defaults
+- **Kedro Integration**: First-class support for Kedro pipelines with AbstractDataset implementations
+- **Version-Aware Migration**: Automatic configuration migration with version compatibility tracking
 - **Domain-Specific Exception Hierarchy**: Granular error handling with context preservation
 - **Enhanced Memory Efficiency**: Process large datasets with selective loading and transformation
 - **Backward Compatibility**: Existing code continues to work with deprecation warnings
@@ -333,7 +338,7 @@ except TransformError as e:
 
 #### Configuration Builder Functions
 
-Create configurations programmatically with comprehensive defaults:
+Create configurations programmatically with comprehensive defaults and version awareness:
 
 ```python
 from flyrigloader.config.models import create_config, create_experiment, create_dataset
@@ -346,7 +351,12 @@ config = create_config(
     experiments=["navigation_test", "choice_assay"]
 )
 
-# Create experiment configuration
+# The builder provides comprehensive defaults
+print(f"Schema version: {config.schema_version}")  # Output: 1.0.0
+print(f"Directories: {list(config.directories.keys())}")
+# Output: ['major_data_directory', 'backup_directory', 'processed_directory', 'output_directory', 'logs_directory', 'temp_directory', 'cache_directory']
+
+# Create experiment configuration with validation
 experiment = create_experiment(
     name="navigation_test",
     datasets=["plume_tracking", "odor_response"],
@@ -354,13 +364,141 @@ experiment = create_experiment(
     metadata={"description": "Navigation behavior analysis"}
 )
 
-# Create dataset configuration
+# Builder adds comprehensive parameter defaults
+print(f"All parameters: {list(experiment.parameters.keys())}")
+# Output: ['analysis_window', 'threshold', 'sampling_rate', 'method', 'confidence_level']
+
+# Create dataset configuration with metadata extraction patterns
 dataset = create_dataset(
     name="plume_tracking",
     rig="rig1",
     dates_vials={"2023-05-01": [1, 2, 3, 4]},
     metadata={"description": "Plume tracking behavioral data"}
 )
+
+# Builder provides extraction patterns for common metadata
+print(f"Extraction patterns: {len(dataset.metadata['extraction_patterns'])}")
+# Output: 4 (includes temperature, humidity, trial_number, condition patterns)
+```
+
+#### Advanced Builder Pattern Usage
+
+The builder functions support complex configuration scenarios:
+
+```python
+from flyrigloader.config.models import create_config, create_experiment, create_dataset
+
+# Create comprehensive project configuration
+project_config = create_config(
+    project_name="comprehensive_fly_study",
+    base_directory="/data/fly_experiments",
+    
+    # Custom directory structure
+    directories={
+        "major_data_directory": "/data/raw_experiments",
+        "processed_directory": "/data/processed",
+        "analysis_directory": "/data/analysis_results",
+        "backup_directory": "/backup/fly_data"
+    },
+    
+    # Custom ignore patterns
+    ignore_substrings=[
+        "._", "temp", "backup", "calibration", "test", 
+        "practice", "debug", ".DS_Store", "__pycache__"
+    ],
+    
+    # Custom extraction patterns for specific use case
+    extraction_patterns=[
+        r"(?P<date>\d{4}-\d{2}-\d{2})",  # ISO date format
+        r"(?P<fly_id>fly\d{3})",  # Three-digit fly ID
+        r"(?P<genotype>CS|w1118|Canton-S)",  # Specific genotypes
+        r"(?P<sex>[MF])",  # Sex designation
+        r"(?P<age>\d+)d",  # Age in days
+        r"(?P<temperature>\d{2})C",  # Temperature
+        r"(?P<trial>trial\d{2})"  # Two-digit trial number
+    ],
+    
+    # Experiment-specific requirements
+    mandatory_experiment_strings=["experiment", "trial", "fly"]
+)
+
+# Create experiment with comprehensive analysis parameters
+experiment_config = create_experiment(
+    name="odor_choice_behavioral_analysis",
+    datasets=["odor_response", "choice_behavior"],
+    
+    # Comprehensive analysis parameters
+    parameters={
+        "analysis_window": 15.0,  # seconds
+        "sampling_rate": 2000.0,  # Hz
+        "threshold": 0.3,  # detection threshold
+        "method": "cross_correlation",
+        "confidence_level": 0.99,
+        "smoothing_window": 5,  # data points
+        "baseline_duration": 2.0,  # seconds
+        "response_window": [3.0, 8.0],  # start, end in seconds
+        "minimum_trials": 10,
+        "outlier_threshold": 3.0  # standard deviations
+    },
+    
+    # Experiment-specific filters
+    filters={
+        "ignore_substrings": ["practice", "calibration", "test"],
+        "mandatory_experiment_strings": ["odor", "choice", "trial"],
+        "date_range": ["2024-01-01", "2024-06-30"],
+        "genotype_filter": ["CS", "w1118"],
+        "age_range": [3, 7]  # 3-7 days old
+    },
+    
+    # Rich metadata
+    metadata={
+        "description": "Comprehensive odor choice behavioral analysis",
+        "analysis_type": "behavioral_choice",
+        "protocol_version": "v2.1",
+        "experimenter": "research_team",
+        "institution": "fly_lab",
+        "extraction_patterns": [
+            r"(?P<odor_type>ethanol|benzaldehyde|control)",
+            r"(?P<concentration>\d+)ppm",
+            r"(?P<presentation_order>[AB]{2})"
+        ]
+    }
+)
+
+# Create dataset with rich metadata
+dataset_config = create_dataset(
+    name="high_resolution_tracking",
+    rig="rig_chamber_A",
+    
+    # Comprehensive date-vial mapping
+    dates_vials={
+        "2024-01-15": [1, 2, 3, 4, 5],
+        "2024-01-16": [6, 7, 8, 9, 10],
+        "2024-01-17": [11, 12, 13, 14, 15],
+        "2024-01-18": [16, 17, 18, 19, 20]
+    },
+    
+    # Rich dataset metadata
+    metadata={
+        "description": "High-resolution behavioral tracking dataset",
+        "dataset_type": "tracking_behavioral",
+        "camera_setup": "dual_camera_overhead",
+        "frame_rate": 60,  # fps
+        "resolution": "1920x1080",
+        "lighting_conditions": "infrared_backlit",
+        "chamber_dimensions": "10cm x 10cm x 3cm",
+        "extraction_patterns": [
+            r"(?P<camera>cam[12])",
+            r"(?P<frame_rate>\d+)fps",
+            r"(?P<lighting>IR|white|UV)",
+            r"(?P<track_quality>high|medium|low)"
+        ]
+    }
+)
+
+print(f"Project schema version: {project_config.schema_version}")
+print(f"Experiment parameters: {len(experiment_config.parameters)}")
+print(f"Dataset tracking dates: {len(dataset_config.dates_vials)}")
 ```
 
 #### Legacy Compatibility and Deprecation Warnings
@@ -861,7 +999,246 @@ except Exception as e:
     })
 ```
 
-### Migration and Documentation
+### Migration Guide: Upgrading from Legacy Dictionary-Based Configurations
+
+FlyRigLoader v2.0+ provides seamless migration from legacy dictionary-based configurations to the new Pydantic-based system with automatic version detection and migration support.
+
+#### Legacy Configuration Support
+
+Existing dictionary-based configurations continue to work with deprecation warnings:
+
+```python
+import warnings
+warnings.filterwarnings("default", category=DeprecationWarning)
+
+# Legacy dictionary configuration (still supported)
+legacy_config = {
+    'project': {
+        'directories': {'major_data_directory': '/data/fly_experiments'},
+        'ignore_substrings': ['temp', 'backup']
+    },
+    'experiments': {
+        'my_experiment': {
+            'datasets': ['tracking_data'],
+            'parameters': {'threshold': 0.5}
+        }
+    }
+}
+
+# This still works but shows deprecation warning
+from flyrigloader.api import load_experiment_files
+files = load_experiment_files(legacy_config, 'my_experiment')
+# DeprecationWarning: Dictionary-based configuration format is deprecated. 
+# Use create_config() builder and Pydantic models for new configurations.
+```
+
+#### Automatic Configuration Migration
+
+The system automatically detects and migrates legacy configurations:
+
+```python
+from flyrigloader.config.yaml_config import load_config
+
+# Load legacy YAML configuration (automatically migrated)
+config = load_config("legacy_config.yaml")
+
+# Configuration is automatically migrated to current version
+print(f"Migrated to schema version: {config.get_model('project').schema_version}")
+# Output: Migrated to schema version: 1.0.0
+
+# Access with modern type-safe API
+project_config = config.get_model('project')
+print(f"Data directory: {project_config.directories['major_data_directory']}")
+```
+
+#### Step-by-Step Migration to Builder Pattern
+
+**Step 1: Identify your current configuration structure**
+
+```python
+# Legacy approach (dictionary-based)
+old_config = {
+    'project': {
+        'directories': {'major_data_directory': '/data/experiments'},
+        'ignore_substrings': ['temp', 'backup']
+    },
+    'experiments': {
+        'behavior_test': {
+            'datasets': ['tracking'],
+            'parameters': {'window': 10.0}
+        }
+    }
+}
+```
+
+**Step 2: Convert to builder pattern**
+
+```python
+from flyrigloader.config.models import create_config, create_experiment
+
+# Modern approach (builder pattern with validation)
+project_config = create_config(
+    project_name="behavior_analysis",
+    base_directory="/data/experiments",
+    ignore_substrings=['temp', 'backup']
+)
+
+experiment_config = create_experiment(
+    name="behavior_test",
+    datasets=["tracking"],
+    parameters={"analysis_window": 10.0}
+)
+
+# Benefits: Type safety, validation, comprehensive defaults, version tracking
+print(f"Schema version: {project_config.schema_version}")
+print(f"Auto-generated directories: {list(project_config.directories.keys())}")
+```
+
+**Step 3: Update your analysis code**
+
+```python
+# Legacy API usage (still supported with warnings)
+from flyrigloader.api import load_experiment_files
+
+files = load_experiment_files(
+    config_path="config.yaml",  # Legacy path-based (deprecated)
+    experiment_name="behavior_test"
+)
+
+# Modern API usage (recommended)
+files = load_experiment_files(
+    config=project_config,  # Direct Pydantic model
+    experiment_name="behavior_test"
+)
+```
+
+#### Version-Aware Configuration Migration
+
+The system provides version-aware migration with clear upgrade paths:
+
+```python
+from flyrigloader.config.models import ExperimentConfig, create_experiment
+
+# Load old configuration (automatically detects version)
+old_experiment = ExperimentConfig(
+    schema_version="0.1.0",  # Old version
+    datasets=["tracking"],
+    parameters={"window": 5.0}  # Limited parameters
+)
+
+# Migrate to current version
+new_experiment = old_experiment.migrate_config("1.0.0")
+
+print(f"Migrated from {old_experiment.schema_version} to {new_experiment.schema_version}")
+print(f"Parameters before: {list(old_experiment.parameters.keys())}")
+print(f"Parameters after: {list(new_experiment.parameters.keys())}")
+# Output shows expanded parameter set with sensible defaults
+```
+
+#### Migration Validation and Warnings
+
+The migration system provides clear feedback and validation:
+
+```python
+from flyrigloader.config.yaml_config import load_config
+import logging
+
+# Enable migration logging
+logging.basicConfig(level=logging.INFO)
+
+# Load configuration with automatic migration
+config = load_config("legacy_config.yaml")
+# INFO: Configuration version 0.2.0 detected, migrating to 1.0.0
+# INFO: Migration completed successfully
+# WARNING: Some legacy fields were updated with new defaults
+
+# Validate migration success
+project_model = config.get_model('project')
+if project_model and project_model.schema_version == "1.0.0":
+    print("Migration successful!")
+```
+
+#### Common Migration Scenarios
+
+**Scenario 1: Basic project configuration**
+
+```python
+# Before (legacy dictionary)
+legacy = {
+    'project': {'major_data_directory': '/data'}
+}
+
+# After (builder pattern)
+from flyrigloader.config.models import create_config
+modern = create_config(base_directory="/data")
+```
+
+**Scenario 2: Experiment with parameters**
+
+```python
+# Before (limited parameter support)
+legacy = {
+    'experiments': {
+        'test': {
+            'datasets': ['data'],
+            'threshold': 0.3  # Ad-hoc parameter
+        }
+    }
+}
+
+# After (structured parameters with validation)
+from flyrigloader.config.models import create_experiment
+modern = create_experiment(
+    name="test",
+    datasets=["data"],
+    parameters={
+        "threshold": 0.3,
+        "analysis_window": 10.0,  # Auto-added defaults
+        "method": "correlation"   # Auto-added defaults
+    }
+)
+```
+
+**Scenario 3: Complex multi-experiment setup**
+
+```python
+# Before (nested dictionaries)
+legacy = {
+    'project': {'major_data_directory': '/experiments'},
+    'datasets': {
+        'tracking': {'rig': 'rig1', 'dates_vials': {'2024-01-01': [1, 2]}}
+    },
+    'experiments': {
+        'behavior': {'datasets': ['tracking'], 'window': 5.0},
+        'response': {'datasets': ['tracking'], 'threshold': 0.2}
+    }
+}
+
+# After (structured with builders)
+from flyrigloader.config.models import create_config, create_dataset, create_experiment
+
+project = create_config(base_directory="/experiments")
+
+dataset = create_dataset(
+    name="tracking",
+    rig="rig1", 
+    dates_vials={"2024-01-01": [1, 2]}
+)
+
+behavior_exp = create_experiment(
+    name="behavior",
+    datasets=["tracking"],
+    parameters={"analysis_window": 5.0}
+)
+
+response_exp = create_experiment(
+    name="response", 
+    datasets=["tracking"],
+    parameters={"threshold": 0.2}
+)
+```
+
+### Migration and Documentation Resources
 
 For users upgrading from the legacy system or needing detailed configuration guidance:
 
@@ -869,13 +1246,15 @@ For users upgrading from the legacy system or needing detailed configuration gui
 - **[Configuration Guide](docs/configuration_guide.md)** - Comprehensive documentation of all configuration options and Pydantic schema models
 - **[Architecture Guide](docs/architecture.md)** - Technical architecture documentation with extension patterns
 - **[Extension Guide](docs/extension_guide.md)** - Plugin development guide for custom loaders and schemas
+- **[Kedro Integration Guide](docs/kedro_integration.md)** - Complete guide for integrating FlyRigLoader with Kedro pipelines
 - **[Migration Example](examples/external_project/migration_example.py)** - Practical demonstration script showing side-by-side legacy vs. new patterns
 
 ### Quick Migration Options
 
 1. **Zero-Change Migration** (Recommended): Your existing code works unchanged with enhanced validation and clearer error messages
-2. **Gradual Migration**: Enable new features incrementally while maintaining backward compatibility
+2. **Gradual Migration**: Enable new features incrementally while maintaining backward compatibility  
 3. **Full Migration**: Adopt the decoupled architecture for maximum control and memory efficiency
+4. **Kedro Integration**: Use FlyRigLoader datasets directly in Kedro pipelines with `pip install flyrigloader[kedro]`
 
 See the [examples directory](examples/external_project) for complete demonstrations of integrating `flyrigloader` into external analysis projects with both legacy and modern patterns.
 
@@ -1027,7 +1406,211 @@ All data paths are validated with built-in security checks:
 - **Absolute path resolution**: Relative paths are automatically resolved to absolute paths
 - **Permission checking**: Read/write permissions are validated where applicable
 
+## Kedro Integration
+
+FlyRigLoader provides first-class integration with Kedro pipelines through specialized dataset classes that implement Kedro's `AbstractDataset` interface. This enables seamless integration with Kedro's data catalog and pipeline workflows while maintaining all of FlyRigLoader's discovery and loading capabilities.
+
+### Installation with Kedro Support
+
+To use Kedro integration features, install FlyRigLoader with the optional Kedro dependency:
+
+```bash
+pip install flyrigloader[kedro]
+```
+
+### FlyRigLoaderDataSet
+
+The `FlyRigLoaderDataSet` provides full data loading with transformation pipeline support:
+
+```python
+from flyrigloader.kedro.datasets import FlyRigLoaderDataSet
+
+# Direct instantiation
+dataset = FlyRigLoaderDataSet(
+    filepath="config/experiment_config.yaml",
+    experiment_name="baseline_study",
+    recursive=True,
+    extract_metadata=True
+)
+
+# Load data as pandas DataFrame
+dataframe = dataset.load()
+print(f"Loaded {len(dataframe)} rows with columns: {list(dataframe.columns)}")
+```
+
+### Kedro Catalog Integration
+
+Add FlyRigLoader datasets directly to your `catalog.yml`:
+
+```yaml
+# Basic experiment data loading
+experiment_data:
+  type: flyrigloader.kedro.datasets.FlyRigLoaderDataSet
+  filepath: "${base_dir}/config/experiment_config.yaml"
+  experiment_name: "baseline_study"
+  recursive: true
+  extract_metadata: true
+
+# Manifest-only operations for file discovery
+experiment_manifest:
+  type: flyrigloader.kedro.datasets.FlyRigManifestDataSet
+  filepath: "${base_dir}/config/experiment_config.yaml"
+  experiment_name: "baseline_study"
+  include_stats: true
+  parse_dates: true
+
+# Advanced configuration with custom parameters
+behavioral_analysis:
+  type: flyrigloader.kedro.datasets.FlyRigLoaderDataSet
+  filepath: "${base_dir}/config/behavioral_config.yaml"
+  experiment_name: "navigation_analysis"
+  recursive: true
+  extract_metadata: true
+  date_range: ["2024-01-01", "2024-01-31"]
+  rig_names: ["rig1", "rig2"]
+  transform_options:
+    include_kedro_metadata: true
+    sampling_rate: 1000.0
+```
+
+### Kedro Pipeline Usage
+
+Use FlyRigLoader datasets in your Kedro pipeline nodes:
+
+```python
+from kedro.pipeline import Pipeline, node
+
+def analyze_experiment_data(experiment_data):
+    """Process experiment data loaded via FlyRigLoaderDataSet."""
+    # experiment_data is a pandas DataFrame with Kedro metadata columns
+    print(f"Processing {len(experiment_data)} rows")
+    print(f"Experiment: {experiment_data['experiment_name'].iloc[0]}")
+    
+    # Perform analysis
+    results = experiment_data.groupby('trial_id').mean()
+    return results
+
+def process_file_manifest(manifest):
+    """Process file manifest from FlyRigManifestDataSet."""
+    print(f"Found {len(manifest.files)} files")
+    
+    # Filter large files for processing
+    large_files = [f for f in manifest.files if f.size_bytes > 1000000]
+    return {"large_files": len(large_files), "total_files": len(manifest.files)}
+
+def create_pipeline():
+    return Pipeline([
+        node(
+            func=analyze_experiment_data,
+            inputs="experiment_data",  # From catalog.yml
+            outputs="analysis_results",
+            name="analyze_data"
+        ),
+        node(
+            func=process_file_manifest,
+            inputs="experiment_manifest",  # From catalog.yml
+            outputs="file_stats",
+            name="process_manifest"
+        )
+    ])
+```
+
+### FlyRigManifestDataSet for Lightweight Operations
+
+For workflows that only need file discovery without full data loading:
+
+```python
+from flyrigloader.kedro.datasets import FlyRigManifestDataSet
+
+# Manifest-only dataset for file inventory
+manifest_dataset = FlyRigManifestDataSet(
+    filepath="config/experiment_config.yaml",
+    experiment_name="large_experiment",
+    include_stats=True
+)
+
+# Get file manifest without loading data
+manifest = manifest_dataset.load()
+print(f"Discovered {len(manifest.files)} files")
+
+# Use manifest for selective processing
+for file_info in manifest.files:
+    if file_info.size_bytes > 1000000:  # Process only large files
+        print(f"Large file: {file_info.path}")
+```
+
+### Integration with Kedro Parameters
+
+Combine FlyRigLoader with Kedro's parameter management:
+
+```yaml
+# parameters.yml
+flyrigloader:
+  base_config: "config/experiment_config.yaml"
+  experiments:
+    - "baseline_study"
+    - "treatment_study"
+  processing_options:
+    recursive: true
+    extract_metadata: true
+    date_range: ["2024-01-01", "2024-12-31"]
+
+# catalog.yml
+baseline_experiment:
+  type: flyrigloader.kedro.datasets.FlyRigLoaderDataSet
+  filepath: "${flyrigloader.base_config}"
+  experiment_name: "${flyrigloader.experiments[0]}"
+  recursive: "${flyrigloader.processing_options.recursive}"
+  extract_metadata: "${flyrigloader.processing_options.extract_metadata}"
+  date_range: "${flyrigloader.processing_options.date_range}"
+```
+
+### Error Handling and Logging
+
+FlyRigLoader datasets provide comprehensive error handling compatible with Kedro's logging system:
+
+```python
+import logging
+from kedro.pipeline import Pipeline, node
+
+def process_experiment_data(experiment_data):
+    """Process experiment data with proper error handling."""
+    logger = logging.getLogger(__name__)
+    
+    try:
+        # Data processing logic
+        results = experiment_data.groupby('condition').agg({
+            'response_time': 'mean',
+            'accuracy': 'mean'
+        })
+        
+        logger.info(f"Successfully processed {len(results)} conditions")
+        return results
+        
+    except Exception as e:
+        logger.error(f"Error processing experiment data: {e}")
+        raise
+```
+
 ## Development
+
+### Installation
+
+### Standard Installation
+
+```bash
+pip install flyrigloader
+```
+
+### Optional Dependencies
+
+For Kedro integration support, install with the optional Kedro dependency:
+
+```bash
+pip install flyrigloader[kedro]
+```
+
+This will install Kedro and enable the `FlyRigLoaderDataSet` and `FlyRigManifestDataSet` classes for seamless integration with Kedro pipelines.
 
 ### Installation for Development
 
