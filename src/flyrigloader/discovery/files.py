@@ -870,7 +870,7 @@ class FileDiscoverer:
             )
             
             # Check if we need to return files with metadata
-            if not (self.extract_patterns or self.parse_dates or self.include_stats):
+            if not (self.extract_patterns or self.parse_dates or self.include_stats or self.enable_kedro_metadata):
                 logger.info(f"Returning simple file list with {len(found_files)} files")
                 return found_files
             
