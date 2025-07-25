@@ -58,7 +58,7 @@ from flyrigloader.config.yaml_config import load_config
 from flyrigloader.kedro.datasets import FlyRigLoaderDataSet
 from flyrigloader.migration.versions import detect_config_version
 from flyrigloader.exceptions import KedroIntegrationError
-from flyrigloader.api import validate_manifest
+# from flyrigloader.api import validate_manifest  # Moved to lazy import to avoid circular dependency
 
 # Set up module-level logging  
 logger = logging.getLogger(__name__)
