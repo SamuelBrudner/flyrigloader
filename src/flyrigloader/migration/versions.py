@@ -200,6 +200,32 @@ def detect_config_version(config_data: Union[Dict[str, Any], str]) -> ConfigVers
     elif isinstance(config_data, str):
         return _detect_version_from_string(config_data)
     
+    # Handle LegacyConfigAdapter objects
+    elif hasattr(config_data, '__class__') and 'LegacyConfigAdapter' in str(config_data.__class__):
+        # Extract the underlying data from LegacyConfigAdapter
+        if hasattr(config_data, '_data'):
+            return _detect_version_from_dict(config_data._data)
+        elif hasattr(config_data, 'to_dict'):
+            return _detect_version_from_dict(config_data.to_dict())
+        else:
+            # Fallback: try to access as dict-like object
+            config_dict = {}
+            try:
+                if hasattr(config_data, 'get'):
+                    # Try to extract the key data we need for version detection
+                    if config_data.get('schema_version'):
+                        config_dict['schema_version'] = config_data.get('schema_version')
+                    if config_data.get('project'):
+                        config_dict['project'] = config_data.get('project')
+                    if config_data.get('experiments'):
+                        config_dict['experiments'] = config_data.get('experiments')
+                    return _detect_version_from_dict(config_dict)
+                else:
+                    raise ValueError(f"Cannot extract configuration data from LegacyConfigAdapter")
+            except Exception as e:
+                logger.error(f"Failed to extract data from LegacyConfigAdapter: {e}")
+                raise ValueError(f"Cannot detect version from LegacyConfigAdapter: {e}")
+    
     else:
         logger.error(f"Unsupported configuration data type: {type(config_data)}")
         raise ValueError(f"Cannot detect version from {type(config_data)} data")
