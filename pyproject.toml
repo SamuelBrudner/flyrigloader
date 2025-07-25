@@ -70,7 +70,9 @@ markers = [
     "unit: marks tests as unit tests",
     "integration: marks tests as integration tests",
     "benchmark: marks tests as performance benchmarks",
-    "property_based: marks tests that use property-based testing"
+    "property_based: marks tests that use property-based testing",
+    "config: marks tests related to configuration functionality",
+    "builders: marks tests related to builder pattern functionality"
 ]
 filterwarnings = [
     "error",
