@@ -344,6 +344,171 @@ class TransformError(FlyRigLoaderError):
                 self.context['data_type'] = context['data_type']
 
 
+class RegistryError(FlyRigLoaderError):
+    """
+    Plugin registry and loader resolution errors.
+    
+    This exception is raised when plugin registration, discovery, or resolution
+    operations fail, including plugin conflicts, entry-point discovery issues,
+    thread-safety violations, and priority-based conflict detection problems.
+    
+    Error Codes:
+        REGISTRY_001: Plugin registration failed
+        REGISTRY_002: Loader not found for extension
+        REGISTRY_003: Plugin conflict detected
+        REGISTRY_004: Entry-point discovery failed
+        REGISTRY_005: Plugin priority resolution failed
+        REGISTRY_006: Thread-safety violation detected
+        REGISTRY_007: Registry initialization failed
+        REGISTRY_008: Plugin compatibility check failed
+        REGISTRY_009: Auto-registration decorator failed
+        REGISTRY_010: Registry lookup timeout
+    """
+    
+    def __init__(
+        self,
+        message: str,
+        error_code: str = "REGISTRY_001",
+        context: Optional[Dict[str, Any]] = None
+    ) -> None:
+        """
+        Initialize RegistryError with registry-specific context.
+        
+        Args:
+            message: Human-readable error description
+            error_code: Registry-specific error code
+            context: Additional context including plugin names, extensions, priorities
+        """
+        super().__init__(message, error_code, context)
+        
+        # Add registry-specific context defaults
+        if context:
+            if 'plugin_name' in context:
+                self.context['plugin_name'] = context['plugin_name']
+            if 'extension' in context:
+                self.context['extension'] = context['extension']
+            if 'loader_class' in context:
+                self.context['loader_class'] = context['loader_class']
+            if 'priority' in context:
+                self.context['priority'] = context['priority']
+            if 'conflicting_plugins' in context:
+                self.context['conflicting_plugins'] = context['conflicting_plugins']
+            if 'entry_point' in context:
+                self.context['entry_point'] = context['entry_point']
+            if 'registered_loaders' in context:
+                self.context['registered_loaders'] = context['registered_loaders']
+
+
+class VersionError(FlyRigLoaderError):
+    """
+    Configuration version and migration errors.
+    
+    This exception is raised when configuration version detection, validation,
+    or migration operations fail, including version mismatch detection,
+    migration process failures, and version compatibility issues.
+    
+    Error Codes:
+        VERSION_001: Version detection failed
+        VERSION_002: Unsupported version format
+        VERSION_003: Version migration failed
+        VERSION_004: Version compatibility check failed
+        VERSION_005: Migration path not found
+        VERSION_006: Version validation failed
+        VERSION_007: Backward compatibility broken
+        VERSION_008: Migration rollback failed
+        VERSION_009: Version schema validation failed
+        VERSION_010: Future version not supported
+    """
+    
+    def __init__(
+        self,
+        message: str,
+        error_code: str = "VERSION_001",
+        context: Optional[Dict[str, Any]] = None
+    ) -> None:
+        """
+        Initialize VersionError with version-specific context.
+        
+        Args:
+            message: Human-readable error description
+            error_code: Version-specific error code
+            context: Additional context including versions, migration paths, compatibility
+        """
+        super().__init__(message, error_code, context)
+        
+        # Add version-specific context defaults
+        if context:
+            if 'current_version' in context:
+                self.context['current_version'] = context['current_version']
+            if 'target_version' in context:
+                self.context['target_version'] = context['target_version']
+            if 'detected_version' in context:
+                self.context['detected_version'] = context['detected_version']
+            if 'migration_path' in context:
+                self.context['migration_path'] = context['migration_path']
+            if 'supported_versions' in context:
+                self.context['supported_versions'] = context['supported_versions']
+            if 'config_schema' in context:
+                self.context['config_schema'] = context['config_schema']
+            if 'migration_step' in context:
+                self.context['migration_step'] = context['migration_step']
+
+
+class KedroIntegrationError(FlyRigLoaderError):
+    """
+    Kedro integration and catalog configuration errors.
+    
+    This exception is raised when Kedro-specific operations fail, including
+    AbstractDataset implementation issues, catalog configuration problems,
+    data catalog integration failures, and Kedro pipeline compatibility issues.
+    
+    Error Codes:
+        KEDRO_001: Kedro not installed or imported
+        KEDRO_002: AbstractDataset implementation failed
+        KEDRO_003: Catalog configuration invalid
+        KEDRO_004: Dataset instantiation failed
+        KEDRO_005: Data catalog integration failed
+        KEDRO_006: Pipeline compatibility issue
+        KEDRO_007: Kedro version compatibility failed
+        KEDRO_008: Dataset serialization failed
+        KEDRO_009: Catalog YAML parsing failed
+        KEDRO_010: Kedro hook integration failed
+    """
+    
+    def __init__(
+        self,
+        message: str,
+        error_code: str = "KEDRO_001",
+        context: Optional[Dict[str, Any]] = None
+    ) -> None:
+        """
+        Initialize KedroIntegrationError with Kedro-specific context.
+        
+        Args:
+            message: Human-readable error description
+            error_code: Kedro-specific error code
+            context: Additional context including dataset info, catalog config, Kedro version
+        """
+        super().__init__(message, error_code, context)
+        
+        # Add Kedro-specific context defaults
+        if context:
+            if 'dataset_name' in context:
+                self.context['dataset_name'] = context['dataset_name']
+            if 'catalog_config' in context:
+                self.context['catalog_config'] = context['catalog_config']
+            if 'kedro_version' in context:
+                self.context['kedro_version'] = context['kedro_version']
+            if 'dataset_type' in context:
+                self.context['dataset_type'] = context['dataset_type']
+            if 'pipeline_name' in context:
+                self.context['pipeline_name'] = context['pipeline_name']
+            if 'catalog_filepath' in context and isinstance(context['catalog_filepath'], (str, Path)):
+                self.context['catalog_filepath'] = str(context['catalog_filepath'])
+            if 'serialization_format' in context:
+                self.context['serialization_format'] = context['serialization_format']
+
+
 # Legacy exception aliases for backward compatibility
 # These are preserved during the transition period but will be deprecated
 FileStatsError = DiscoveryError
@@ -394,6 +559,9 @@ __all__ = [
     'DiscoveryError',
     'LoadError',
     'TransformError',
+    'RegistryError',
+    'VersionError',
+    'KedroIntegrationError',
     'log_and_raise',
     # Legacy aliases (deprecated)
     'FileStatsError',
