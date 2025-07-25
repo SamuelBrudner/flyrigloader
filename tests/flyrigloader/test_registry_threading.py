@@ -545,6 +545,16 @@ class TestEntryPointDiscovery:
         
         mock_entry_points.return_value = MockEntryPointsResult()
         
+        # Get registry instance and manually trigger discovery since it's singleton
+        registry = LoaderRegistry()
+        
+        # Reset initialization flag to force discovery (for singleton pattern)
+        if hasattr(registry, '_loaders_initialized'):
+            registry._loaders_initialized = False
+        
+        # Manually trigger discovery with mocked entry points
+        registry._discover_plugins()
+        
         # Concurrent discovery test
         discovery_results = Queue()
         discovery_errors = Queue()
@@ -552,11 +562,11 @@ class TestEntryPointDiscovery:
         def concurrent_discovery_worker(worker_id: int):
             """Worker for concurrent entry point discovery."""
             try:
-                # Create new registry instance to trigger discovery
-                registry = LoaderRegistry()
+                # Get registry instance (singleton pattern)
+                registry_instance = LoaderRegistry()
                 
                 # Validate that entry point loaders were discovered
-                all_loaders = registry.get_all_loaders()
+                all_loaders = registry_instance.get_all_loaders()
                 entry_point_loaders = {
                     ext: loader for ext, loader in all_loaders.items() 
                     if ext.startswith('.ep_test')
