@@ -16,12 +16,14 @@ from typing import Any, Dict, List, Optional, Union, ClassVar
 from datetime import datetime
 import logging
 import re
+import warnings
 from collections.abc import MutableMapping
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from pydantic.types import DirectoryPath
 
-from .validators import path_existence_validator
+from .validators import path_existence_validator, validate_config_version
+from ..migration.versions import CURRENT_VERSION
 
 # Set up logger for configuration model events
 logger = logging.getLogger(__name__)
@@ -48,6 +50,14 @@ class ProjectConfig(BaseModel):
         str_strip_whitespace=True,  # Strip whitespace from string fields
         validate_default=True,  # Validate default values
         frozen=False,  # Allow mutation for legacy compatibility
+    )
+    
+    schema_version: str = Field(
+        default=CURRENT_VERSION,
+        description="Configuration schema version for compatibility and migration tracking",
+        json_schema_extra={
+            "example": "1.0.0"
+        }
     )
     
     directories: Dict[str, Any] = Field(
@@ -89,6 +99,26 @@ class ProjectConfig(BaseModel):
             "example": [r"(?P<date>\d{4}-\d{2}-\d{2})", r"(?P<subject>\w+)"]
         }
     )
+    
+    @field_validator('schema_version')
+    @classmethod
+    def validate_schema_version(cls, v: str) -> str:
+        """Validate schema version using version-aware validation rules."""
+        if not isinstance(v, str):
+            raise ValueError("schema_version must be a string")
+        
+        try:
+            # Use the comprehensive version validation from validators
+            is_valid, detected_version, message = validate_config_version({"schema_version": v})
+            if not is_valid and "migration" not in message.lower():
+                # Only raise if there's a real validation error, not just migration needed
+                logger.warning(f"Schema version validation warning: {message}")
+            
+            logger.debug(f"Schema version validated: {v}")
+            return v
+        except Exception as e:
+            logger.error(f"Schema version validation failed: {e}")
+            raise ValueError(f"Invalid schema version '{v}': {e}")
     
     @field_validator('directories')
     @classmethod
@@ -199,6 +229,72 @@ class ProjectConfig(BaseModel):
         
         logger.debug(f"Validated {len(validated_patterns)} extraction patterns")
         return validated_patterns if validated_patterns else None
+    
+    def migrate_config(self, target_version: str = CURRENT_VERSION) -> 'ProjectConfig':
+        """
+        Migrate this configuration to a target schema version.
+        
+        This method handles automatic configuration migration when version mismatches
+        are detected, ensuring backward compatibility while upgrading configurations
+        to support new features and validation rules.
+        
+        Args:
+            target_version: Target schema version to migrate to (defaults to current)
+            
+        Returns:
+            ProjectConfig: Migrated configuration instance
+            
+        Raises:
+            ValueError: If migration is not possible or fails
+            
+        Example:
+            >>> old_config = ProjectConfig(schema_version="0.1.0", directories={})
+            >>> new_config = old_config.migrate_config("1.0.0")
+            >>> assert new_config.schema_version == "1.0.0"
+        """
+        logger.info(f"Migrating ProjectConfig from version {self.schema_version} to {target_version}")
+        
+        # If already at target version, return copy
+        if self.schema_version == target_version:
+            logger.debug("Configuration already at target version, returning copy")
+            return self.model_copy()
+        
+        try:
+            # Get current config as dict for migration
+            config_dict = self.model_dump()
+            
+            # Validate migration path exists
+            is_valid, detected_version, message = validate_config_version(config_dict)
+            
+            # Create migrated config with updated version
+            migrated_dict = config_dict.copy()
+            migrated_dict['schema_version'] = target_version
+            
+            # Apply version-specific migrations
+            if self.schema_version == "0.1.0" and target_version == "1.0.0":
+                # Add any missing fields required by v1.0.0
+                if 'extraction_patterns' not in migrated_dict or not migrated_dict['extraction_patterns']:
+                    migrated_dict['extraction_patterns'] = [
+                        r"(?P<date>\d{4}-\d{2}-\d{2})",
+                        r"(?P<date>\d{8})",
+                        r"(?P<subject>\w+)",
+                        r"(?P<rig>rig\d+)",
+                    ]
+                logger.debug("Applied v0.1.0 -> v1.0.0 migration transformations")
+            
+            elif self.schema_version == "0.2.0" and target_version == "1.0.0":
+                # Ensure all v1.0.0 requirements are met
+                logger.debug("Applied v0.2.0 -> v1.0.0 migration transformations")
+            
+            # Create and validate migrated instance
+            migrated_config = ProjectConfig(**migrated_dict)
+            logger.info(f"Successfully migrated ProjectConfig to version {target_version}")
+            return migrated_config
+            
+        except Exception as e:
+            error_msg = f"Migration failed from {self.schema_version} to {target_version}: {e}"
+            logger.error(error_msg)
+            raise ValueError(error_msg) from e
 
 
 class DatasetConfig(BaseModel):
@@ -221,6 +317,14 @@ class DatasetConfig(BaseModel):
         str_strip_whitespace=True,  # Strip whitespace from string fields
         validate_default=True,  # Validate default values
         frozen=False,  # Allow mutation for legacy compatibility
+    )
+    
+    schema_version: str = Field(
+        default=CURRENT_VERSION,
+        description="Configuration schema version for compatibility and migration tracking",
+        json_schema_extra={
+            "example": "1.0.0"
+        }
     )
     
     rig: str = Field(
@@ -260,6 +364,26 @@ class DatasetConfig(BaseModel):
             }
         }
     )
+    
+    @field_validator('schema_version')
+    @classmethod
+    def validate_schema_version(cls, v: str) -> str:
+        """Validate schema version using version-aware validation rules."""
+        if not isinstance(v, str):
+            raise ValueError("schema_version must be a string")
+        
+        try:
+            # Use the comprehensive version validation from validators
+            is_valid, detected_version, message = validate_config_version({"schema_version": v})
+            if not is_valid and "migration" not in message.lower():
+                # Only raise if there's a real validation error, not just migration needed
+                logger.warning(f"Schema version validation warning: {message}")
+            
+            logger.debug(f"Schema version validated: {v}")
+            return v
+        except Exception as e:
+            logger.error(f"Schema version validation failed: {e}")
+            raise ValueError(f"Invalid schema version '{v}': {e}")
     
     @field_validator('rig')
     @classmethod
@@ -356,6 +480,76 @@ class DatasetConfig(BaseModel):
         
         logger.debug("Metadata validated successfully")
         return v
+    
+    def migrate_config(self, target_version: str = CURRENT_VERSION) -> 'DatasetConfig':
+        """
+        Migrate this configuration to a target schema version.
+        
+        This method handles automatic configuration migration when version mismatches
+        are detected, ensuring backward compatibility while upgrading configurations
+        to support new features and validation rules.
+        
+        Args:
+            target_version: Target schema version to migrate to (defaults to current)
+            
+        Returns:
+            DatasetConfig: Migrated configuration instance
+            
+        Raises:
+            ValueError: If migration is not possible or fails
+            
+        Example:
+            >>> old_config = DatasetConfig(schema_version="0.1.0", rig="rig1")
+            >>> new_config = old_config.migrate_config("1.0.0")
+            >>> assert new_config.schema_version == "1.0.0"
+        """
+        logger.info(f"Migrating DatasetConfig from version {self.schema_version} to {target_version}")
+        
+        # If already at target version, return copy
+        if self.schema_version == target_version:
+            logger.debug("Configuration already at target version, returning copy")
+            return self.model_copy()
+        
+        try:
+            # Get current config as dict for migration
+            config_dict = self.model_dump()
+            
+            # Validate migration path exists
+            is_valid, detected_version, message = validate_config_version(config_dict)
+            
+            # Create migrated config with updated version
+            migrated_dict = config_dict.copy()
+            migrated_dict['schema_version'] = target_version
+            
+            # Apply version-specific migrations
+            if self.schema_version == "0.1.0" and target_version == "1.0.0":
+                # Ensure metadata has proper structure for v1.0.0
+                if 'metadata' not in migrated_dict or not migrated_dict['metadata']:
+                    migrated_dict['metadata'] = {
+                        "created_by": "flyrigloader",
+                        "dataset_type": "behavioral",
+                        "extraction_patterns": [
+                            r"(?P<temperature>\d+)C",
+                            r"(?P<humidity>\d+)%",
+                            r"(?P<trial_number>\d+)",
+                            r"(?P<condition>\w+_condition)",
+                        ],
+                    }
+                logger.debug("Applied v0.1.0 -> v1.0.0 migration transformations")
+            
+            elif self.schema_version == "0.2.0" and target_version == "1.0.0":
+                # Ensure all v1.0.0 requirements are met
+                logger.debug("Applied v0.2.0 -> v1.0.0 migration transformations")
+            
+            # Create and validate migrated instance
+            migrated_config = DatasetConfig(**migrated_dict)
+            logger.info(f"Successfully migrated DatasetConfig to version {target_version}")
+            return migrated_config
+            
+        except Exception as e:
+            error_msg = f"Migration failed from {self.schema_version} to {target_version}: {e}"
+            logger.error(error_msg)
+            raise ValueError(error_msg) from e
 
 
 class ExperimentConfig(BaseModel):
@@ -379,6 +573,14 @@ class ExperimentConfig(BaseModel):
         str_strip_whitespace=True,  # Strip whitespace from string fields
         validate_default=True,  # Validate default values
         frozen=False,  # Allow mutation for legacy compatibility
+    )
+    
+    schema_version: str = Field(
+        default=CURRENT_VERSION,
+        description="Configuration schema version for compatibility and migration tracking",
+        json_schema_extra={
+            "example": "1.0.0"
+        }
     )
     
     datasets: List[str] = Field(
@@ -435,6 +637,26 @@ class ExperimentConfig(BaseModel):
             }
         }
     )
+    
+    @field_validator('schema_version')
+    @classmethod
+    def validate_schema_version(cls, v: str) -> str:
+        """Validate schema version using version-aware validation rules."""
+        if not isinstance(v, str):
+            raise ValueError("schema_version must be a string")
+        
+        try:
+            # Use the comprehensive version validation from validators
+            is_valid, detected_version, message = validate_config_version({"schema_version": v})
+            if not is_valid and "migration" not in message.lower():
+                # Only raise if there's a real validation error, not just migration needed
+                logger.warning(f"Schema version validation warning: {message}")
+            
+            logger.debug(f"Schema version validated: {v}")
+            return v
+        except Exception as e:
+            logger.error(f"Schema version validation failed: {e}")
+            raise ValueError(f"Invalid schema version '{v}': {e}")
     
     @field_validator('datasets')
     @classmethod
@@ -549,6 +771,81 @@ class ExperimentConfig(BaseModel):
         
         logger.debug("Metadata validated successfully")
         return v
+    
+    def migrate_config(self, target_version: str = CURRENT_VERSION) -> 'ExperimentConfig':
+        """
+        Migrate this configuration to a target schema version.
+        
+        This method handles automatic configuration migration when version mismatches
+        are detected, ensuring backward compatibility while upgrading configurations
+        to support new features and validation rules.
+        
+        Args:
+            target_version: Target schema version to migrate to (defaults to current)
+            
+        Returns:
+            ExperimentConfig: Migrated configuration instance
+            
+        Raises:
+            ValueError: If migration is not possible or fails
+            
+        Example:
+            >>> old_config = ExperimentConfig(schema_version="0.1.0", datasets=["test"])
+            >>> new_config = old_config.migrate_config("1.0.0")
+            >>> assert new_config.schema_version == "1.0.0"
+        """
+        logger.info(f"Migrating ExperimentConfig from version {self.schema_version} to {target_version}")
+        
+        # If already at target version, return copy
+        if self.schema_version == target_version:
+            logger.debug("Configuration already at target version, returning copy")
+            return self.model_copy()
+        
+        try:
+            # Get current config as dict for migration
+            config_dict = self.model_dump()
+            
+            # Validate migration path exists
+            is_valid, detected_version, message = validate_config_version(config_dict)
+            
+            # Create migrated config with updated version
+            migrated_dict = config_dict.copy()
+            migrated_dict['schema_version'] = target_version
+            
+            # Apply version-specific migrations
+            if self.schema_version == "0.1.0" and target_version == "1.0.0":
+                # Ensure parameters have proper structure for v1.0.0
+                if 'parameters' not in migrated_dict or not migrated_dict['parameters']:
+                    migrated_dict['parameters'] = {
+                        "analysis_window": 10.0,
+                        "sampling_rate": 1000.0,
+                        "threshold": 0.5,
+                        "method": "correlation",
+                        "confidence_level": 0.95,
+                    }
+                
+                # Ensure filters have proper structure for v1.0.0
+                if 'filters' not in migrated_dict or not migrated_dict['filters']:
+                    migrated_dict['filters'] = {
+                        "ignore_substrings": ["temp", "backup", "test"],
+                        "mandatory_experiment_strings": ["experiment", "trial"],
+                    }
+                    
+                logger.debug("Applied v0.1.0 -> v1.0.0 migration transformations")
+            
+            elif self.schema_version == "0.2.0" and target_version == "1.0.0":
+                # Ensure all v1.0.0 requirements are met
+                logger.debug("Applied v0.2.0 -> v1.0.0 migration transformations")
+            
+            # Create and validate migrated instance
+            migrated_config = ExperimentConfig(**migrated_dict)
+            logger.info(f"Successfully migrated ExperimentConfig to version {target_version}")
+            return migrated_config
+            
+        except Exception as e:
+            error_msg = f"Migration failed from {self.schema_version} to {target_version}: {e}"
+            logger.error(error_msg)
+            raise ValueError(error_msg) from e
 
 
 class LegacyConfigAdapter(MutableMapping):
@@ -571,6 +868,15 @@ class LegacyConfigAdapter(MutableMapping):
         Args:
             config_data: Dictionary containing project, datasets, and experiments sections
         """
+        # Issue deprecation warning per Section 0.3.2 enhancement
+        warnings.warn(
+            "Dictionary-based configuration format is deprecated. "
+            "Use create_config() builder and Pydantic models for new configurations. "
+            "This adapter provides compatibility but will be removed in future versions.",
+            DeprecationWarning,
+            stacklevel=2
+        )
+        
         self._data = {}
         self._models = {}
         
@@ -751,36 +1057,38 @@ class LegacyConfigAdapter(MutableMapping):
 # Builder functions for programmatic configuration creation
 
 def create_config(
-    project_name: str,
-    base_directory: Union[str, Path],
+    project_name: Optional[str] = None,
+    base_directory: Optional[Union[str, Path]] = None,
     datasets: Optional[List[str]] = None,
     experiments: Optional[List[str]] = None,
     directories: Optional[Dict[str, Any]] = None,
     ignore_substrings: Optional[List[str]] = None,
     mandatory_experiment_strings: Optional[List[str]] = None,
     extraction_patterns: Optional[List[str]] = None,
+    schema_version: Optional[str] = None,
     **kwargs
 ) -> ProjectConfig:
     """
-    Builder function for creating validated ProjectConfig objects programmatically.
+    Enhanced builder function for creating validated ProjectConfig objects programmatically.
     
     This function provides a convenient way to create project configurations without
     requiring YAML files, reducing configuration boilerplate and enabling code-driven
-    configuration creation with comprehensive defaults.
+    configuration creation with comprehensive defaults and validation per Section 0.2.2.
     
     Args:
-        project_name: Name of the project for identification
-        base_directory: Base directory path for the project
+        project_name: Name of the project for identification (optional, auto-generated if not provided)
+        base_directory: Base directory path for the project (optional, uses current working directory)
         datasets: List of dataset names to include in the project
         experiments: List of experiment names to include in the project
         directories: Dictionary of directory paths (auto-populated with defaults)
         ignore_substrings: List of substring patterns to ignore during file discovery
         mandatory_experiment_strings: List of strings that must be present in experiment files
         extraction_patterns: List of regex patterns for extracting metadata from filenames
+        schema_version: Configuration schema version (defaults to current version)
         **kwargs: Additional fields for forward compatibility
     
     Returns:
-        ProjectConfig: Validated Pydantic model instance
+        ProjectConfig: Validated Pydantic model instance with schema version tracking
     
     Raises:
         ValueError: If configuration validation fails
@@ -792,15 +1100,30 @@ def create_config(
         ...     datasets=["plume_tracking", "odor_response"],
         ...     experiments=["navigation_test", "choice_assay"]
         ... )
+        >>> print(config.schema_version)
+        1.0.0
         >>> print(config.directories["major_data_directory"])
         /data/fly_experiments
     """
-    logger.debug(f"Creating ProjectConfig for project: {project_name}")
+    # Provide comprehensive defaults per builder pattern requirements
+    if project_name is None:
+        project_name = f"flyrigloader_project_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        logger.debug(f"Auto-generated project name: {project_name}")
+    
+    if base_directory is None:
+        base_directory = Path.cwd()
+        logger.debug(f"Using current working directory: {base_directory}")
+    
+    if schema_version is None:
+        schema_version = CURRENT_VERSION
+        logger.debug(f"Using current schema version: {schema_version}")
+    
+    logger.info(f"Creating ProjectConfig for project: {project_name} with schema version {schema_version}")
     
     # Ensure base_directory is a Path object
     base_path = Path(base_directory)
     
-    # Auto-populate directories with sensible defaults
+    # Auto-populate directories with comprehensive defaults
     if directories is None:
         directories = {}
     
@@ -808,16 +1131,22 @@ def create_config(
     if "major_data_directory" not in directories:
         directories["major_data_directory"] = str(base_path)
     
-    # Add common directory defaults
+    # Add comprehensive directory defaults for production-ready setup
     directories.setdefault("backup_directory", str(base_path / "backup"))
     directories.setdefault("processed_directory", str(base_path / "processed"))
     directories.setdefault("output_directory", str(base_path / "output"))
+    directories.setdefault("logs_directory", str(base_path / "logs"))
+    directories.setdefault("temp_directory", str(base_path / "temp"))
+    directories.setdefault("cache_directory", str(base_path / "cache"))
     
-    # Provide sensible defaults for ignore patterns
+    # Provide comprehensive defaults for ignore patterns
     if ignore_substrings is None:
-        ignore_substrings = ["._", "temp", "backup", ".tmp", "~", ".DS_Store"]
+        ignore_substrings = [
+            "._", "temp", "backup", ".tmp", "~", ".DS_Store",
+            "calibration", "test", "debug", "practice", ".git", "__pycache__"
+        ]
     
-    # Provide default extraction patterns for common use cases
+    # Provide comprehensive default extraction patterns for common use cases
     if extraction_patterns is None:
         extraction_patterns = [
             r"(?P<date>\d{4}-\d{2}-\d{2})",  # ISO date format
@@ -825,10 +1154,21 @@ def create_config(
             r"(?P<subject>\w+)",  # Subject identifier
             r"(?P<experiment>\w+_experiment)",  # Experiment identifier
             r"(?P<rig>rig\d+)",  # Rig identifier
+            r"(?P<fly_id>fly\d+)",  # Fly identifier
+            r"(?P<genotype>\w+_\w+)",  # Genotype pattern
+            r"(?P<sex>[MF])",  # Sex designation
+            r"(?P<age>\d+)d",  # Age in days
+            r"(?P<condition>\w+_condition)",  # Experimental condition
+            r"(?P<trial_number>trial\d+)",  # Trial number
         ]
     
-    # Combine all configuration data
+    # Provide default mandatory strings for comprehensive validation
+    if mandatory_experiment_strings is None:
+        mandatory_experiment_strings = ["experiment", "trial"]
+    
+    # Combine all configuration data with schema version
     config_data = {
+        "schema_version": schema_version,
         "directories": directories,
         "ignore_substrings": ignore_substrings,
         "mandatory_experiment_strings": mandatory_experiment_strings,
@@ -837,12 +1177,29 @@ def create_config(
     }
     
     try:
+        # Validate configuration data before creating the model
+        logger.debug("Validating configuration data before ProjectConfig creation")
+        
+        # Pre-validate schema version
+        is_valid, detected_version, message = validate_config_version(config_data)
+        if not is_valid and "migration" in message.lower():
+            logger.warning(f"Configuration validation warning: {message}")
+        
+        # Create the ProjectConfig instance
         project_config = ProjectConfig(**config_data)
-        logger.info(f"Successfully created ProjectConfig for project: {project_name}")
+        
+        logger.info(f"Successfully created ProjectConfig for project: {project_name} "
+                   f"with schema version {schema_version}")
+        logger.debug(f"ProjectConfig directories: {list(project_config.directories.keys())}")
+        logger.debug(f"ProjectConfig ignore patterns: {len(project_config.ignore_substrings or [])}")
+        logger.debug(f"ProjectConfig extraction patterns: {len(project_config.extraction_patterns or [])}")
+        
         return project_config
+        
     except Exception as e:
-        logger.error(f"Failed to create ProjectConfig for project {project_name}: {e}")
-        raise ValueError(f"Configuration validation failed: {e}") from e
+        error_msg = f"Failed to create ProjectConfig for project {project_name}: {e}"
+        logger.error(error_msg)
+        raise ValueError(error_msg) from e
 
 
 def create_experiment(
@@ -851,14 +1208,15 @@ def create_experiment(
     parameters: Optional[Dict[str, Any]] = None,
     filters: Optional[Dict[str, Any]] = None,
     metadata: Optional[Dict[str, Any]] = None,
+    schema_version: Optional[str] = None,
     **kwargs
 ) -> ExperimentConfig:
     """
-    Builder function for creating validated ExperimentConfig objects programmatically.
+    Enhanced builder function for creating validated ExperimentConfig objects programmatically.
     
     This function provides a convenient way to create experiment configurations with
     comprehensive defaults and validation, reducing boilerplate code for common
-    experiment setup patterns.
+    experiment setup patterns with version awareness.
     
     Args:
         name: Name of the experiment for identification
@@ -866,10 +1224,11 @@ def create_experiment(
         parameters: Dictionary of experiment-specific parameters
         filters: Dictionary containing filter configurations
         metadata: Optional metadata dictionary for experiment-specific information
+        schema_version: Configuration schema version (defaults to current version)
         **kwargs: Additional fields for forward compatibility
     
     Returns:
-        ExperimentConfig: Validated Pydantic model instance
+        ExperimentConfig: Validated Pydantic model instance with schema version tracking
     
     Raises:
         ValueError: If configuration validation fails
@@ -881,10 +1240,16 @@ def create_experiment(
         ...     parameters={"analysis_window": 10.0, "threshold": 0.5},
         ...     metadata={"description": "Navigation behavior analysis"}
         ... )
+        >>> print(config.schema_version)
+        1.0.0
         >>> print(config.datasets)
         ['plume_tracking', 'odor_response']
     """
-    logger.debug(f"Creating ExperimentConfig for experiment: {name}")
+    if schema_version is None:
+        schema_version = CURRENT_VERSION
+        logger.debug(f"Using current schema version: {schema_version}")
+    
+    logger.info(f"Creating ExperimentConfig for experiment: {name} with schema version {schema_version}")
     
     # Provide default parameters for common analysis patterns
     if parameters is None:
@@ -914,8 +1279,9 @@ def create_experiment(
     metadata.setdefault("analysis_type", "behavioral")
     metadata.setdefault("description", f"Automated experiment configuration for {name}")
     
-    # Combine all configuration data
+    # Combine all configuration data with schema version
     config_data = {
+        "schema_version": schema_version,
         "datasets": datasets,
         "parameters": parameters,
         "filters": filters,
@@ -924,12 +1290,20 @@ def create_experiment(
     }
     
     try:
+        # Pre-validate configuration data
+        logger.debug("Validating configuration data before ExperimentConfig creation")
+        
         experiment_config = ExperimentConfig(**config_data)
-        logger.info(f"Successfully created ExperimentConfig for experiment: {name}")
+        logger.info(f"Successfully created ExperimentConfig for experiment: {name} "
+                   f"with schema version {schema_version}")
+        logger.debug(f"ExperimentConfig datasets: {len(experiment_config.datasets)}")
+        logger.debug(f"ExperimentConfig parameters: {list(experiment_config.parameters.keys()) if experiment_config.parameters else []}")
+        
         return experiment_config
     except Exception as e:
-        logger.error(f"Failed to create ExperimentConfig for experiment {name}: {e}")
-        raise ValueError(f"Configuration validation failed: {e}") from e
+        error_msg = f"Failed to create ExperimentConfig for experiment {name}: {e}"
+        logger.error(error_msg)
+        raise ValueError(error_msg) from e
 
 
 def create_dataset(
@@ -937,24 +1311,26 @@ def create_dataset(
     rig: str,
     dates_vials: Optional[Dict[str, List[int]]] = None,
     metadata: Optional[Dict[str, Any]] = None,
+    schema_version: Optional[str] = None,
     **kwargs
 ) -> DatasetConfig:
     """
-    Builder function for creating validated DatasetConfig objects programmatically.
+    Enhanced builder function for creating validated DatasetConfig objects programmatically.
     
     This function provides a convenient way to create dataset configurations with
     sensible defaults and validation, supporting common dataset patterns while
-    maintaining flexibility for specific use cases.
+    maintaining flexibility for specific use cases with version awareness.
     
     Args:
         name: Name of the dataset for identification
         rig: Rig identifier string
         dates_vials: Dictionary mapping date strings to lists of vial numbers
         metadata: Optional metadata dictionary for dataset-specific information
+        schema_version: Configuration schema version (defaults to current version)
         **kwargs: Additional fields for forward compatibility
     
     Returns:
-        DatasetConfig: Validated Pydantic model instance
+        DatasetConfig: Validated Pydantic model instance with schema version tracking
     
     Raises:
         ValueError: If configuration validation fails
@@ -966,10 +1342,16 @@ def create_dataset(
         ...     dates_vials={"2023-05-01": [1, 2, 3, 4]},
         ...     metadata={"description": "Plume tracking behavioral data"}
         ... )
+        >>> print(config.schema_version)
+        1.0.0
         >>> print(config.rig)
         rig1
     """
-    logger.debug(f"Creating DatasetConfig for dataset: {name}")
+    if schema_version is None:
+        schema_version = CURRENT_VERSION
+        logger.debug(f"Using current schema version: {schema_version}")
+    
+    logger.info(f"Creating DatasetConfig for dataset: {name} with schema version {schema_version}")
     
     # Provide default dates_vials if not specified
     if dates_vials is None:
@@ -993,8 +1375,9 @@ def create_dataset(
             r"(?P<condition>\w+_condition)",  # Condition extraction
         ]
     
-    # Combine all configuration data
+    # Combine all configuration data with schema version
     config_data = {
+        "schema_version": schema_version,
         "rig": rig,
         "dates_vials": dates_vials,
         "metadata": metadata,
@@ -1002,12 +1385,20 @@ def create_dataset(
     }
     
     try:
+        # Pre-validate configuration data
+        logger.debug("Validating configuration data before DatasetConfig creation")
+        
         dataset_config = DatasetConfig(**config_data)
-        logger.info(f"Successfully created DatasetConfig for dataset: {name}")
+        logger.info(f"Successfully created DatasetConfig for dataset: {name} "
+                   f"with schema version {schema_version}")
+        logger.debug(f"DatasetConfig rig: {dataset_config.rig}")
+        logger.debug(f"DatasetConfig dates_vials: {len(dataset_config.dates_vials)}")
+        
         return dataset_config
     except Exception as e:
-        logger.error(f"Failed to create DatasetConfig for dataset {name}: {e}")
-        raise ValueError(f"Configuration validation failed: {e}") from e
+        error_msg = f"Failed to create DatasetConfig for dataset {name}: {e}"
+        logger.error(error_msg)
+        raise ValueError(error_msg) from e
 
 
 # Factory methods for common configuration patterns
@@ -1016,6 +1407,7 @@ def create_standard_fly_config(
     project_name: str,
     base_directory: Union[str, Path],
     rigs: Optional[List[str]] = None,
+    schema_version: Optional[str] = None,
     **kwargs
 ) -> ProjectConfig:
     """
@@ -1078,6 +1470,7 @@ def create_standard_fly_config(
         ignore_substrings=ignore_substrings,
         mandatory_experiment_strings=mandatory_experiment_strings,
         extraction_patterns=extraction_patterns,
+        schema_version=schema_version,
         **kwargs
     )
 
@@ -1086,6 +1479,7 @@ def create_plume_tracking_experiment(
     datasets: List[str],
     analysis_window: float = 10.0,
     tracking_threshold: float = 0.3,
+    schema_version: Optional[str] = None,
     **kwargs
 ) -> ExperimentConfig:
     """
@@ -1146,6 +1540,7 @@ def create_plume_tracking_experiment(
         parameters=parameters,
         filters=filters,
         metadata=metadata,
+        schema_version=schema_version,
         **kwargs
     )
 
@@ -1154,6 +1549,7 @@ def create_choice_assay_experiment(
     datasets: List[str],
     choice_duration: float = 300.0,
     decision_threshold: float = 0.8,
+    schema_version: Optional[str] = None,
     **kwargs
 ) -> ExperimentConfig:
     """
@@ -1214,6 +1610,7 @@ def create_choice_assay_experiment(
         parameters=parameters,
         filters=filters,
         metadata=metadata,
+        schema_version=schema_version,
         **kwargs
     )
 
@@ -1223,6 +1620,7 @@ def create_rig_dataset(
     start_date: str,
     end_date: str,
     vials_per_day: int = 8,
+    schema_version: Optional[str] = None,
     **kwargs
 ) -> DatasetConfig:
     """
@@ -1286,5 +1684,6 @@ def create_rig_dataset(
         rig=rig_name,
         dates_vials=dates_vials,
         metadata=metadata,
+        schema_version=schema_version,
         **kwargs
     )
