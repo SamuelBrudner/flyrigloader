@@ -428,14 +428,21 @@ def get_ignore_patterns(
         
     Returns:
         List of glob-formatted ignore patterns
+        
+    Raises:
+        ValueError: If ignore_substrings is not a list
+        TypeError: If ignore_substrings has invalid type
     """
     # Start with project-level ignore patterns
     patterns = []
     if "project" in config and "ignore_substrings" in config["project"] and config["project"]["ignore_substrings"] is not None:
+        ignore_substrings = config["project"]["ignore_substrings"]
+        if not isinstance(ignore_substrings, list):
+            raise ValueError(f"ignore_substrings must be a list, got {type(ignore_substrings).__name__}")
         # Convert simple substrings to glob patterns
         patterns.extend(
             _convert_to_glob_pattern(pattern) 
-            for pattern in config["project"]["ignore_substrings"]
+            for pattern in ignore_substrings
         )
     
     # Add experiment-specific patterns if specified
@@ -444,10 +451,13 @@ def get_ignore_patterns(
         if ("filters" in experiment_config and 
             "ignore_substrings" in experiment_config["filters"] and 
             experiment_config["filters"]["ignore_substrings"] is not None):
+            ignore_substrings = experiment_config["filters"]["ignore_substrings"]
+            if not isinstance(ignore_substrings, list):
+                raise ValueError(f"experiment ignore_substrings must be a list, got {type(ignore_substrings).__name__}")
             # Convert experiment-specific substrings to glob patterns
             patterns.extend(
                 _convert_to_glob_pattern(pattern) 
-                for pattern in experiment_config["filters"]["ignore_substrings"]
+                for pattern in ignore_substrings
             )
     
     return patterns
@@ -491,17 +501,27 @@ def get_mandatory_substrings(
         
     Returns:
         List of mandatory substrings
+        
+    Raises:
+        ValueError: If mandatory_experiment_strings is not a list
+        TypeError: If mandatory_experiment_strings has invalid type
     """
     # Start with project-level mandatory substrings (if any)
     substrings = []
     if "project" in config and "mandatory_experiment_strings" in config["project"]:
-        substrings.extend(config["project"]["mandatory_experiment_strings"])
+        mandatory_strings = config["project"]["mandatory_experiment_strings"]
+        if not isinstance(mandatory_strings, list):
+            raise ValueError(f"mandatory_experiment_strings must be a list, got {type(mandatory_strings).__name__}")
+        substrings.extend(mandatory_strings)
     
     # Add experiment-specific mandatory substrings if specified
     if experiment and "experiments" in config and experiment in config["experiments"]:
         experiment_config = config["experiments"][experiment]
         if "filters" in experiment_config and "mandatory_experiment_strings" in experiment_config["filters"]:
-            substrings.extend(experiment_config["filters"]["mandatory_experiment_strings"])
+            mandatory_strings = experiment_config["filters"]["mandatory_experiment_strings"]
+            if not isinstance(mandatory_strings, list):
+                raise ValueError(f"experiment mandatory_experiment_strings must be a list, got {type(mandatory_strings).__name__}")
+            substrings.extend(mandatory_strings)
     
     return substrings
 
@@ -522,11 +542,28 @@ def get_dataset_info(
         
     Raises:
         KeyError: If the dataset does not exist in the configuration
+        ValueError: If dataset structure is invalid
+        TypeError: If dataset structure has invalid types
     """
     if "datasets" not in config or dataset_name not in config["datasets"]:
         raise KeyError(f"Dataset '{dataset_name}' not found in configuration")
     
-    return config["datasets"][dataset_name]
+    dataset_info = config["datasets"][dataset_name]
+    
+    # Validate dates_vials structure if present
+    if "dates_vials" in dataset_info:
+        dates_vials = dataset_info["dates_vials"]
+        if not isinstance(dates_vials, dict):
+            raise ValueError(f"dates_vials must be a dictionary, got {type(dates_vials).__name__}")
+        
+        # Validate each date entry
+        for date_key, vials in dates_vials.items():
+            if not isinstance(date_key, str):
+                raise ValueError(f"dates_vials keys must be strings, got {type(date_key).__name__}")
+            if not isinstance(vials, list):
+                raise ValueError(f"dates_vials values must be lists, got {type(vials).__name__} for date '{date_key}'")
+    
+    return dataset_info
 
 
 def get_experiment_info(
@@ -545,11 +582,33 @@ def get_experiment_info(
         
     Raises:
         KeyError: If the experiment does not exist in the configuration
+        ValueError: If experiment structure is invalid
+        TypeError: If experiment structure has invalid types
     """
     if "experiments" not in config or experiment_name not in config["experiments"]:
         raise KeyError(f"Experiment '{experiment_name}' not found in configuration")
     
-    return config["experiments"][experiment_name]
+    experiment_info = config["experiments"][experiment_name]
+    
+    # Validate filters structure if present
+    if "filters" in experiment_info:
+        filters = experiment_info["filters"]
+        if not isinstance(filters, dict):
+            raise ValueError(f"experiment filters must be a dictionary, got {type(filters).__name__}")
+        
+        # Validate mandatory_experiment_strings if present
+        if "mandatory_experiment_strings" in filters:
+            mandatory_strings = filters["mandatory_experiment_strings"]
+            if not isinstance(mandatory_strings, list):
+                raise ValueError(f"mandatory_experiment_strings must be a list, got {type(mandatory_strings).__name__}")
+        
+        # Validate ignore_substrings if present
+        if "ignore_substrings" in filters:
+            ignore_substrings = filters["ignore_substrings"]
+            if not isinstance(ignore_substrings, list):
+                raise ValueError(f"ignore_substrings must be a list, got {type(ignore_substrings).__name__}")
+    
+    return experiment_info
 
 
 def get_all_experiment_names(config: Union[Dict[str, Any], LegacyConfigAdapter]) -> List[str]:
