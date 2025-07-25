@@ -1,5 +1,5 @@
 """
-Module for pure data loading from various pickle file formats.
+Module for pure data loading from various pickle file formats with enhanced registry integration.
 
 This module focuses exclusively on loading data from different types of pickle files 
 from fly behavior rigs, including compressed files (.pkl, .pklz, .pkl.gz), with robust 
@@ -9,19 +9,25 @@ Data transformation and DataFrame creation logic has been moved to the transform
 module for improved separation of concerns. This module maintains the dependency 
 injection patterns for enhanced testability and modular component architecture.
 
-Registry Integration:
-- Supports LoaderRegistry-based automatic format detection
-- Enables plugin-style extensibility for new file formats
-- Provides backward compatibility with existing code
+Enhanced Registry Integration (v1.0):
+- Supports LoaderRegistry-based automatic format detection with priority-based resolution
+- Enables plugin-style extensibility for new file formats using RegistryPriority enum
+- Provides thread-safe registration operations using threading.RLock for concurrency control
+- Implements comprehensive audit logging with INFO-level registration event tracking
+- Integrates with automatic entry-point discovery mechanism per Section 0.2.1 requirements
+- Uses RegistryError exceptions for enhanced error handling during registration operations
+- Provides backward compatibility with existing code while enabling future extensibility
 """
 
 import gzip
 import pickle
 import pandas as pd
 from pathlib import Path
+from threading import RLock
 from typing import Dict, Any, Union, Optional, List, Tuple, Protocol, runtime_checkable, Callable, Type
 from flyrigloader import logger
-from flyrigloader.registries import LoaderRegistry, BaseLoader
+from flyrigloader.registries import LoaderRegistry, BaseLoader, RegistryPriority, auto_register
+from flyrigloader.exceptions import RegistryError
 
 
 # Dependency Injection Protocols and Interfaces
@@ -153,7 +159,11 @@ class DependencyContainer:
 # Global default dependency container - can be overridden for testing
 _default_dependencies = DependencyContainer()
 
+# Thread-safe registration lock for concurrent registration operations
+_registration_lock = RLock()
 
+
+@auto_register(['.pkl', '.pklz', '.pkl.gz'], priority=RegistryPriority.BUILTIN)
 class PickleLoader:
     """
     Enhanced pickle file loader with dependency injection support and registry integration.
@@ -163,9 +173,10 @@ class PickleLoader:
     reduce coupling and enable controlled I/O behavior during test execution.
     
     Registry Integration:
-    - Automatically registers itself for .pkl, .pklz, and .pkl.gz extensions
-    - Supports LoaderRegistry-based format detection
+    - Automatically registers itself for .pkl, .pklz, and .pkl.gz extensions using @auto_register decorator
+    - Supports LoaderRegistry-based format detection with priority-based resolution
     - Provides backward compatibility with existing code
+    - Uses thread-safe registration operations with comprehensive audit logging
     """
     
     def __init__(self, dependencies: Optional[DependencyContainer] = None):
@@ -215,10 +226,12 @@ class PickleLoader:
     def priority(self) -> int:
         """Priority for this loader (BaseLoader protocol requirement).
         
+        Uses RegistryPriority.BUILTIN as this is a core system loader.
+        
         Returns:
             Integer priority (higher values = higher priority)
         """
-        return 10  # Default priority for pickle loader
+        return RegistryPriority.BUILTIN.value  # Built-in priority for core pickle loader
     
     def _validate_path_input(self, path: Union[str, Path]) -> Path:
         """
@@ -492,21 +505,40 @@ class PickleLoader:
 
 def _initialize_pickle_loader_registry():
     """
-    Initialize the LoaderRegistry with default PickleLoader for supported extensions.
+    Initialize the LoaderRegistry with default PickleLoader for supported extensions using priority-based resolution.
     
     This function automatically registers the PickleLoader class for all pickle
-    file extensions it supports, enabling registry-based automatic format detection.
+    file extensions it supports, enabling registry-based automatic format detection
+    with thread-safe operations and comprehensive audit logging per Section 5.2.5 requirements.
     """
-    registry = LoaderRegistry()
-    supported_extensions = ['.pkl', '.pklz', '.pkl.gz']
-    
-    for extension in supported_extensions:
-        registry.register_loader(extension, PickleLoader, priority=10)
-    
-    logger.debug(f"Registered PickleLoader for extensions: {supported_extensions}")
+    with _registration_lock:
+        try:
+            registry = LoaderRegistry()
+            supported_extensions = ['.pkl', '.pklz', '.pkl.gz']
+            
+            # Use RegistryPriority.BUILTIN for core pickle loader registration
+            priority = RegistryPriority.BUILTIN
+            
+            for extension in supported_extensions:
+                logger.info(f"Registering PickleLoader for extension '{extension}' with priority {priority.name}")
+                registry.register_loader(extension, PickleLoader, priority=priority.value)
+                logger.info(f"Successfully registered PickleLoader for extension '{extension}'")
+            
+            logger.info(f"PickleLoader registration completed for {len(supported_extensions)} extensions: {supported_extensions}")
+            
+        except Exception as e:
+            error_msg = f"Failed to register PickleLoader: {e}"
+            logger.error(error_msg)
+            raise RegistryError(error_msg, error_code="REGISTRY_001", context={
+                "extensions": supported_extensions,
+                "loader_class": "PickleLoader",
+                "priority": priority.name if 'priority' in locals() else "Unknown"
+            }) from e
 
 
 # Initialize registry on module import
+# Note: @auto_register decorator provides automatic registration, but we also
+# perform manual registration for redundancy and explicit audit logging
 _initialize_pickle_loader_registry()
 
 
@@ -602,6 +634,8 @@ def load_experimental_data(path: Union[str, Path]) -> Dict[str, Any]:
     Load experimental data from a pickle file with automatic format detection.
     
     This is a convenience wrapper around read_pickle_any_format for backward compatibility.
+    Uses enhanced registry system with priority-based loader resolution and comprehensive
+    audit logging for traceability.
     
     Args:
         path: Path to the pickle file to read
@@ -614,17 +648,26 @@ def load_experimental_data(path: Union[str, Path]) -> Dict[str, Any]:
         ValueError: If the file format is invalid
         PermissionError: If the file cannot be accessed
         RuntimeError: If the file cannot be loaded
+        RegistryError: If registry lookup fails
     """
-    return read_pickle_any_format(path)
+    logger.info(f"Loading experimental data from: {path}")
+    try:
+        result = read_pickle_any_format(path)
+        logger.info(f"Successfully loaded experimental data from: {path}")
+        return result
+    except Exception as e:
+        logger.error(f"Failed to load experimental data from {path}: {e}")
+        raise
 
 
 def read_pickle_any_format(path: Union[str, Path]) -> Union[Dict[str, Any], pd.DataFrame]:
     """
-    Convenience function for reading pickle files using registry-based format detection.
+    Convenience function for reading pickle files using enhanced registry-based format detection.
     
     This function provides backward compatibility while leveraging the new registry
-    system for automatic format detection. It first attempts to use the registry
-    for format selection, then falls back to the default PickleLoader if needed.
+    system with priority-based loader resolution and comprehensive audit logging.
+    It first attempts to use the registry for format selection, then falls back to 
+    the default PickleLoader if needed.
     
     Args:
         path: Path to the pickle file to read
@@ -637,14 +680,24 @@ def read_pickle_any_format(path: Union[str, Path]) -> Union[Dict[str, Any], pd.D
         ValueError: If the path format is invalid
         PermissionError: If the file cannot be accessed due to permissions
         RuntimeError: If all loading approaches fail
+        RegistryError: If registry operations fail
     """
+    logger.info(f"Reading pickle file with registry-based format detection: {path}")
     try:
-        # First try registry-based loading
-        return load_data_file(path)
-    except RuntimeError:
+        # First try registry-based loading with priority resolution
+        result = load_data_file(path)
+        logger.info(f"Successfully loaded pickle file via registry: {path}")
+        return result
+    except RuntimeError as e:
+        logger.warning(f"Registry-based loading failed for {path}, falling back to direct PickleLoader: {e}")
         # Fall back to direct PickleLoader if registry fails
         loader = PickleLoader()
-        return loader.load_pickle_any_format(path)
+        result = loader.load_pickle_any_format(path)
+        logger.info(f"Successfully loaded pickle file via fallback loader: {path}")
+        return result
+    except Exception as e:
+        logger.error(f"Failed to read pickle file {path}: {e}")
+        raise
 
 
 # Test helper factory functions
@@ -681,34 +734,64 @@ def create_test_pickle_loader(
 
 # Registry Test Helper Functions
 
-def register_test_loader(extension: str, loader_class: Type[BaseLoader], priority: int = 0) -> None:
+def register_test_loader(extension: str, loader_class: Type[BaseLoader], priority: int = None) -> None:
     """
-    Register a test loader for a specific file extension.
+    Register a test loader for a specific file extension with thread-safe operations.
     
     This function is intended for testing scenarios where custom loaders
     need to be registered for specific file extensions during test execution.
+    Uses RegistryPriority.USER by default for test loaders.
     
     Args:
         extension: File extension (e.g., '.test', '.mock')
         loader_class: Test loader class implementing BaseLoader protocol
-        priority: Priority for the loader (higher = higher priority)
+        priority: Priority for the loader (defaults to RegistryPriority.USER)
     """
-    registry = LoaderRegistry()
-    registry.register_loader(extension, loader_class, priority)
-    logger.debug(f"Registered test loader for extension: {extension}")
+    with _registration_lock:
+        try:
+            if priority is None:
+                priority = RegistryPriority.USER.value
+                
+            registry = LoaderRegistry()
+            logger.info(f"Registering test loader '{loader_class.__name__}' for extension '{extension}' with priority {priority}")
+            registry.register_loader(extension, loader_class, priority)
+            logger.info(f"Successfully registered test loader for extension: {extension}")
+            
+        except Exception as e:
+            error_msg = f"Failed to register test loader for extension '{extension}': {e}"
+            logger.error(error_msg)
+            raise RegistryError(error_msg, error_code="REGISTRY_002", context={
+                "extension": extension,
+                "loader_class": loader_class.__name__,
+                "priority": priority
+            }) from e
 
 
 def clear_loader_registry() -> None:
     """
-    Clear all registered loaders for testing isolation.
+    Clear all registered loaders for testing isolation with thread-safe operations.
     
     This function provides a clean slate for each test by clearing all
     registered loaders and re-initializing with the default PickleLoader.
+    Uses thread-safe operations and comprehensive audit logging.
     """
-    registry = LoaderRegistry()
-    registry.clear()
-    _initialize_pickle_loader_registry()
-    logger.debug("Cleared and reinitialized loader registry")
+    with _registration_lock:
+        try:
+            logger.info("Clearing loader registry for testing isolation")
+            registry = LoaderRegistry()
+            registry.clear()
+            logger.info("Loader registry cleared successfully")
+            
+            logger.info("Re-initializing loader registry with default PickleLoader")
+            _initialize_pickle_loader_registry()
+            logger.info("Loader registry reinitialized successfully")
+            
+        except Exception as e:
+            error_msg = f"Failed to clear and reinitialize loader registry: {e}"
+            logger.error(error_msg)
+            raise RegistryError(error_msg, error_code="REGISTRY_003", context={
+                "operation": "clear_and_reinitialize"
+            }) from e
 
 
 def get_registered_loaders() -> Dict[str, Type[BaseLoader]]:
