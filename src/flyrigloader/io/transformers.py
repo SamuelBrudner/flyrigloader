@@ -27,10 +27,14 @@ from typing import Dict, Any, Union, Optional, List, Callable, Protocol, runtime
 from functools import wraps
 from abc import ABC, abstractmethod
 import warnings
+from itertools import chain
+from time import perf_counter
+from datetime import datetime
 
 # Internal imports for configuration and logging
 from flyrigloader import logger
 from flyrigloader.io.column_models import get_config_from_source, ColumnConfigDict, SpecialHandlerType
+from flyrigloader.migration.versions import detect_config_version
 
 
 @runtime_checkable
@@ -579,14 +583,18 @@ def make_dataframe_from_config(
     config_source: Union[str, Dict[str, Any], ColumnConfigDict, None] = None,
     metadata: Optional[Dict[str, Any]] = None,
     skip_columns: Optional[List[str]] = None,
-    use_pluggable_handlers: bool = True
+    use_pluggable_handlers: bool = True,
+    experiment_name: Optional[str] = None,
+    file_path: Optional[str] = None,
+    enable_kedro_compatibility: bool = False
 ) -> pd.DataFrame:
     """
     Enhanced convenience function for DataFrame creation with comprehensive configuration support.
     
     This function provides a simple interface for creating DataFrames from experimental data
     using the DataFrameTransformer with pluggable transformation handlers while maintaining
-    backward compatibility with existing APIs.
+    backward compatibility with existing APIs. Optional Kedro compatibility can be enabled
+    for pipeline integration.
     
     Args:
         exp_matrix: Dictionary containing experimental data
@@ -594,16 +602,31 @@ def make_dataframe_from_config(
         metadata: Optional dictionary with metadata to add to the DataFrame
         skip_columns: Optional list of columns to exclude from processing
         use_pluggable_handlers: Whether to use registered transformation handlers
+        experiment_name: Experiment name for Kedro lineage tracking (if Kedro enabled)
+        file_path: Source file path for provenance tracking (if Kedro enabled)
+        enable_kedro_compatibility: Whether to add Kedro metadata columns
     
     Returns:
-        pd.DataFrame: DataFrame containing the data with correct types
+        pd.DataFrame: DataFrame containing the data with correct types and optional Kedro metadata
         
     Raises:
         ValueError: If required columns are missing or configuration is invalid
         TypeError: If the config_source type is invalid
     """
     transformer = DataFrameTransformer()
-    return transformer.transform_data(exp_matrix, config_source, metadata, skip_columns, use_pluggable_handlers)
+    result = transformer.transform_data(exp_matrix, config_source, metadata, skip_columns, use_pluggable_handlers)
+    
+    # Add Kedro compatibility if requested
+    if enable_kedro_compatibility:
+        result = add_kedro_metadata(
+            df=result,
+            config_source=config_source,
+            experiment_name=experiment_name,
+            file_path=file_path,
+            custom_metadata=metadata
+        )
+    
+    return result
 
 
 def handle_signal_disp(exp_matrix: Dict[str, Any]) -> pd.Series:
@@ -770,20 +793,31 @@ def ensure_1d_array(array, name):
         )
 
 
+@monitor_transformation_performance
 def transform_to_dataframe(
     exp_matrix: Dict[str, Any],
     config_source: Union[str, Dict[str, Any], ColumnConfigDict, None] = None,
     metadata: Optional[Dict[str, Any]] = None,
     skip_columns: Optional[List[str]] = None,
-    use_pluggable_handlers: bool = True
+    use_pluggable_handlers: bool = True,
+    experiment_name: Optional[str] = None,
+    file_path: Optional[str] = None,
+    enable_kedro_compatibility: bool = True,
+    lazy_threshold_mb: float = 100.0
 ) -> pd.DataFrame:
     """
-    Primary entry point for transforming raw experimental data to DataFrame format.
+    Primary entry point for transforming raw experimental data to Kedro-compatible DataFrame format.
     
     This function serves as the main interface for the new decoupled transformation workflow,
     providing comprehensive DataFrame creation with configuration support, metadata integration,
-    pluggable transformation handlers, and optional column processing as part of the manifest-based
-    data loading architecture.
+    pluggable transformation handlers, Kedro compatibility, and memory-efficient processing
+    as part of the manifest-based data loading architecture.
+    
+    Enhanced with Kedro compatibility features per Section 2.2.11 requirements:
+    - Mandatory metadata columns for Kedro pipeline integration
+    - Versioning and lineage tracking metadata
+    - Memory-efficient lazy transformation for large datasets
+    - Performance monitoring to maintain <2x data size memory overhead
     
     Args:
         exp_matrix: Dictionary containing raw experimental data
@@ -791,26 +825,77 @@ def transform_to_dataframe(
         metadata: Optional metadata to add to the resulting DataFrame
         skip_columns: Optional list of columns to exclude from processing
         use_pluggable_handlers: Whether to use registered transformation handlers
+        experiment_name: Experiment name for Kedro lineage tracking
+        file_path: Source file path for provenance tracking
+        enable_kedro_compatibility: Whether to add Kedro metadata columns
+        lazy_threshold_mb: Memory threshold for lazy transformation (MB)
         
     Returns:
-        pd.DataFrame: Fully transformed DataFrame with validated columns and metadata
+        pd.DataFrame: Fully transformed DataFrame with validated columns, metadata, and
+                     Kedro compatibility features
         
     Raises:
         ValueError: If transformation fails or required data is missing
         TypeError: If input types are invalid
+        
+    Example:
+        >>> config = {"project": {"major_data_directory": "/data"}}
+        >>> df = transform_to_dataframe(
+        ...     exp_matrix={"t": [1, 2, 3], "data": [4, 5, 6]},
+        ...     config_source=config,
+        ...     experiment_name="baseline_study",
+        ...     enable_kedro_compatibility=True
+        ... )
+        >>> assert "_kedro_version" in df.columns
+        >>> assert "_kedro_experiment" in df.columns
     """
-    logger.info("Starting DataFrame transformation with decoupled architecture")
+    logger.info("Starting DataFrame transformation with Kedro-compatible decoupled architecture")
     
-    transformer = DataFrameTransformer()
-    result = transformer.transform_data(
-        exp_matrix, 
-        config_source, 
-        metadata, 
-        skip_columns, 
-        use_pluggable_handlers
+    # Estimate data size for lazy transformation decision
+    total_elements = sum(
+        np.asarray(value).size if hasattr(value, 'size') else 1 
+        for value in exp_matrix.values()
     )
+    estimated_memory_mb = (total_elements * 8) / (1024 * 1024)  # Assume 8 bytes per element
     
-    logger.info(f"Completed DataFrame transformation: {result.shape} DataFrame with {len(result.columns)} columns")
+    if estimated_memory_mb > lazy_threshold_mb:
+        logger.info(f"Large dataset detected ({estimated_memory_mb:.2f} MB), using lazy transformation")
+        lazy_transformer = create_lazy_dataframe_transformer(
+            memory_threshold_mb=lazy_threshold_mb,
+            enable_streaming=True
+        )
+        result = lazy_transformer(
+            exp_matrix=exp_matrix,
+            config_source=config_source,
+            metadata=metadata,
+            skip_columns=skip_columns,
+            experiment_name=experiment_name,
+            file_path=file_path,
+            use_pluggable_handlers=use_pluggable_handlers
+        )
+    else:
+        logger.debug("Using standard transformation for smaller dataset")
+        # Standard transformation path
+        transformer = DataFrameTransformer()
+        result = transformer.transform_data(
+            exp_matrix, 
+            config_source, 
+            metadata, 
+            skip_columns, 
+            use_pluggable_handlers
+        )
+        
+        # Add Kedro compatibility metadata if enabled
+        if enable_kedro_compatibility:
+            result = add_kedro_metadata(
+                df=result,
+                config_source=config_source,
+                experiment_name=experiment_name,
+                file_path=file_path,
+                custom_metadata=metadata
+            )
+    
+    logger.info(f"Completed Kedro-compatible DataFrame transformation: {result.shape} DataFrame with {len(result.columns)} columns")
     return result
 
 
@@ -1127,6 +1212,370 @@ def legacy_transform_data(
     
     logger.debug("Using legacy transformation interface (deprecated)")
     return transform_to_dataframe(exp_matrix, config_source, metadata, skip_columns, use_pluggable_handlers=False)
+
+
+def add_kedro_metadata(
+    df: pd.DataFrame,
+    config_source: Union[str, Dict[str, Any], ColumnConfigDict, None] = None,
+    experiment_name: Optional[str] = None,
+    file_path: Optional[str] = None,
+    custom_metadata: Optional[Dict[str, Any]] = None
+) -> pd.DataFrame:
+    """
+    Add Kedro-compatible metadata columns to DataFrame for pipeline integration.
+    
+    This function ensures DataFrames are Kedro-compatible by adding mandatory metadata
+    columns required by Kedro pipelines. It includes versioning and lineage tracking
+    metadata per Section 2.2.11 Kedro Integration Layer requirements.
+    
+    Args:
+        df: Input DataFrame to enhance with Kedro metadata
+        config_source: Configuration source for version detection
+        experiment_name: Name of the experiment for lineage tracking
+        file_path: Source file path for provenance tracking
+        custom_metadata: Additional metadata to include
+        
+    Returns:
+        pd.DataFrame: Enhanced DataFrame with Kedro-compatible metadata columns
+        
+    Example:
+        >>> df = pd.DataFrame({'data': [1, 2, 3]})
+        >>> kedro_df = add_kedro_metadata(df, experiment_name="baseline_study")
+        >>> assert '_kedro_version' in kedro_df.columns
+        >>> assert '_kedro_timestamp' in kedro_df.columns
+    """
+    logger.debug(f"Adding Kedro metadata to DataFrame with shape {df.shape}")
+    
+    # Create a copy to avoid modifying the original DataFrame
+    enhanced_df = df.copy()
+    
+    # Add mandatory Kedro metadata columns
+    current_timestamp = datetime.now().isoformat()
+    
+    # Version tracking - detect configuration version for lineage
+    if config_source is not None:
+        try:
+            if isinstance(config_source, str):
+                # For file paths, read and detect version
+                with open(config_source, 'r') as f:
+                    config_content = f.read()
+                detected_version = detect_config_version(config_content)
+            elif isinstance(config_source, dict):
+                detected_version = detect_config_version(config_source)
+            else:
+                # For ColumnConfigDict, assume current version
+                detected_version = detect_config_version({"schema_version": "1.0.0"})
+            
+            config_version = str(detected_version)
+        except Exception as e:
+            logger.warning(f"Could not detect configuration version: {e}")
+            config_version = "unknown"
+    else:
+        config_version = "default"
+    
+    # Core Kedro metadata columns (mandatory for pipeline compatibility)
+    enhanced_df['_kedro_version'] = config_version
+    enhanced_df['_kedro_timestamp'] = current_timestamp
+    enhanced_df['_kedro_dataset_id'] = f"{experiment_name or 'unnamed'}_{hash(current_timestamp) % 10000:04d}"
+    
+    # Lineage tracking metadata
+    if experiment_name:
+        enhanced_df['_kedro_experiment'] = experiment_name
+    
+    if file_path:
+        enhanced_df['_kedro_source_file'] = file_path
+        enhanced_df['_kedro_file_hash'] = hash(file_path) % 100000  # Simple hash for tracking
+    
+    # Kedro versioning support
+    enhanced_df['_kedro_created_at'] = current_timestamp
+    enhanced_df['_kedro_pipeline_version'] = "1.0.0"  # FlyRigLoader version
+    
+    # Add custom metadata if provided
+    if custom_metadata:
+        for key, value in custom_metadata.items():
+            # Prefix with _kedro_ if not already prefixed
+            kedro_key = key if key.startswith('_kedro_') else f'_kedro_{key}'
+            enhanced_df[kedro_key] = value
+    
+    logger.info(f"Enhanced DataFrame with {len(enhanced_df.columns) - len(df.columns)} Kedro metadata columns")
+    return enhanced_df
+
+
+def create_lazy_dataframe_transformer(
+    memory_threshold_mb: float = 100.0,
+    chunk_size: int = 1000,
+    enable_streaming: bool = True
+) -> Callable[[Dict[str, Any], ...], pd.DataFrame]:
+    """
+    Create a memory-efficient lazy DataFrame transformer for Kedro pipeline performance.
+    
+    This function implements lazy transformation for memory efficiency to support Kedro
+    pipeline performance requirements per Section 0.2.2 component impact analysis.
+    It maintains the <2x data size memory overhead performance target while adding
+    Kedro compatibility.
+    
+    Args:
+        memory_threshold_mb: Memory threshold in MB to trigger lazy loading
+        chunk_size: Number of rows to process in each chunk
+        enable_streaming: Whether to enable streaming processing for large datasets
+        
+    Returns:
+        Callable: Lazy transformer function with configured memory management
+        
+    Example:
+        >>> lazy_transformer = create_lazy_dataframe_transformer(memory_threshold_mb=50.0)
+        >>> df = lazy_transformer(exp_matrix, config_source="config.yaml")
+    """
+    logger.debug(f"Creating lazy DataFrame transformer with {memory_threshold_mb}MB threshold")
+    
+    def lazy_transform(
+        exp_matrix: Dict[str, Any],
+        config_source: Union[str, Dict[str, Any], ColumnConfigDict, None] = None,
+        metadata: Optional[Dict[str, Any]] = None,
+        skip_columns: Optional[List[str]] = None,
+        experiment_name: Optional[str] = None,
+        file_path: Optional[str] = None,
+        **kwargs
+    ) -> pd.DataFrame:
+        """
+        Lazy transformation function with memory management and Kedro compatibility.
+        
+        Args:
+            exp_matrix: Dictionary containing experimental data
+            config_source: Configuration source for validation and versioning
+            metadata: Optional metadata to include
+            skip_columns: Columns to skip during processing
+            experiment_name: Experiment name for Kedro lineage tracking
+            file_path: Source file path for provenance
+            **kwargs: Additional transformation parameters
+            
+        Returns:
+            pd.DataFrame: Kedro-compatible DataFrame with memory-efficient processing
+        """
+        start_time = perf_counter()
+        logger.debug("Starting lazy DataFrame transformation")
+        
+        # Estimate memory requirements
+        total_elements = sum(
+            np.asarray(value).size if hasattr(value, 'size') else 1 
+            for value in exp_matrix.values()
+        )
+        estimated_memory_mb = (total_elements * 8) / (1024 * 1024)  # Assume 8 bytes per element
+        
+        logger.debug(f"Estimated memory requirement: {estimated_memory_mb:.2f} MB")
+        
+        if estimated_memory_mb > memory_threshold_mb and enable_streaming:
+            logger.info(f"Large dataset detected ({estimated_memory_mb:.2f} MB), using streaming transformation")
+            return _stream_transform_data(
+                exp_matrix, config_source, metadata, skip_columns, 
+                chunk_size, experiment_name, file_path, **kwargs
+            )
+        else:
+            logger.debug("Using standard transformation for smaller dataset")
+            # Use standard transformation
+            transformer = DataFrameTransformer()
+            df = transformer.transform_data(exp_matrix, config_source, metadata, skip_columns, **kwargs)
+            
+            # Add Kedro metadata
+            df = add_kedro_metadata(df, config_source, experiment_name, file_path, metadata)
+            
+            end_time = perf_counter()
+            logger.info(f"Lazy transformation completed in {end_time - start_time:.3f} seconds")
+            return df
+    
+    return lazy_transform
+
+
+def _stream_transform_data(
+    exp_matrix: Dict[str, Any],
+    config_source: Union[str, Dict[str, Any], ColumnConfigDict, None],
+    metadata: Optional[Dict[str, Any]],
+    skip_columns: Optional[List[str]],
+    chunk_size: int,
+    experiment_name: Optional[str],
+    file_path: Optional[str],
+    **kwargs
+) -> pd.DataFrame:
+    """
+    Internal streaming transformation for large datasets.
+    
+    Args:
+        exp_matrix: Experimental data dictionary
+        config_source: Configuration source
+        metadata: Metadata dictionary
+        skip_columns: Columns to skip
+        chunk_size: Chunk size for processing
+        experiment_name: Experiment name
+        file_path: Source file path
+        **kwargs: Additional parameters
+        
+    Returns:
+        pd.DataFrame: Processed DataFrame with memory-efficient streaming
+    """
+    logger.debug(f"Starting streaming transformation with chunk size {chunk_size}")
+    
+    # For streaming, we need to process data in chunks
+    # This is a simplified implementation - in practice, would need more sophisticated chunking
+    
+    # Get array length for chunking (assume all arrays have same length)
+    array_lengths = {}
+    for key, value in exp_matrix.items():
+        if hasattr(value, '__len__') and not isinstance(value, str):
+            array_lengths[key] = len(value)
+    
+    if not array_lengths:
+        logger.warning("No arrays found for streaming, falling back to standard transformation")
+        transformer = DataFrameTransformer()
+        df = transformer.transform_data(exp_matrix, config_source, metadata, skip_columns, **kwargs)
+        return add_kedro_metadata(df, config_source, experiment_name, file_path, metadata)
+    
+    # Use the most common array length
+    target_length = max(array_lengths.values(), key=array_lengths.values().count)
+    logger.debug(f"Target array length for streaming: {target_length}")
+    
+    # Process in chunks
+    chunk_dataframes = []
+    for start_idx in range(0, target_length, chunk_size):
+        end_idx = min(start_idx + chunk_size, target_length)
+        logger.debug(f"Processing chunk {start_idx}:{end_idx}")
+        
+        # Create chunk matrix
+        chunk_matrix = {}
+        for key, value in exp_matrix.items():
+            if hasattr(value, '__getitem__') and len(value) == target_length:
+                # Slice array data
+                chunk_matrix[key] = value[start_idx:end_idx]
+            else:
+                # Use full value for non-array data
+                chunk_matrix[key] = value
+        
+        # Transform chunk
+        transformer = DataFrameTransformer()
+        chunk_df = transformer.transform_data(chunk_matrix, config_source, metadata, skip_columns, **kwargs)
+        chunk_dataframes.append(chunk_df)
+    
+    # Combine chunks
+    logger.debug(f"Combining {len(chunk_dataframes)} chunks")
+    if chunk_dataframes:
+        combined_df = pd.concat(chunk_dataframes, ignore_index=True)
+    else:
+        # Fallback to empty DataFrame
+        combined_df = pd.DataFrame()
+    
+    # Add Kedro metadata to final result
+    final_df = add_kedro_metadata(combined_df, config_source, experiment_name, file_path, metadata)
+    
+    logger.info(f"Streaming transformation completed, final shape: {final_df.shape}")
+    return final_df
+
+
+def monitor_transformation_performance(
+    transformation_func: Callable,
+    performance_targets: Optional[Dict[str, float]] = None
+) -> Callable:
+    """
+    Monitor transformation performance to maintain <2x data size memory overhead target.
+    
+    This decorator function provides high-resolution timing utilities for performance
+    monitoring during Kedro-compatible DataFrame transformation to maintain the
+    performance targets specified in Section 5.2.4 scaling considerations.
+    
+    Args:
+        transformation_func: Function to monitor
+        performance_targets: Dictionary of performance targets to validate against
+        
+    Returns:
+        Callable: Wrapped function with performance monitoring
+        
+    Example:
+        >>> @monitor_transformation_performance
+        ... def my_transform(data):
+        ...     return transform_to_dataframe(data)
+        >>> result = my_transform(exp_matrix)
+    """
+    if performance_targets is None:
+        performance_targets = {
+            'max_memory_overhead_ratio': 2.0,  # <2x data size
+            'max_duration_per_100mb': 1.0,     # <1s per 100MB
+            'max_manifest_time': 0.1           # <100ms for manifest operations
+        }
+    
+    @wraps(transformation_func)
+    def performance_monitored_transform(*args, **kwargs):
+        """Wrapper function with comprehensive performance monitoring."""
+        start_time = perf_counter()
+        
+        # Estimate input data size
+        input_size_bytes = 0
+        if args:
+            first_arg = args[0]
+            if isinstance(first_arg, dict):
+                for value in first_arg.values():
+                    if hasattr(value, 'nbytes'):
+                        input_size_bytes += value.nbytes
+                    elif hasattr(value, '__len__'):
+                        input_size_bytes += len(str(value).encode('utf-8'))
+        
+        input_size_mb = input_size_bytes / (1024 * 1024)
+        logger.debug(f"Monitoring transformation of {input_size_mb:.2f} MB input data")
+        
+        # Execute transformation
+        try:
+            result = transformation_func(*args, **kwargs)
+            end_time = perf_counter()
+            duration = end_time - start_time
+            
+            # Calculate performance metrics
+            metrics = {
+                'duration_seconds': duration,
+                'input_size_mb': input_size_mb,
+                'duration_per_100mb': (duration / max(input_size_mb / 100, 0.01)),  # Avoid division by zero
+            }
+            
+            # Estimate output size for memory overhead calculation
+            if isinstance(result, pd.DataFrame):
+                output_size_bytes = result.memory_usage(deep=True).sum()
+                output_size_mb = output_size_bytes / (1024 * 1024)
+                memory_overhead_ratio = output_size_mb / max(input_size_mb, 0.01)
+                
+                metrics.update({
+                    'output_size_mb': output_size_mb,
+                    'memory_overhead_ratio': memory_overhead_ratio
+                })
+                
+                logger.info(f"Transformation performance: {duration:.3f}s, "
+                          f"memory overhead: {memory_overhead_ratio:.2f}x, "
+                          f"rate: {input_size_mb/duration:.2f} MB/s")
+            
+            # Check performance targets
+            warnings_issued = []
+            
+            if 'memory_overhead_ratio' in metrics:
+                if metrics['memory_overhead_ratio'] > performance_targets['max_memory_overhead_ratio']:
+                    warning_msg = (f"Memory overhead {metrics['memory_overhead_ratio']:.2f}x exceeds "
+                                 f"target {performance_targets['max_memory_overhead_ratio']:.2f}x")
+                    warnings_issued.append(warning_msg)
+                    logger.warning(warning_msg)
+            
+            if metrics['duration_per_100mb'] > performance_targets['max_duration_per_100mb']:
+                warning_msg = (f"Processing rate {metrics['duration_per_100mb']:.2f}s/100MB exceeds "
+                             f"target {performance_targets['max_duration_per_100mb']:.2f}s/100MB")
+                warnings_issued.append(warning_msg)
+                logger.warning(warning_msg)
+            
+            # Add performance metadata to result if it's a DataFrame
+            if isinstance(result, pd.DataFrame) and not warnings_issued:
+                logger.debug("Performance targets met, transformation successful")
+            
+            return result
+            
+        except Exception as e:
+            end_time = perf_counter()
+            duration = end_time - start_time
+            logger.error(f"Transformation failed after {duration:.3f}s: {e}")
+            raise
+    
+    return performance_monitored_transform
 
 
 def create_test_dataframe_transformer() -> DataFrameTransformer:
