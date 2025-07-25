@@ -22,7 +22,7 @@ from flyrigloader.config.yaml_config import (
     get_experiment_info,
     get_extraction_patterns
 )
-from flyrigloader.config.models import ExperimentConfig
+from flyrigloader.config.models import ExperimentConfig, LegacyConfigAdapter
 
 # Configure module logger for enhanced test observability
 logger = logging.getLogger(__name__)
@@ -390,8 +390,8 @@ class ConfigDiscoveryEngine:
                 logger.debug("ExperimentConfig validated successfully")
             except Exception as e:
                 raise ValueError(f"Invalid ExperimentConfig: {e}")
-        elif not isinstance(config, dict):
-            raise ValueError(f"Configuration must be a dictionary or ExperimentConfig, got {type(config).__name__}")
+        elif not isinstance(config, (dict, LegacyConfigAdapter)):
+            raise ValueError(f"Configuration must be a dictionary, LegacyConfigAdapter, or ExperimentConfig, got {type(config).__name__}")
         
         if not directory:
             raise ValueError("Directory parameter cannot be empty")
@@ -400,7 +400,7 @@ class ConfigDiscoveryEngine:
             raise ValueError("Pattern parameter cannot be empty")
         
         # Enhanced experiment validation for dictionary configs
-        if isinstance(config, dict) and experiment and experiment not in config.get("experiments", {}):
+        if isinstance(config, (dict, LegacyConfigAdapter)) and experiment and experiment not in config.get("experiments", {}):
             logger.warning(f"Experiment '{experiment}' not found in configuration, using project-level settings only")
         
         # For ExperimentConfig, validate that the experiment parameter is consistent
@@ -493,8 +493,8 @@ class ConfigDiscoveryEngine:
                 logger.debug(f"ExperimentConfig validated successfully for experiment '{experiment_name}'")
             except Exception as e:
                 raise ValueError(f"Invalid ExperimentConfig: {e}")
-        elif not isinstance(config, dict):
-            raise ValueError(f"Configuration must be a dictionary or ExperimentConfig, got {type(config).__name__}")
+        elif not isinstance(config, (dict, LegacyConfigAdapter)):
+            raise ValueError(f"Configuration must be a dictionary, LegacyConfigAdapter, or ExperimentConfig, got {type(config).__name__}")
         
         if not experiment_name or not isinstance(experiment_name, str):
             raise ValueError(f"Experiment name must be a non-empty string, got {experiment_name}")
@@ -638,8 +638,8 @@ class ConfigDiscoveryEngine:
                 logger.debug(f"ExperimentConfig validated successfully for dataset '{dataset_name}'")
             except Exception as e:
                 raise ValueError(f"Invalid ExperimentConfig: {e}")
-        elif not isinstance(config, dict):
-            raise ValueError(f"Configuration must be a dictionary or ExperimentConfig, got {type(config).__name__}")
+        elif not isinstance(config, (dict, LegacyConfigAdapter)):
+            raise ValueError(f"Configuration must be a dictionary, LegacyConfigAdapter, or ExperimentConfig, got {type(config).__name__}")
         
         if not dataset_name or not isinstance(dataset_name, str):
             raise ValueError(f"Dataset name must be a non-empty string, got {dataset_name}")
