@@ -48,8 +48,8 @@ handling and audit trail generation as specified in Section 5.3.6.
 
 The implementation integrates with the broader FlyRigLoader ecosystem through:
 - COMPATIBILITY_MATRIX from migration.versions for path determination
-- DatasetConfig and other Pydantic models for configuration validation
-- validate_config_version for compatibility checking
+- Configuration validation using locally imported Pydantic models
+- Configuration validation using locally imported validation functions
 - VersionError for structured error handling and reporting
 """
 
@@ -63,8 +63,6 @@ from semantic_version import Version
 from pydantic import ValidationError
 
 from flyrigloader.migration.versions import COMPATIBILITY_MATRIX
-from flyrigloader.config.models import DatasetConfig
-from flyrigloader.config.validators import validate_config_version
 from flyrigloader.exceptions import VersionError
 
 # Set up logger for migration operations with structured logging
@@ -586,7 +584,8 @@ class ConfigMigrator:
         logger.debug(f"Validating migration feasibility: {from_version} -> {to_version}")
         
         try:
-            # Use validate_config_version for initial compatibility check
+            # Use validate_config_version for initial compatibility check (import locally to avoid circular imports)
+            from flyrigloader.config.validators import validate_config_version
             is_valid, detected_version, validation_message = validate_config_version({
                 "schema_version": from_version
             })
@@ -743,7 +742,8 @@ class ConfigMigrator:
         logger.debug(f"Validating migrated configuration against version {target_version}")
         
         try:
-            # Use the configuration validation system
+            # Use the configuration validation system (import locally to avoid circular imports)
+            from flyrigloader.config.validators import validate_config_version
             is_valid, detected_version, message = validate_config_version(config)
             
             if not is_valid:
@@ -759,7 +759,8 @@ class ConfigMigrator:
                             dataset_config_copy.setdefault("schema_version", target_version)
                             dataset_config_copy.setdefault("rig", f"rig_{dataset_name}")  # Default rig if missing
                             
-                            # Validate with DatasetConfig model
+                            # Validate with DatasetConfig model (import locally to avoid circular imports)
+                            from flyrigloader.config.models import DatasetConfig
                             DatasetConfig(**dataset_config_copy)
                             logger.debug(f"Dataset {dataset_name} validated successfully")
                             
