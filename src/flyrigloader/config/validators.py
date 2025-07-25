@@ -304,6 +304,7 @@ def date_format_validator(date_input: Any, date_format: str = '%Y-%m-%d') -> boo
         # Try common alternative formats
         alternative_formats = [
             '%Y-%m-%d',      # ISO format
+            '%Y_%m_%d',      # Underscore format
             '%m/%d/%Y',      # US format
             '%d/%m/%Y',      # European format
             '%Y%m%d',        # Compact format
@@ -336,7 +337,7 @@ def date_format_validator(date_input: Any, date_format: str = '%Y-%m-%d') -> boo
     error_msg = (
         f"Invalid date format: '{date_input}'. "
         f"Expected format: {date_format}. "
-        f"Supported formats include: YYYY-MM-DD, MM/DD/YYYY, DD/MM/YYYY, YYYYMMDD"
+        f"Supported formats include: YYYY-MM-DD, YYYY_MM_DD, MM/DD/YYYY, DD/MM/YYYY, YYYYMMDD"
     )
     logger.error(error_msg)
     raise ValueError(error_msg)
