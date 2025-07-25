@@ -22,7 +22,8 @@ from flyrigloader.config.yaml_config import (
     get_experiment_info,
     get_extraction_patterns
 )
-from flyrigloader.config.models import ExperimentConfig
+from flyrigloader.config.models import ExperimentConfig, LegacyConfigAdapter
+from flyrigloader.config.validators import date_format_validator
 
 # Configure module logger for enhanced test observability
 logger = logging.getLogger(__name__)
@@ -390,8 +391,8 @@ class ConfigDiscoveryEngine:
                 logger.debug("ExperimentConfig validated successfully")
             except Exception as e:
                 raise ValueError(f"Invalid ExperimentConfig: {e}")
-        elif not isinstance(config, dict):
-            raise ValueError(f"Configuration must be a dictionary or ExperimentConfig, got {type(config).__name__}")
+        elif not isinstance(config, (dict, LegacyConfigAdapter)):
+            raise ValueError(f"Configuration must be a dictionary, LegacyConfigAdapter, or ExperimentConfig, got {type(config).__name__}")
         
         if not directory:
             raise ValueError("Directory parameter cannot be empty")
@@ -400,7 +401,7 @@ class ConfigDiscoveryEngine:
             raise ValueError("Pattern parameter cannot be empty")
         
         # Enhanced experiment validation for dictionary configs
-        if isinstance(config, dict) and experiment and experiment not in config.get("experiments", {}):
+        if isinstance(config, (dict, LegacyConfigAdapter)) and experiment and experiment not in config.get("experiments", {}):
             logger.warning(f"Experiment '{experiment}' not found in configuration, using project-level settings only")
         
         # For ExperimentConfig, validate that the experiment parameter is consistent
@@ -493,8 +494,8 @@ class ConfigDiscoveryEngine:
                 logger.debug(f"ExperimentConfig validated successfully for experiment '{experiment_name}'")
             except Exception as e:
                 raise ValueError(f"Invalid ExperimentConfig: {e}")
-        elif not isinstance(config, dict):
-            raise ValueError(f"Configuration must be a dictionary or ExperimentConfig, got {type(config).__name__}")
+        elif not isinstance(config, (dict, LegacyConfigAdapter)):
+            raise ValueError(f"Configuration must be a dictionary, LegacyConfigAdapter, or ExperimentConfig, got {type(config).__name__}")
         
         if not experiment_name or not isinstance(experiment_name, str):
             raise ValueError(f"Experiment name must be a non-empty string, got {experiment_name}")
@@ -638,8 +639,8 @@ class ConfigDiscoveryEngine:
                 logger.debug(f"ExperimentConfig validated successfully for dataset '{dataset_name}'")
             except Exception as e:
                 raise ValueError(f"Invalid ExperimentConfig: {e}")
-        elif not isinstance(config, dict):
-            raise ValueError(f"Configuration must be a dictionary or ExperimentConfig, got {type(config).__name__}")
+        elif not isinstance(config, (dict, LegacyConfigAdapter)):
+            raise ValueError(f"Configuration must be a dictionary, LegacyConfigAdapter, or ExperimentConfig, got {type(config).__name__}")
         
         if not dataset_name or not isinstance(dataset_name, str):
             raise ValueError(f"Dataset name must be a non-empty string, got {dataset_name}")
@@ -683,8 +684,18 @@ class ConfigDiscoveryEngine:
                 # Collect all date-specific directories to search in
                 search_dirs = []
                 base_path = self.path_provider.resolve_path(base_directory)
+                dates_were_provided = len(dates) > 0
                 
                 for date in dates:
+                    # Validate date format before using it for directory search
+                    try:
+                        if not date_format_validator(str(date)):
+                            logger.warning(f"Invalid date format '{date}', skipping directory search")
+                            continue
+                    except (ValueError, TypeError) as e:
+                        logger.warning(f"Invalid date format '{date}': {e}, skipping directory search")
+                        continue
+                    
                     date_dir = base_path / str(date)
                     if self.path_provider.exists(date_dir):
                         search_dirs.append(str(date_dir))
@@ -692,13 +703,19 @@ class ConfigDiscoveryEngine:
                     else:
                         logger.warning(f"Date directory does not exist: {date_dir}")
                 
-                # If no search directories were found, use the base directory
+                # If no search directories were found, decide what to do based on whether dates were provided
                 if not search_dirs:
-                    if self.path_provider.exists(base_directory):
-                        search_dirs = [str(base_directory)]
-                        logger.info(f"No date-specific directories found, using base directory: {base_directory}")
+                    if dates_were_provided:
+                        # Dates were provided but all were invalid or directories don't exist
+                        logger.info(f"All provided dates were invalid or directories don't exist, returning empty results")
+                        return []
                     else:
-                        raise ValueError(f"Base directory does not exist: {base_directory}")
+                        # No dates were provided, fall back to base directory
+                        if self.path_provider.exists(base_directory):
+                            search_dirs = [str(base_directory)]
+                            logger.info(f"No date-specific configuration found, using base directory: {base_directory}")
+                        else:
+                            raise ValueError(f"Base directory does not exist: {base_directory}")
                 
                 # Get project-level ignore patterns (no experiment-specific ones)
                 ignore_patterns = self.config_provider.get_ignore_patterns(config)

@@ -5,7 +5,9 @@ Advanced utilities for finding files based on patterns with dependency injection
 support for comprehensive testing and mocking capabilities.
 
 This module implements the discovery phase of the decoupled pipeline architecture,
-focusing exclusively on metadata extraction without data loading.
+focusing exclusively on metadata extraction without data loading. Enhanced with
+Kedro integration capabilities, version-aware pattern matching, and catalog-specific
+metadata extraction for seamless pipeline integration.
 """
 from typing import List, Optional, Iterable, Union, Dict, Any, Tuple, Set, Callable, Protocol
 from pathlib import Path
@@ -15,14 +17,22 @@ import fnmatch
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 
+from semantic_version import Version
 from flyrigloader import logger
 from flyrigloader.discovery.patterns import PatternMatcher, match_files_to_patterns
 from flyrigloader.discovery.stats import get_file_stats, attach_file_stats
+from flyrigloader.migration.versions import CURRENT_VERSION
 
 
 @dataclass
 class FileInfo:
-    """Information about a discovered file without loading its content."""
+    """
+    Information about a discovered file without loading its content.
+    
+    Enhanced with Kedro-specific metadata fields for catalog integration and
+    version-aware discovery patterns. Supports seamless pipeline integration
+    with data lineage tracking and catalog-aware workflows.
+    """
     
     path: str
     size: Optional[int] = None
@@ -31,6 +41,53 @@ class FileInfo:
     creation_time: Optional[float] = None
     extracted_metadata: Dict[str, Any] = field(default_factory=dict)
     parsed_date: Optional[datetime] = None
+    
+    # Kedro-specific metadata fields for catalog integration
+    kedro_dataset_name: Optional[str] = None
+    kedro_version: Optional[str] = None
+    kedro_namespace: Optional[str] = None
+    kedro_tags: List[str] = field(default_factory=list)
+    catalog_metadata: Dict[str, Any] = field(default_factory=dict)
+    
+    # Version-aware discovery fields
+    schema_version: str = CURRENT_VERSION
+    version_compatibility: Optional[Dict[str, bool]] = field(default_factory=dict)
+    
+    def get_kedro_dataset_path(self) -> Optional[str]:
+        """
+        Generate Kedro dataset path for catalog integration.
+        
+        Returns:
+            Optional[str]: Formatted dataset path for Kedro catalog, or None if not applicable
+        """
+        if self.kedro_dataset_name:
+            if self.kedro_namespace:
+                return f"{self.kedro_namespace}.{self.kedro_dataset_name}"
+            return self.kedro_dataset_name
+        return None
+    
+    def is_kedro_versioned(self) -> bool:
+        """
+        Check if this file follows Kedro versioning patterns.
+        
+        Returns:
+            bool: True if file has Kedro version metadata
+        """
+        return bool(self.kedro_version and self.kedro_version != "latest")
+    
+    def get_version_info(self) -> Dict[str, Any]:
+        """
+        Get comprehensive version information for this file.
+        
+        Returns:
+            Dict[str, Any]: Version information including schema and Kedro versions
+        """
+        return {
+            "schema_version": self.schema_version,
+            "kedro_version": self.kedro_version,
+            "version_compatibility": self.version_compatibility or {},
+            "is_versioned": self.is_kedro_versioned()
+        }
 
 
 @dataclass
@@ -51,11 +108,22 @@ class FileManifest:
     
     This class represents the result of the discovery phase in the decoupled
     pipeline architecture, containing only metadata about discovered files.
+    Enhanced with Kedro catalog integration capabilities and version-aware
+    discovery patterns for seamless pipeline workflows.
     """
     
     files: List[FileInfo]
     metadata: Dict[str, Any] = field(default_factory=dict)
     statistics: Optional[FileStatistics] = None
+    
+    # Kedro integration fields
+    kedro_catalog_entries: Dict[str, Dict[str, Any]] = field(default_factory=dict)
+    kedro_pipeline_compatibility: bool = True
+    supported_kedro_versions: List[str] = field(default_factory=list)
+    
+    # Version management fields
+    manifest_version: str = CURRENT_VERSION
+    discovery_metadata: Dict[str, Any] = field(default_factory=dict)
     
     def __post_init__(self):
         """Initialize computed properties after instantiation."""
@@ -104,6 +172,121 @@ class FileManifest:
     def get_files_by_pattern(self, pattern: str) -> List[FileInfo]:
         """Get files matching a specific pattern."""
         return [f for f in self.files if fnmatch.fnmatch(Path(f.path).name, pattern)]
+    
+    def get_kedro_compatible_files(self) -> List[FileInfo]:
+        """Get files that are compatible with Kedro pipeline integration."""
+        return [f for f in self.files if f.kedro_dataset_name or self._is_kedro_pattern(f.path)]
+    
+    def get_versioned_files(self) -> List[FileInfo]:
+        """Get files that have Kedro versioning metadata."""
+        return [f for f in self.files if f.is_kedro_versioned()]
+    
+    def get_files_by_namespace(self, namespace: str) -> List[FileInfo]:
+        """Get files belonging to a specific Kedro namespace."""
+        return [f for f in self.files if f.kedro_namespace == namespace]
+    
+    def generate_kedro_catalog_entries(self) -> Dict[str, Dict[str, Any]]:
+        """
+        Generate Kedro catalog entries for discovered files.
+        
+        Returns:
+            Dict[str, Dict[str, Any]]: Kedro catalog entries with dataset configurations
+        """
+        catalog_entries = {}
+        
+        for file_info in self.files:
+            if file_info.kedro_dataset_name:
+                entry_name = file_info.get_kedro_dataset_path() or file_info.kedro_dataset_name
+                
+                catalog_entries[entry_name] = {
+                    'type': 'flyrigloader.FlyRigLoaderDataSet',
+                    'filepath': file_info.path,
+                    'metadata': file_info.catalog_metadata.copy(),
+                    'versioned': file_info.is_kedro_versioned(),
+                    'tags': file_info.kedro_tags.copy()
+                }
+                
+                if file_info.kedro_version:
+                    catalog_entries[entry_name]['version'] = file_info.kedro_version
+        
+        self.kedro_catalog_entries = catalog_entries
+        return catalog_entries
+    
+    def validate_kedro_compatibility(self, kedro_version: str = "0.18.0") -> Tuple[bool, List[str]]:
+        """
+        Validate compatibility with a specific Kedro version.
+        
+        Args:
+            kedro_version: Target Kedro version to validate against
+            
+        Returns:
+            Tuple[bool, List[str]]: (is_compatible, list_of_issues)
+        """
+        issues = []
+        
+        try:
+            target_version = Version(kedro_version)
+            min_supported = Version("0.18.0")
+            
+            if target_version < min_supported:
+                issues.append(f"Kedro version {kedro_version} is below minimum supported version {min_supported}")
+        except Exception as e:
+            issues.append(f"Invalid Kedro version format: {kedro_version}")
+        
+        # Check for Kedro-specific file patterns
+        kedro_files = self.get_kedro_compatible_files()
+        if not kedro_files and self.files:
+            issues.append("No Kedro-compatible files found in manifest")
+        
+        # Validate dataset names
+        for file_info in kedro_files:
+            if file_info.kedro_dataset_name and not self._is_valid_kedro_name(file_info.kedro_dataset_name):
+                issues.append(f"Invalid Kedro dataset name: {file_info.kedro_dataset_name}")
+        
+        self.kedro_pipeline_compatibility = len(issues) == 0
+        return self.kedro_pipeline_compatibility, issues
+    
+    def get_version_summary(self) -> Dict[str, Any]:
+        """
+        Get version information summary for the manifest.
+        
+        Returns:
+            Dict[str, Any]: Comprehensive version information
+        """
+        version_counts = {}
+        for file_info in self.files:
+            version = file_info.schema_version
+            version_counts[version] = version_counts.get(version, 0) + 1
+        
+        return {
+            "manifest_version": self.manifest_version,
+            "file_version_distribution": version_counts,
+            "kedro_compatible_count": len(self.get_kedro_compatible_files()),
+            "versioned_files_count": len(self.get_versioned_files()),
+            "discovery_metadata": self.discovery_metadata
+        }
+    
+    def _is_kedro_pattern(self, filepath: str) -> bool:
+        """Check if file path follows Kedro naming conventions."""
+        path = Path(filepath)
+        
+        # Check for Kedro versioning patterns
+        kedro_version_pattern = r'^\d{4}-\d{2}-\d{2}T\d{2}\.\d{2}\.\d{2}\.\d{3}Z$'
+        if re.search(kedro_version_pattern, path.parent.name):
+            return True
+        
+        # Check for Kedro dataset name patterns  
+        kedro_name_pattern = r'^[a-zA-Z][a-zA-Z0-9_]*(\.[a-zA-Z][a-zA-Z0-9_]*)*$'
+        if '.' in path.stem and re.match(kedro_name_pattern, path.stem):
+            return True
+        
+        return False
+    
+    def _is_valid_kedro_name(self, name: str) -> bool:
+        """Validate Kedro dataset name format."""
+        # Kedro dataset names must be valid Python identifiers with optional namespace dots
+        pattern = r'^[a-zA-Z][a-zA-Z0-9_]*(\.[a-zA-Z][a-zA-Z0-9_]*)*$'
+        return bool(re.match(pattern, name))
 
 
 class FilesystemProvider(Protocol):
@@ -228,10 +411,17 @@ class FileDiscoverer:
         pattern_matcher: Optional[PatternMatcher] = None,
         datetime_provider: Optional[DateTimeProvider] = None,
         stats_provider: Optional[Callable[[Union[str, Path]], Dict[str, Any]]] = None,
-        test_mode: bool = False
+        test_mode: bool = False,
+        # Kedro integration parameters
+        enable_kedro_metadata: bool = True,
+        kedro_namespace: Optional[str] = None,
+        kedro_tags: Optional[List[str]] = None,
+        # Version management parameters
+        schema_version: str = CURRENT_VERSION,
+        version_aware_patterns: bool = True
     ):
         """
-        Initialize the FileDiscoverer with dependency injection support.
+        Initialize the FileDiscoverer with dependency injection support and Kedro integration.
         
         Args:
             extract_patterns: Optional list of regex patterns to extract metadata from file paths
@@ -242,13 +432,27 @@ class FileDiscoverer:
             datetime_provider: Optional datetime provider for dependency injection (F-016)
             stats_provider: Optional statistics provider for dependency injection (F-016)
             test_mode: If True, enables test-specific behavior for TST-REF-003 requirements
+            enable_kedro_metadata: If True, extract Kedro-specific metadata for catalog integration
+            kedro_namespace: Default Kedro namespace for discovered datasets
+            kedro_tags: Default tags to apply to discovered Kedro datasets
+            schema_version: Configuration schema version for version-aware discovery
+            version_aware_patterns: If True, apply version-aware pattern matching
         """
-        logger.debug(f"Initializing FileDiscoverer with patterns={extract_patterns}, dates={parse_dates}, stats={include_stats}, test_mode={test_mode}")
+        logger.debug(f"Initializing FileDiscoverer with patterns={extract_patterns}, dates={parse_dates}, stats={include_stats}, kedro_enabled={enable_kedro_metadata}, version_aware={version_aware_patterns}, test_mode={test_mode}")
         
         self.extract_patterns = extract_patterns
         self.parse_dates = parse_dates
         self.include_stats = include_stats
         self.test_mode = test_mode
+        
+        # Kedro integration settings
+        self.enable_kedro_metadata = enable_kedro_metadata
+        self.kedro_namespace = kedro_namespace
+        self.kedro_tags = kedro_tags or []
+        
+        # Version management settings
+        self.schema_version = schema_version
+        self.version_aware_patterns = version_aware_patterns
         
         # Dependency injection (TST-REF-001, F-016)
         self.filesystem_provider = filesystem_provider or StandardFilesystemProvider()
@@ -451,21 +655,26 @@ class FileDiscoverer:
         initial_count = len(files)
 
         # Filter by extensions if specified
-        if extensions:
+        if extensions is not None:
             logger.debug(f"Applying extension filter: {extensions}")
-            # Normalize extensions for case-insensitive comparison and ensure dot prefix
-            ext_filters = [
-                (ext if ext.startswith(".") else f".{ext}").lower()
-                for ext in extensions
-            ]
-            logger.debug(f"Normalized extension filters: {ext_filters}")
-            
-            # Filter files by extensions, ignoring case
-            filtered_files = [
-                f
-                for f in filtered_files
-                if any(f.lower().endswith(ext) for ext in ext_filters)
-            ]
+            if not extensions:
+                # Empty extension list should return no files
+                logger.debug("Empty extension list provided - returning no files")
+                filtered_files = []
+            else:
+                # Normalize extensions for case-insensitive comparison and ensure dot prefix
+                ext_filters = [
+                    (ext if ext.startswith(".") else f".{ext}").lower()
+                    for ext in extensions
+                ]
+                logger.debug(f"Normalized extension filters: {ext_filters}")
+                
+                # Filter files by extensions, ignoring case
+                filtered_files = [
+                    f
+                    for f in filtered_files
+                    if any(f.lower().endswith(ext) for ext in ext_filters)
+                ]
             logger.debug(f"After extension filtering: {len(filtered_files)} files (removed {initial_count - len(filtered_files)})")
             initial_count = len(filtered_files)
 
@@ -666,7 +875,7 @@ class FileDiscoverer:
             )
             
             # Check if we need to return files with metadata
-            if not (self.extract_patterns or self.parse_dates or self.include_stats):
+            if not (self.extract_patterns or self.parse_dates or self.include_stats or self.enable_kedro_metadata):
                 logger.info(f"Returning simple file list with {len(found_files)} files")
                 return found_files
             
@@ -710,7 +919,7 @@ class FileDiscoverer:
     
     def _extract_metadata_from_paths(self, files: List[str]) -> Dict[str, Dict[str, Any]]:
         """
-        Extract metadata from file paths.
+        Extract metadata from file paths with version-aware and Kedro integration.
         
         Args:
             files: List of file paths to extract metadata from
@@ -718,7 +927,20 @@ class FileDiscoverer:
         Returns:
             Dictionary mapping file paths to metadata dictionaries
         """
-        return self.extract_metadata(files)
+        # Apply version-aware filtering if enabled
+        if self.version_aware_patterns:
+            files = self.apply_version_aware_patterns(files)
+        
+        # Extract base metadata
+        base_metadata = self.extract_metadata(files)
+        
+        # Enhance with Kedro metadata if enabled
+        if self.enable_kedro_metadata:
+            for file_path, metadata in base_metadata.items():
+                kedro_metadata = self.extract_kedro_metadata(file_path)
+                metadata.update(kedro_metadata)
+        
+        return base_metadata
     
     def register_pattern_matcher(self, pattern_matcher: PatternMatcher) -> None:
         """
@@ -745,6 +967,249 @@ class FileDiscoverer:
         if self.pattern_matcher and hasattr(self.pattern_matcher, 'patterns'):
             return list(self.pattern_matcher.patterns.keys()) if isinstance(self.pattern_matcher.patterns, dict) else []
         return []
+    
+    def extract_kedro_metadata(self, file_path: str) -> Dict[str, Any]:
+        """
+        Extract Kedro-specific metadata from file path for catalog integration.
+        
+        Args:
+            file_path: Path to extract Kedro metadata from
+            
+        Returns:
+            Dict[str, Any]: Kedro-specific metadata including dataset name, version, namespace
+        """
+        if not self.enable_kedro_metadata:
+            return {}
+        
+        logger.debug(f"Extracting Kedro metadata from: {file_path}")
+        
+        path = Path(file_path)
+        kedro_metadata = {}
+        
+        # Extract Kedro dataset name from filename or directory structure
+        dataset_name = self._extract_kedro_dataset_name(path)
+        if dataset_name:
+            kedro_metadata['kedro_dataset_name'] = dataset_name
+            logger.debug(f"Detected Kedro dataset name: {dataset_name}")
+        
+        # Extract Kedro version information
+        version_info = self._extract_kedro_version_info(path)
+        if version_info:
+            kedro_metadata.update(version_info)
+            logger.debug(f"Detected Kedro version info: {version_info}")
+        
+        # Apply default namespace and tags
+        if self.kedro_namespace:
+            kedro_metadata['kedro_namespace'] = self.kedro_namespace
+        
+        if self.kedro_tags:
+            kedro_metadata['kedro_tags'] = self.kedro_tags.copy()
+        
+        # Extract catalog-specific attributes
+        catalog_attrs = self._extract_catalog_attributes(path)
+        if catalog_attrs:
+            kedro_metadata['catalog_metadata'] = catalog_attrs
+        
+        return kedro_metadata
+    
+    def _extract_kedro_dataset_name(self, path: Path) -> Optional[str]:
+        """Extract Kedro dataset name from file path."""
+        # Check for explicit dataset name in parent directory
+        if path.parent.name.startswith('dataset_'):
+            return path.parent.name[8:]  # Remove 'dataset_' prefix
+        
+        # Check for namespaced dataset names (namespace.dataset format)
+        stem = path.stem
+        if '.' in stem and not stem.startswith('.'):
+            # Validate as potential Kedro dataset name
+            if re.match(r'^[a-zA-Z][a-zA-Z0-9_]*(\.[a-zA-Z][a-zA-Z0-9_]*)*$', stem):
+                return stem
+        
+        # Generate dataset name from filename (experiment-based)
+        if 'experiment' in stem or 'exp' in stem:
+            # Clean up common patterns for experiment names
+            clean_name = re.sub(r'[^a-zA-Z0-9_.]', '_', stem)
+            clean_name = re.sub(r'_+', '_', clean_name).strip('_')
+            if clean_name and clean_name[0].isalpha():
+                return clean_name
+        
+        return None
+    
+    def _extract_kedro_version_info(self, path: Path) -> Dict[str, Any]:
+        """Extract Kedro version information from file path."""
+        version_info = {}
+        
+        # Check for Kedro timestamp versioning pattern in parent directories
+        for parent in path.parents:
+            # Kedro timestamp pattern: YYYY-MM-DDTHH.MM.SS.fffZ
+            timestamp_pattern = r'^(\d{4}-\d{2}-\d{2}T\d{2}\.\d{2}\.\d{2}\.\d{3}Z)$'
+            match = re.match(timestamp_pattern, parent.name)
+            if match:
+                version_info['kedro_version'] = match.group(1)
+                break
+        
+        # Check for semantic version pattern in path
+        version_pattern = r'v?(\d+\.\d+\.\d+(?:-[a-zA-Z0-9.]+)?)'
+        version_match = re.search(version_pattern, str(path))
+        if version_match and 'kedro_version' not in version_info:
+            version_info['kedro_version'] = version_match.group(1)
+        
+        return version_info
+    
+    def _extract_catalog_attributes(self, path: Path) -> Dict[str, Any]:
+        """Extract catalog-specific attributes from file path."""
+        catalog_attrs = {}
+        
+        # Detect file format and size for catalog optimization
+        catalog_attrs['file_format'] = path.suffix.lower()
+        
+        # Detect experimental metadata that might be useful for catalog
+        path_str = str(path).lower()
+        
+        if 'baseline' in path_str:
+            catalog_attrs['experiment_type'] = 'baseline'
+        elif 'treatment' in path_str:
+            catalog_attrs['experiment_type'] = 'treatment'
+        elif 'control' in path_str:
+            catalog_attrs['experiment_type'] = 'control'
+        
+        # Extract animal type if present
+        for animal_type in ['mouse', 'rat', 'fly']:
+            if animal_type in path_str:
+                catalog_attrs['animal_type'] = animal_type
+                break
+        
+        return catalog_attrs
+    
+    def apply_version_aware_patterns(self, files: List[str], target_version: Optional[str] = None) -> List[str]:
+        """
+        Apply version-aware pattern matching based on configuration schema versions.
+        
+        Args:
+            files: List of file paths to filter
+            target_version: Target schema version for compatibility filtering
+            
+        Returns:
+            List[str]: Filtered files compatible with the target version
+        """
+        if not self.version_aware_patterns:
+            return files
+        
+        if target_version is None:
+            target_version = self.schema_version
+        
+        logger.debug(f"Applying version-aware patterns for version {target_version}")
+        
+        try:
+            target_ver = Version(target_version)
+            current_ver = Version(CURRENT_VERSION)
+            
+            # If target version is current or newer, no filtering needed
+            if target_ver >= current_ver:
+                return files
+            
+            # Apply version-specific filtering
+            return self._filter_files_by_version_compatibility(files, target_ver)
+            
+        except Exception as e:
+            logger.warning(f"Version-aware pattern matching failed: {e}")
+            return files
+    
+    def _filter_files_by_version_compatibility(self, files: List[str], target_version: Version) -> List[str]:
+        """Filter files based on version compatibility."""
+        compatible_files = []
+        
+        for file_path in files:
+            # Check if file follows patterns compatible with target version
+            if self._is_version_compatible(file_path, target_version):
+                compatible_files.append(file_path)
+        
+        logger.debug(f"Version filtering: {len(files)} -> {len(compatible_files)} files")
+        return compatible_files
+    
+    def _is_version_compatible(self, file_path: str, target_version: Version) -> bool:
+        """Check if a file is compatible with the target version."""
+        # Legacy version patterns (0.x.x) are more restrictive
+        if target_version.major == 0:
+            # For 0.x versions, avoid files with modern Kedro patterns
+            if 'dataset_' in file_path or re.search(r'\d{4}-\d{2}-\d{2}T\d{2}\.\d{2}\.\d{2}', file_path):
+                return False
+        
+        # Modern versions (1.x.x) support all patterns
+        return True
+    
+    def create_version_aware_file_info(self, file_path: str, metadata: Dict[str, Any]) -> FileInfo:
+        """
+        Create FileInfo with version-aware metadata and Kedro integration.
+        
+        Args:
+            file_path: Path to the file
+            metadata: Extracted metadata dictionary
+            
+        Returns:
+            FileInfo: Enhanced FileInfo object with version and Kedro metadata
+        """
+        # Extract Kedro metadata if enabled
+        kedro_metadata = self.extract_kedro_metadata(file_path) if self.enable_kedro_metadata else {}
+        
+        # Create base FileInfo
+        file_info = FileInfo(
+            path=file_path,
+            extracted_metadata=metadata,
+            schema_version=self.schema_version
+        )
+        
+        # Add Kedro-specific fields
+        if kedro_metadata:
+            file_info.kedro_dataset_name = kedro_metadata.get('kedro_dataset_name')
+            file_info.kedro_version = kedro_metadata.get('kedro_version')
+            file_info.kedro_namespace = kedro_metadata.get('kedro_namespace')
+            file_info.kedro_tags = kedro_metadata.get('kedro_tags', [])
+            file_info.catalog_metadata = kedro_metadata.get('catalog_metadata', {})
+        
+        # Add version compatibility information
+        file_info.version_compatibility = self._get_version_compatibility_info(file_path)
+        
+        return file_info
+    
+    def _get_version_compatibility_info(self, file_path: str) -> Dict[str, bool]:
+        """Get version compatibility information for a file."""
+        compatibility = {}
+        
+        try:
+            current_ver = Version(CURRENT_VERSION)
+            
+            # Check compatibility with major versions
+            for major_version in [0, 1]:
+                test_version = Version(f"{major_version}.0.0")
+                compatibility[f"v{major_version}.x"] = self._is_version_compatible(file_path, test_version)
+            
+            # Check Kedro compatibility
+            has_kedro_patterns = self._has_kedro_patterns(file_path)
+            compatibility["kedro_compatible"] = has_kedro_patterns or self.enable_kedro_metadata
+            
+        except Exception as e:
+            logger.debug(f"Error determining version compatibility for {file_path}: {e}")
+        
+        return compatibility
+    
+    def _has_kedro_patterns(self, file_path: str) -> bool:
+        """Check if file path contains Kedro-specific patterns."""
+        path = Path(file_path)
+        
+        # Check for Kedro versioning patterns
+        if re.search(r'\d{4}-\d{2}-\d{2}T\d{2}\.\d{2}\.\d{2}', str(path)):
+            return True
+        
+        # Check for dataset naming patterns
+        if 'dataset_' in str(path):
+            return True
+        
+        # Check for namespace patterns in filename
+        if '.' in path.stem and re.match(r'^[a-zA-Z][a-zA-Z0-9_]*\.[a-zA-Z][a-zA-Z0-9_]*', path.stem):
+            return True
+        
+        return False
 
 
 def discover_experiment_manifest(
@@ -756,13 +1221,22 @@ def discover_experiment_manifest(
     filesystem_provider: Optional[FilesystemProvider] = None,
     pattern_matcher: Optional[PatternMatcher] = None,
     datetime_provider: Optional[DateTimeProvider] = None,
-    test_mode: bool = False
+    test_mode: bool = False,
+    # Kedro integration parameters
+    enable_kedro_metadata: bool = True,
+    kedro_namespace: Optional[str] = None,
+    kedro_tags: Optional[List[str]] = None,
+    # Version management parameters
+    schema_version: Optional[str] = None,
+    version_aware_patterns: bool = True
 ) -> FileManifest:
     """
-    Discover experiment files and return metadata-only manifest.
+    Discover experiment files and return metadata-only manifest with Kedro integration.
     
     This function implements the discovery phase of the decoupled pipeline architecture,
-    focusing exclusively on metadata extraction without data loading.
+    focusing exclusively on metadata extraction without data loading. Enhanced with
+    Kedro catalog integration, version-aware discovery patterns, and catalog-specific
+    metadata extraction for seamless pipeline workflows.
     
     Args:
         config: Configuration object or dictionary containing discovery settings
@@ -774,9 +1248,14 @@ def discover_experiment_manifest(
         pattern_matcher: Optional pre-configured pattern matcher
         datetime_provider: Optional datetime provider for testing scenarios
         test_mode: If True, enables test-specific behavior
+        enable_kedro_metadata: If True, extract Kedro-specific metadata for catalog integration
+        kedro_namespace: Default Kedro namespace for discovered datasets
+        kedro_tags: Default tags to apply to discovered Kedro datasets
+        schema_version: Configuration schema version for version-aware discovery
+        version_aware_patterns: If True, apply version-aware pattern matching
     
     Returns:
-        FileManifest containing discovered files metadata without loading data
+        FileManifest containing discovered files metadata with Kedro integration support
     """
     logger.info(f"Discovering experiment manifest for '{experiment_name}'")
     
@@ -800,7 +1279,14 @@ def discover_experiment_manifest(
         # Build search directory for the experiment
         search_directory = Path(base_directory) / experiment_name
         
-        # Create FileDiscoverer with metadata extraction enabled
+        # Determine schema version from config or use provided/default
+        config_schema_version = schema_version
+        if config_schema_version is None:
+            config_schema_version = getattr(config, 'schema_version', CURRENT_VERSION)
+        
+        logger.debug(f"Using schema version: {config_schema_version}")
+        
+        # Create FileDiscoverer with enhanced Kedro and version support
         discoverer = FileDiscoverer(
             extract_patterns=patterns or getattr(config, 'extract_patterns', None),
             parse_dates=parse_dates,
@@ -808,7 +1294,12 @@ def discover_experiment_manifest(
             filesystem_provider=filesystem_provider,
             pattern_matcher=pattern_matcher,
             datetime_provider=datetime_provider,
-            test_mode=test_mode
+            test_mode=test_mode,
+            enable_kedro_metadata=enable_kedro_metadata,
+            kedro_namespace=kedro_namespace or experiment_name,
+            kedro_tags=kedro_tags,
+            schema_version=config_schema_version,
+            version_aware_patterns=version_aware_patterns
         )
         
         # Discover files for each pattern
@@ -839,32 +1330,64 @@ def discover_experiment_manifest(
                 ignore_patterns=ignore_patterns
             )
             
-            # Convert discovered files to FileInfo objects
+            # Convert discovered files to FileInfo objects with enhanced metadata
             if isinstance(discovered, dict):
                 # Files with metadata
                 for file_path, metadata in discovered.items():
-                    file_info = FileInfo(
-                        path=file_path,
-                        size=metadata.get('size'),
-                        mtime=metadata.get('mtime'),
-                        ctime=metadata.get('ctime'),
-                        creation_time=metadata.get('creation_time'),
-                        extracted_metadata=metadata,
-                        parsed_date=metadata.get('parsed_date')
-                    )
+                    # Create version-aware FileInfo with Kedro integration
+                    file_info = discoverer.create_version_aware_file_info(file_path, metadata)
+                    
+                    # Add file statistics if available
+                    file_info.size = metadata.get('size')
+                    file_info.mtime = metadata.get('mtime')
+                    file_info.ctime = metadata.get('ctime')
+                    file_info.creation_time = metadata.get('creation_time')
+                    file_info.parsed_date = metadata.get('parsed_date')
+                    
                     all_files.append(file_info)
             else:
-                # Simple file list
+                # Simple file list - create basic FileInfo with version awareness
                 for file_path in discovered:
-                    file_info = FileInfo(path=file_path)
+                    file_info = discoverer.create_version_aware_file_info(file_path, {})
                     all_files.append(file_info)
         
-        # Create and return FileManifest
-        logger.info(f"Created manifest with {len(all_files)} files for experiment '{experiment_name}'")
-        return FileManifest(
+        # Create enhanced FileManifest with Kedro integration
+        manifest = FileManifest(
             files=all_files,
-            metadata=experiment_metadata
+            metadata=experiment_metadata,
+            manifest_version=config_schema_version
         )
+        
+        # Add discovery metadata for version tracking
+        manifest.discovery_metadata = {
+            'discovery_timestamp': datetime.now().isoformat(),
+            'schema_version': config_schema_version,
+            'kedro_enabled': enable_kedro_metadata,
+            'version_aware_patterns': version_aware_patterns,
+            'experiment_name': experiment_name
+        }
+        
+        # Generate Kedro catalog entries if enabled
+        if enable_kedro_metadata:
+            try:
+                catalog_entries = manifest.generate_kedro_catalog_entries()
+                logger.debug(f"Generated {len(catalog_entries)} Kedro catalog entries")
+                
+                # Validate Kedro compatibility
+                is_compatible, issues = manifest.validate_kedro_compatibility()
+                if not is_compatible:
+                    logger.warning(f"Kedro compatibility issues found: {issues}")
+                
+            except Exception as e:
+                logger.warning(f"Error generating Kedro catalog entries: {e}")
+        
+        logger.info(f"Created enhanced manifest with {len(all_files)} files for experiment '{experiment_name}'")
+        
+        # Log version and Kedro statistics
+        version_summary = manifest.get_version_summary()
+        logger.debug(f"Manifest version summary: {version_summary}")
+        
+        return manifest
         
     except Exception as e:
         logger.error(f"Error discovering experiment manifest for '{experiment_name}': {e}")
@@ -889,18 +1412,25 @@ def discover_files(
     pattern_matcher: Optional[PatternMatcher] = None,
     datetime_provider: Optional[DateTimeProvider] = None,
     stats_provider: Optional[Callable[[Union[str, Path]], Dict[str, Any]]] = None,
-    test_mode: bool = False
+    test_mode: bool = False,
+    # Kedro integration parameters
+    enable_kedro_metadata: bool = False,
+    kedro_namespace: Optional[str] = None,
+    kedro_tags: Optional[List[str]] = None,
+    # Version management parameters
+    schema_version: str = CURRENT_VERSION,
+    version_aware_patterns: bool = False
 ) -> Union[List[str], Dict[str, Dict[str, Any]]]:
     """
-    Discover files matching the given pattern and criteria with test hook support.
+    Discover files matching the given pattern and criteria with Kedro integration support.
     
     This function implements the discovery phase of the decoupled pipeline architecture,
-    focusing exclusively on metadata extraction without data loading. For the new
-    decoupled workflow, consider using discover_experiment_manifest() which returns
-    structured FileManifest objects.
+    focusing exclusively on metadata extraction without data loading. Enhanced with
+    Kedro-specific metadata extraction, version-aware pattern matching, and catalog
+    integration capabilities for seamless pipeline workflows.
     
-    Enhanced with test-specific entry points for TST-REF-003 requirements enabling
-    controlled behavior during test execution with comprehensive mocking support.
+    For structured experiment discovery with full Kedro integration, consider using
+    discover_experiment_manifest() which returns comprehensive FileManifest objects.
     
     Args:
         directory: Directory or list of directories to search
@@ -920,10 +1450,19 @@ def discover_files(
         datetime_provider: Optional datetime provider for testing scenarios
         stats_provider: Optional statistics provider for testing scenarios
         test_mode: If True, enables test-specific behavior and error handling
+        
+        # Kedro integration parameters
+        enable_kedro_metadata: If True, extract Kedro-specific metadata for catalog integration
+        kedro_namespace: Default Kedro namespace for discovered datasets
+        kedro_tags: Default tags to apply to discovered Kedro datasets
+        
+        # Version management parameters
+        schema_version: Configuration schema version for version-aware discovery
+        version_aware_patterns: If True, apply version-aware pattern matching
     
     Returns:
-        If extract_patterns, parse_dates, or include_stats is used: Dictionary mapping file paths
-        to extracted metadata (NO data loading occurs).
+        If extract_patterns, parse_dates, include_stats, or enable_kedro_metadata is used: 
+        Dictionary mapping file paths to extracted metadata (NO data loading occurs).
         Otherwise: List of matched file paths.
     """
     logger.info(f"discover_files called with pattern='{pattern}', test_mode={test_mode}")
@@ -937,7 +1476,12 @@ def discover_files(
             pattern_matcher=pattern_matcher,
             datetime_provider=datetime_provider,
             stats_provider=stats_provider,
-            test_mode=test_mode
+            test_mode=test_mode,
+            enable_kedro_metadata=enable_kedro_metadata,
+            kedro_namespace=kedro_namespace,
+            kedro_tags=kedro_tags,
+            schema_version=schema_version,
+            version_aware_patterns=version_aware_patterns
         )
         
         result = discoverer.discover(
@@ -956,7 +1500,7 @@ def discover_files(
         logger.error(f"Error in discover_files: {e}")
         if test_mode:
             logger.warning("Test mode enabled, continuing despite error")
-            return [] if not any([extract_patterns, parse_dates, include_stats]) else {}
+            return [] if not any([extract_patterns, parse_dates, include_stats, enable_kedro_metadata]) else {}
         raise
 
 
