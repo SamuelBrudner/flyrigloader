@@ -49,7 +49,7 @@ from pathlib import Path
 from typing import Any, Dict, Optional, Union
 
 # External imports
-from kedro import Pipeline
+from kedro.pipeline import Pipeline
 import psutil
 
 # Internal imports
