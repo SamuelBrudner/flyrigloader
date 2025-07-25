@@ -43,7 +43,7 @@ from threading import RLock
 from copy import deepcopy
 
 # External imports
-from kedro.io import AbstractDataSet
+from kedro.io import AbstractDataset
 import pandas as pd
 
 # Internal imports  
@@ -61,7 +61,7 @@ logger = logging.getLogger(__name__)
 _dataset_lock = RLock()
 
 
-class FlyRigLoaderDataSet(AbstractDataSet[None, pd.DataFrame]):
+class FlyRigLoaderDataSet(AbstractDataset[None, pd.DataFrame]):
     """
     Kedro AbstractDataset implementation for FlyRigLoader with full data loading capabilities.
     
@@ -410,7 +410,7 @@ class FlyRigLoaderDataSet(AbstractDataSet[None, pd.DataFrame]):
         return metadata
 
 
-class FlyRigManifestDataSet(AbstractDataSet[None, Any]):
+class FlyRigManifestDataSet(AbstractDataset[None, Any]):
     """
     Kedro AbstractDataset implementation for manifest-only operations without full data loading.
     
