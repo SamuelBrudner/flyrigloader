@@ -366,7 +366,7 @@ class TestExperimentConfig:
         # Test with non-list datasets
         with pytest.raises(ValidationError) as exc_info:
             ExperimentConfig(datasets="not_a_list")
-        assert "extraction_patterns must be a list" in str(exc_info.value)
+        assert "Input should be a valid list" in str(exc_info.value)
         
         # Test with non-string dataset names
         with pytest.raises(ValidationError) as exc_info:
