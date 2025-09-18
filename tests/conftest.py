@@ -17,6 +17,7 @@ Test Infrastructure Features:
 """
 
 import contextlib
+import importlib.util
 import io
 import logging
 import os
@@ -28,6 +29,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union, Generator
 from unittest.mock import MagicMock, Mock
+import types
 
 # Add the src directory to the Python path
 src_path = str(Path(__file__).parent.parent / "src")
@@ -35,8 +37,33 @@ sys.path.insert(0, src_path)
 
 # Core testing imports
 import pytest
-from hypothesis import strategies as st
-from hypothesis import settings
+
+HYPOTHESIS_AVAILABLE = importlib.util.find_spec("hypothesis") is not None
+YAML_AVAILABLE = importlib.util.find_spec("yaml") is not None
+
+if HYPOTHESIS_AVAILABLE:
+    from hypothesis import strategies as st
+    from hypothesis import settings
+else:  # pragma: no cover - exercised when Hypothesis is absent
+    st = None  # type: ignore[assignment]
+    settings = None  # type: ignore[assignment]
+
+if not YAML_AVAILABLE:
+    yaml_stub = types.ModuleType("yaml")
+
+    def _unavailable(*_: object, **__: object) -> None:
+        raise ModuleNotFoundError("PyYAML is required for YAML-based tests.")
+
+    yaml_stub.safe_load = _unavailable  # type: ignore[attr-defined]
+    yaml_stub.safe_dump = _unavailable  # type: ignore[attr-defined]
+    yaml_stub.load = _unavailable  # type: ignore[attr-defined]
+    yaml_stub.dump = _unavailable  # type: ignore[attr-defined]
+
+    class _MissingYamlError(ModuleNotFoundError):
+        """Raised when YAML functionality is unavailable in test environments."""
+
+    yaml_stub.YAMLError = _MissingYamlError  # type: ignore[attr-defined]
+    sys.modules.setdefault("yaml", yaml_stub)
 
 # Third-party testing utilities
 try:
@@ -86,6 +113,51 @@ except ModuleNotFoundError:  # pragma: no cover
                 self._logger.removeHandler(handler)
 
     logger = _DummyLogger()
+
+
+collect_ignore: List[str] = []
+
+if not HYPOTHESIS_AVAILABLE:
+    hypothesis_only_modules = [
+        "flyrigloader/test_config_migration.py",
+        "flyrigloader/test_registry_threading.py",
+        "flyrigloader/discovery/test_patterns.py",
+        "flyrigloader/discovery/test_stats.py",
+        "flyrigloader/discovery/test_files.py",
+        "flyrigloader/test_api_metadata.py",
+        "flyrigloader/test_api.py",
+        "flyrigloader/config/test_models.py",
+        "flyrigloader/config/test_discovery.py",
+        "flyrigloader/config/test_yaml_config.py",
+        "flyrigloader/integration/test_end_to_end_workflows.py",
+        "flyrigloader/io/test_pickle.py",
+        "flyrigloader/io/test_pydantic_features.py",
+        "flyrigloader/io/test_column_config.py",
+        "flyrigloader/test_config_builders.py",
+        "flyrigloader/test_kedro_integration.py",
+        "flyrigloader/benchmarks/test_benchmark_data_loading.py",
+        "flyrigloader/benchmarks/test_benchmark_transformations.py",
+    ]
+    collect_ignore.extend(hypothesis_only_modules)
+    logger.warning(
+        "Hypothesis is unavailable; skipping %d property-based test modules.",
+        len(hypothesis_only_modules),
+    )
+
+if not YAML_AVAILABLE:
+    yaml_only_modules = [
+        "flyrigloader/io/test_column_models.py",
+        "flyrigloader/integration/test_api_facade_integration.py",
+        "flyrigloader/integration/test_configuration_driven_workflows.py",
+        "flyrigloader/integration/test_cross_module_integration.py",
+        "flyrigloader/integration/test_realistic_experimental_scenarios.py",
+        "flyrigloader/benchmarks/test_benchmark_config.py",
+    ]
+    collect_ignore.extend(yaml_only_modules)
+    logger.warning(
+        "PyYAML is unavailable; skipping %d YAML-dependent test modules.",
+        len(yaml_only_modules),
+    )
 
 
 # ============================================================================
@@ -534,8 +606,11 @@ def hypothesis_settings():
     Configure Hypothesis for property-based testing with appropriate settings
     for robust edge case discovery per Section 3.6.3 requirements.
     """
+    if not HYPOTHESIS_AVAILABLE:
+        pytest.skip("Hypothesis is required for property-based testing fixtures")
+
     # Configure Hypothesis for test environment
-    settings.register_profile("test", 
+    settings.register_profile("test",
                             max_examples=100,
                             deadline=None,
                             suppress_health_check=[],
@@ -549,13 +624,16 @@ def hypothesis_settings():
 def hypothesis_strategies():
     """
     Provide domain-specific Hypothesis strategies for flyrigloader testing scenarios.
-    
+
     Strategies include:
     - File path generation with realistic experimental naming patterns
     - Experimental metadata generation
     - Configuration dictionary generation
     - NumPy array generation with experimental data characteristics
     """
+    if not HYPOTHESIS_AVAILABLE:
+        pytest.skip("Hypothesis is required for property-based testing strategies")
+
     class ExperimentalStrategies:
         @staticmethod
         def animal_ids():

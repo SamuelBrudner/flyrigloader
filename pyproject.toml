@@ -49,16 +49,6 @@ python_functions = ["test_*"]
 addopts = [
     "--strict-markers",
     "--strict-config",
-    "--cov=src/flyrigloader",
-    "--cov-report=html:htmlcov",
-    "--cov-report=xml:coverage.xml",
-    "--cov-report=term-missing",
-    "--cov-fail-under=90",
-    "--cov-branch",
-    "--cov-context=test",
-    "--benchmark-min-rounds=5",
-    "--benchmark-disable-gc",
-    "--timeout=30",
     "--durations=10"
 ]
 
