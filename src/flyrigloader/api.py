@@ -528,8 +528,44 @@ def _load_and_validate_config(
     return config_dict
 
 
+def _attach_metadata_bucket(
+    discovery_result: Union[List[str], Dict[str, Any]]
+) -> Union[List[str], Dict[str, Dict[str, Any]]]:
+    """Ensure discovery results provide a nested ``metadata`` dictionary."""
+
+    if not isinstance(discovery_result, dict):
+        return discovery_result
+
+    normalised: Dict[str, Dict[str, Any]] = {}
+
+    for path, payload in discovery_result.items():
+        path_str = str(path)
+
+        if not isinstance(payload, dict):
+            normalised[path_str] = {"path": path_str, "metadata": {}}
+            continue
+
+        flattened = dict(payload)
+        flattened.setdefault("path", path_str)
+
+        existing_metadata = flattened.get("metadata")
+        metadata_bucket: Dict[str, Any] = {}
+        if isinstance(existing_metadata, dict):
+            metadata_bucket.update(existing_metadata)
+
+        for key, value in flattened.items():
+            if key in {"metadata", "path"}:
+                continue
+            metadata_bucket.setdefault(key, value)
+
+        flattened["metadata"] = metadata_bucket
+        normalised[path_str] = flattened
+
+    return normalised
+
+
 def _resolve_base_directory(
-    config: Union[Dict[str, Any], LegacyConfigAdapter], 
+    config: Union[Dict[str, Any], LegacyConfigAdapter],
     base_directory: Optional[Union[str, Path]],
     operation_name: str
 ) -> Union[str, Path]:
@@ -1663,8 +1699,10 @@ def load_experiment_files(
         _deps: Optional dependency provider for testing injection (internal parameter)
         
     Returns:
-        If extract_metadata or parse_dates is True: Dictionary mapping file paths to metadata
-        Otherwise: List of file paths for the experiment
+        If extract_metadata or parse_dates is True: Dictionary mapping file paths to metadata.
+        Each entry contains the flattened metadata fields and a ``metadata`` bucket with the
+        same information for convenient downstream access. Otherwise: List of file paths for
+        the experiment.
         
     Raises:
         FileNotFoundError: If the config file doesn't exist
@@ -1752,11 +1790,14 @@ def load_experiment_files(
             extract_metadata=extract_metadata,
             parse_dates=parse_dates
         )
-        
+
+        if extract_metadata or parse_dates:
+            result = _attach_metadata_bucket(result)
+
         file_count = len(result) if isinstance(result, (list, dict)) else 0
         logger.info(f"Successfully discovered {file_count} files for experiment '{experiment_name}'")
         return result
-        
+
     except Exception as e:
         error_msg = (
             f"Failed to discover files for experiment '{experiment_name}': {e}. "
@@ -1798,8 +1839,10 @@ def load_dataset_files(
         _deps: Optional dependency provider for testing injection (internal parameter)
         
     Returns:
-        If extract_metadata or parse_dates is True: Dictionary mapping file paths to metadata
-        Otherwise: List of file paths for the dataset
+        If extract_metadata or parse_dates is True: Dictionary mapping file paths to metadata.
+        Each entry contains the flattened metadata fields and a ``metadata`` bucket with the
+        same information for convenient downstream access. Otherwise: List of file paths for
+        the dataset.
         
     Raises:
         FileNotFoundError: If the config file doesn't exist
@@ -1887,7 +1930,10 @@ def load_dataset_files(
             extract_metadata=extract_metadata,
             parse_dates=parse_dates
         )
-        
+
+        if extract_metadata or parse_dates:
+            result = _attach_metadata_bucket(result)
+
         file_count = len(result) if isinstance(result, (list, dict)) else 0
         logger.info(f"Successfully discovered {file_count} files for dataset '{dataset_name}'")
         return result

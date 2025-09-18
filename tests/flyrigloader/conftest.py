@@ -8,6 +8,7 @@ Enhanced with comprehensive mocking scenarios for integration testing,
 advanced synthetic data generation, property-based testing support,
 and cross-platform temporary filesystem management.
 """
+import importlib.util
 import os
 import tempfile
 import platform
@@ -22,8 +23,16 @@ import pandas as pd
 import pytest
 import yaml
 from unittest.mock import MagicMock, patch, mock_open
-from hypothesis import strategies as st
-from hypothesis import given, settings, assume
+
+HYPOTHESIS_AVAILABLE = importlib.util.find_spec("hypothesis") is not None
+
+if HYPOTHESIS_AVAILABLE:
+    from hypothesis import strategies as st
+    from hypothesis import given, settings, assume
+else:  # pragma: no cover - executed when Hypothesis is missing
+    st = None  # type: ignore[assignment]
+    settings = None  # type: ignore[assignment]
+    assume = None  # type: ignore[assignment]
 
 
 # --- Enhanced Configuration Fixtures ---
