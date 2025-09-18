@@ -1,64 +1,131 @@
+"""Tests for `_load_and_validate_config` that avoid silent dependency stubs."""
+
+from __future__ import annotations
+
+import contextlib
 import importlib
+import logging
 import sys
 import types
 from pathlib import Path
 
-# Create minimal stubs for external dependencies to allow import
-class DummyLogger:
-    def add(self, *a, **k):
-        pass
-    def remove(self, *a, **k):
-        pass
-    def info(self, *a, **k):
-        pass
-    def debug(self, *a, **k):
-        pass
-    def warning(self, *a, **k):
-        pass
-    def error(self, *a, **k):
-        pass
+import pytest
 
-sys.modules['loguru'] = types.SimpleNamespace(logger=DummyLogger())
 
-yaml_module = types.ModuleType('yaml')
-yaml_module.safe_load = lambda s: {}
-sys.modules['yaml'] = yaml_module
+class _FailFastModule(types.ModuleType):
+    """Minimal module replacement that fails loudly on unexpected access."""
 
-column_models = types.ModuleType('flyrigloader.io.column_models')
-column_models.ColumnConfig = None
-column_models.ColumnConfigDict = dict
-column_models.ColumnDimension = None
-column_models.get_default_config_path = lambda: None
-column_models.load_column_config = lambda *a, **k: None
+    def __init__(self, name: str, allowed_attributes: dict[str, object]) -> None:
+        super().__init__(name)
+        for attr_name, value in allowed_attributes.items():
+            setattr(self, attr_name, value)
 
-io_pkg = types.ModuleType('flyrigloader.io')
-io_pkg.column_models = column_models
-sys.modules['flyrigloader.io'] = io_pkg
-sys.modules['flyrigloader.io.column_models'] = column_models
+    def __getattr__(self, item: str) -> object:  # pragma: no cover - defensive guard
+        raise RuntimeError(
+            f"Unexpected attribute access '{item}' on fail-fast stub module '{self.__name__}'."
+        )
 
-files_module = types.ModuleType('flyrigloader.discovery.files')
-files_module.discover_files = lambda *a, **k: []
-sys.modules['flyrigloader.discovery.files'] = files_module
 
-# Import the module under test after stubbing dependencies
-sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'src'))
-api = importlib.import_module('flyrigloader.api')
+def _install_fail_fast_yaml(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Provide a fail-fast YAML stub when PyYAML is unavailable."""
+
+    try:
+        importlib.import_module("yaml")
+    except ModuleNotFoundError:
+        def _unavailable_safe_load(*_: object, **__: object) -> None:
+            raise ModuleNotFoundError(
+                "PyYAML is required for configuration loading tests."
+            )
+
+        yaml_stub = _FailFastModule(
+            "yaml",
+            {
+                "safe_load": _unavailable_safe_load,
+                "YAMLError": RuntimeError,
+            },
+        )
+        monkeypatch.setitem(sys.modules, "yaml", yaml_stub)
+
+
+def _install_logging_backed_loguru(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Install a lightweight Loguru substitute if the real logger is missing."""
+
+    try:
+        importlib.import_module("loguru")
+    except ModuleNotFoundError:
+        test_logger = logging.getLogger("flyrigloader.tests.loguru_stub")
+
+        class _LoguruLikeLogger:
+            def add(self, handler, *args, **kwargs):  # pragma: no cover - logging helper
+                handler_id = id(handler)
+                handler.setLevel(kwargs.get("level", logging.INFO))
+                test_logger.addHandler(handler)
+                return handler_id
+
+            def remove(self, handler_id):  # pragma: no cover - logging helper
+                for handler in list(test_logger.handlers):
+                    if id(handler) == handler_id:
+                        test_logger.removeHandler(handler)
+
+            def info(self, message, *args, **kwargs):
+                test_logger.info(message, *args, **kwargs)
+
+            def debug(self, message, *args, **kwargs):
+                test_logger.debug(message, *args, **kwargs)
+
+            def warning(self, message, *args, **kwargs):
+                test_logger.warning(message, *args, **kwargs)
+
+            def error(self, message, *args, **kwargs):
+                test_logger.error(message, *args, **kwargs)
+
+        monkeypatch.setitem(
+            sys.modules,
+            "loguru",
+            types.SimpleNamespace(logger=_LoguruLikeLogger()),
+        )
+
+
+@pytest.fixture
+def api_module(monkeypatch: pytest.MonkeyPatch):
+    """Import ``flyrigloader.api`` with fail-fast fallbacks for optional deps."""
+
+    src_root = Path(__file__).resolve().parents[2] / "src"
+    monkeypatch.syspath_prepend(str(src_root))
+
+    _install_fail_fast_yaml(monkeypatch)
+    _install_logging_backed_loguru(monkeypatch)
+
+    module = importlib.import_module("flyrigloader.api")
+    yield module
+    with contextlib.suppress(KeyError):
+        del sys.modules["flyrigloader.api"]
+
 
 class DummyConfigProvider:
+    """Minimal configuration provider used to exercise dependency injection."""
+
     def load_config(self, path):
-        return {'loaded': str(path)}
+        return {"loaded": str(path)}
+
     def get_ignore_patterns(self, config, experiment=None):
         return []
+
     def get_mandatory_substrings(self, config, experiment=None):
         return []
+
     def get_dataset_info(self, config, dataset_name: str):
         return {}
+
     def get_experiment_info(self, config, experiment_name: str):
         return {}
 
 
-def test_load_and_validate_config_with_custom_provider(tmp_path):
-    deps = api._create_test_dependency_provider(config_provider=DummyConfigProvider())
-    cfg_file = tmp_path / 'cfg.yaml'
-    result = api._load_and_validate_config(cfg_file, None, 'test_op', deps)
-    assert result == {'loaded': str(cfg_file)}
+def test_load_and_validate_config_with_custom_provider(tmp_path, api_module):
+    deps = api_module._create_test_dependency_provider(
+        config_provider=DummyConfigProvider()
+    )
+    cfg_file = tmp_path / "cfg.yaml"
+    result = api_module._load_and_validate_config(cfg_file, None, "test_op", deps)
+    assert result == {"loaded": str(cfg_file)}
+

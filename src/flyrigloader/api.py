@@ -14,6 +14,7 @@ and scientific reproducibility through comprehensive audit logging.
 from pathlib import Path
 import copy
 import os
+import importlib.util
 from typing import Dict, List, Any, Optional, Union, Protocol, Callable
 from abc import ABC, abstractmethod
 import pandas as pd
@@ -35,13 +36,25 @@ from flyrigloader.exceptions import FlyRigLoaderError
 
 # New imports for enhanced refactoring per Section 0.2.1
 from flyrigloader.registries import get_loader_capabilities as _get_loader_capabilities
-from flyrigloader.kedro.datasets import FlyRigLoaderDataSet
 from flyrigloader.migration.migrators import ConfigMigrator
 from flyrigloader.migration.versions import detect_config_version
 from semantic_version import Version
 
 import warnings
 import functools
+
+_KEDRO_IMPORT_ERROR: Optional[ModuleNotFoundError] = None
+if importlib.util.find_spec("kedro") is not None:
+    try:  # pragma: no branch - executed once at import
+        from flyrigloader.kedro.datasets import FlyRigLoaderDataSet
+    except ModuleNotFoundError as exc:  # pragma: no cover - environment specific
+        FlyRigLoaderDataSet = None  # type: ignore[assignment]
+        _KEDRO_IMPORT_ERROR = exc
+else:  # pragma: no cover - environment specific
+    FlyRigLoaderDataSet = None  # type: ignore[assignment]
+    _KEDRO_IMPORT_ERROR = ModuleNotFoundError(
+        "kedro is not installed; FlyRigLoader Kedro integration is unavailable."
+    )
 
 # Re-export helpers for convenience
 read_pickle_any_format = _read_pickle_any_format
@@ -75,6 +88,25 @@ __all__ = [
     "FlyRigLoaderError",
 ]
 from flyrigloader import logger
+
+
+def _ensure_kedro_available() -> None:
+    """Ensure optional Kedro integration is available before use."""
+
+    if FlyRigLoaderDataSet is None:
+        message = (
+            "Kedro integration requires the 'kedro' package. "
+            "Install flyrigloader with the 'kedro' extra or add kedro to your environment."
+        )
+        if _KEDRO_IMPORT_ERROR is not None:
+            logger.error("Kedro integration unavailable: %s", _KEDRO_IMPORT_ERROR)
+        raise FlyRigLoaderError(message) from _KEDRO_IMPORT_ERROR
+
+
+if FlyRigLoaderDataSet is None:
+    logger.warning(
+        "FlyRigLoader Kedro integration disabled because 'kedro' could not be imported."
+    )
 
 
 MISSING_DATA_DIR_ERROR = (
@@ -1207,7 +1239,7 @@ def create_kedro_dataset(
     parse_dates: bool = True,
     dataset_options: Optional[Dict[str, Any]] = None,
     _deps: Optional[DefaultDependencyProvider] = None
-) -> FlyRigLoaderDataSet:
+) -> "FlyRigLoaderDataSet":
     """
     Factory function for creating Kedro dataset instances with proper lifecycle management.
     
@@ -1249,6 +1281,8 @@ def create_kedro_dataset(
         >>> #   recursive: true
         >>> #   extract_metadata: true
     """
+    _ensure_kedro_available()
+
     operation_name = "create_kedro_dataset"
     
     # Initialize dependency provider for testability
