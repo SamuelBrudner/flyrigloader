@@ -155,7 +155,7 @@ class DataFrameUtilities:
         try:
             if not files:
                 logger.info("Empty file list provided")
-                return self.dataframe_provider.create_dataframe(columns=["path"])
+                return self.dataframe_provider.create_dataframe([], columns=["path"])
 
             logger.debug(f"Processing {len(files)} files from list")
             df = self.dataframe_provider.create_dataframe({"path": files})
@@ -193,7 +193,7 @@ class DataFrameUtilities:
         try:
             if not files:
                 logger.info("Empty file dictionary provided")
-                return self.dataframe_provider.create_dataframe(columns=["path"])
+                return self.dataframe_provider.create_dataframe([], columns=["path"])
 
             logger.debug(f"Processing {len(files)} files from dictionary")
             records = []

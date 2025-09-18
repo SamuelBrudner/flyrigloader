@@ -15,7 +15,8 @@ from flyrigloader.utils.paths import (
     get_absolute_path,
     find_common_base_directory,
     ensure_directory_exists,
-    ensure_directory
+    ensure_directory,
+    check_file_exists,
 )
 
 
@@ -249,7 +250,7 @@ class TestEnsureDirectoryExistsComprehensive:
             file_path.touch()
             
             # Attempt to create directory with same name should raise error
-            with pytest.raises(FileExistsError):
+            with pytest.raises(ValueError):
                 ensure_directory_exists(file_path)
 
     def test_ensure_directory_exists_permission_handling(self):
@@ -620,15 +621,16 @@ class TestEnsureDirectory:
         assert nested.exists() and nested.is_dir()
 
     def test_ensure_directory_invalid_path(self):
-        with pytest.raises(OSError):
+        with pytest.raises(ValueError):
             ensure_directory(Path("\0invalid"))
 
-    def test_ensure_directory_permission_denied(self, tmp_path):
-        base = tmp_path / "readonly"
-        base.mkdir()
-        base.chmod(0o400)
-        try:
-            with pytest.raises(PermissionError):
-                ensure_directory(base / "child")
-        finally:
-            base.chmod(0o700)
+    def test_ensure_directory_permission_denied(self, tmp_path, monkeypatch):
+        target = tmp_path / "restricted"
+
+        def raise_permission(*args, **kwargs):
+            raise PermissionError("mocked permission error")
+
+        monkeypatch.setattr(Path, "mkdir", raise_permission)
+
+        with pytest.raises(PermissionError):
+            ensure_directory(target)

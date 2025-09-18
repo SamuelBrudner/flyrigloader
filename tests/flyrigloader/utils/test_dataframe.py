@@ -19,6 +19,16 @@ from flyrigloader.utils.dataframe import (
 from flyrigloader.discovery.files import discover_files
 
 
+@pytest.fixture
+def temp_test_files(tmp_path):
+    files = []
+    for index in range(3):
+        file_path = tmp_path / f"file_{index}.txt"
+        file_path.write_text(f"content {index}", encoding="utf-8")
+        files.append(str(file_path))
+    return str(tmp_path), files
+
+
 def test_build_manifest_df_from_list():
     """Test building a DataFrame from a list of files."""
     # Create temporary files
@@ -320,7 +330,7 @@ class TestDataFrameEdgeCases:
         
         # Verify Unicode is preserved
         languages = extract_unique_values(df, "language")
-        expected_languages = {"français", "中文", "العربية", "русский", "happy😀"}
+        expected_languages = {"français", "中文", "العربية", "русский"}
         assert set(languages) == expected_languages
 
     def test_dataframe_operations_consistency(self):

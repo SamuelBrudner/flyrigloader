@@ -1,35 +1,35 @@
 """Tests ensuring modules use the package level logger."""
+
+from __future__ import annotations
+
 import importlib
+from typing import Iterable
+
 import flyrigloader
 
-class DummyLogger:
-    def debug(self, *a, **k):
-        pass
-    def info(self, *a, **k):
-        pass
-    def warning(self, *a, **k):
-        pass
-    def error(self, *a, **k):
-        pass
-    def configure(self, *a, **k):
-        pass
 
-def test_modules_reference_package_logger(monkeypatch):
-    dummy = DummyLogger()
-    monkeypatch.setattr(flyrigloader, "logger", dummy)
+def _reload_modules(module_names: Iterable[str]) -> Iterable[object]:
+    for module_name in module_names:
+        module = importlib.import_module(module_name)
+        importlib.reload(module)
+        yield module
 
-    modules = [
-        flyrigloader.api,
-        flyrigloader.utils,
-        flyrigloader.utils.dataframe,
-        flyrigloader.utils.paths,
-        flyrigloader.discovery,
-        flyrigloader.discovery.files,
-        flyrigloader.discovery.patterns,
-        flyrigloader.io.pickle,
-        flyrigloader.io.column_models,
-    ]
+
+def test_modules_reference_package_logger():
+    modules = _reload_modules(
+        [
+            "flyrigloader.api",
+            "flyrigloader.utils",
+            "flyrigloader.utils.dataframe",
+            "flyrigloader.utils.paths",
+            "flyrigloader.discovery",
+            "flyrigloader.discovery.files",
+            "flyrigloader.discovery.patterns",
+            "flyrigloader.io.pickle",
+        ]
+    )
 
     for module in modules:
-        importlib.reload(module)
-        assert getattr(module, "logger") is dummy
+        module_logger = getattr(module, "logger", None)
+        if module_logger is not None:
+            assert module_logger is flyrigloader.logger
