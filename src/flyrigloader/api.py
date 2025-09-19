@@ -391,54 +391,57 @@ def reset_dependency_provider() -> None:
     _dependency_provider = DefaultDependencyProvider()
 
 
+CONFIG_SOURCE_ERROR_MESSAGE = "Exactly one of 'config_path' or 'config' must be provided"
+
+
 def _validate_config_parameters(
     config_path: Optional[Union[str, Path]],
     config: Optional[Dict[str, Any]],
     operation_name: str
 ) -> None:
-    """
-    Validate that exactly one of config_path or config is provided.
-    
-    Args:
-        config_path: Path to configuration file
-        config: Pre-loaded configuration dictionary
-        operation_name: Name of the operation for error messaging
-        
-    Raises:
-        ValueError: If validation fails with detailed error message
-    """
+    """Ensure callers provide exactly one configuration source."""
     logger.debug(f"Validating config parameters for {operation_name}")
 
-    if config_path is None and config is None:
-        _raise_config_validation_error(
-            operation_name,
-            ": Either 'config_path' or 'config' must be provided, but both are None. Please provide either a path to a YAML configuration file or a pre-loaded configuration dictionary.",
-        )
-    if config_path is not None and config is not None:
-        _raise_config_validation_error(
-            operation_name,
-            ": Both 'config_path' and 'config' are provided, but only one is allowed. Please provide either a path to a configuration file OR a configuration dictionary, not both.",
-        )
+    both_missing = config_path is None and config is None
+    both_provided = config_path is not None and config is not None
+
+    if both_missing or both_provided:
+        if both_missing:
+            logger.error(
+                "Configuration source validation failed for %s: neither config nor config_path was provided",
+                operation_name,
+            )
+        else:
+            logger.error(
+                "Configuration source validation failed for %s: both config and config_path were provided",
+                operation_name,
+            )
+        raise ValueError(CONFIG_SOURCE_ERROR_MESSAGE)
+
     logger.debug(f"Config parameter validation successful for {operation_name}")
 
 
-def _raise_config_validation_error(operation_name: str, error_details: str) -> None:
-    """
-    Raise a configuration validation error with standardized formatting.
-    
-    This function centralizes error formatting for configuration validation failures
-    and ensures consistent error messaging across the API.
-    
-    Args:
-        operation_name: Name of the operation that failed validation
-        error_details: Detailed error message explaining the validation failure
-        
-    Raises:
-        FlyRigLoaderError: Always raises with formatted error message
-    """
-    error_msg = f"Invalid configuration parameters for {operation_name}{error_details}"
-    logger.error(error_msg)
-    raise FlyRigLoaderError(error_msg)
+def _resolve_config_source(
+    config: Optional[Union[Dict[str, Any], Any]],
+    config_path: Optional[Union[str, Path]],
+    operation_name: str,
+    deps: Optional[DefaultDependencyProvider]
+) -> Dict[str, Any]:
+    """Return the concrete configuration dictionary for the requested operation."""
+    _validate_config_parameters(config_path, config, operation_name)
+
+    if config is not None:
+        logger.debug(
+            "Using provided configuration object for %s", operation_name
+        )
+        return config  # type: ignore[return-value]
+
+    # At this point validation guarantees config_path is not None.
+    assert config_path is not None
+    logger.debug(
+        "Loading configuration from file source %s for %s", config_path, operation_name
+    )
+    return _load_and_validate_config(config_path, None, operation_name, deps)
 
 
 def _load_and_validate_config(
@@ -777,22 +780,7 @@ def discover_experiment_manifest(
         logger.error(error_msg)
         raise FlyRigLoaderError(error_msg)
     
-    # Handle Pydantic model directly or load from config_path
-    if config is not None:
-        # Support direct Pydantic model usage
-        logger.debug("Using provided configuration object (Pydantic model or dict)")
-        config_dict = config
-    elif config_path is not None:
-        # Load from file path
-        logger.debug(f"Loading configuration from file: {config_path}")
-        config_dict = _load_and_validate_config(config_path, None, operation_name, _deps)
-    else:
-        error_msg = (
-            f"Either 'config' or 'config_path' must be provided for {operation_name}. "
-            "Please provide either a configuration object or a path to a configuration file."
-        )
-        logger.error(error_msg)
-        raise FlyRigLoaderError(error_msg)
+    config_dict = _resolve_config_source(config, config_path, operation_name, _deps)
     
     # Use the new decoupled discovery function
     try:
@@ -1741,22 +1729,7 @@ def load_experiment_files(
         logger.error(error_msg)
         raise FlyRigLoaderError(error_msg)
     
-    # Handle Pydantic model directly or load from config_path
-    if config is not None:
-        # Support direct Pydantic model usage
-        logger.debug("Using provided configuration object (Pydantic model, LegacyConfigAdapter, or dict)")
-        config_dict = config
-    elif config_path is not None:
-        # Load from file path
-        logger.debug(f"Loading configuration from file: {config_path}")
-        config_dict = _load_and_validate_config(config_path, None, operation_name, _deps)
-    else:
-        error_msg = (
-            f"Either 'config' or 'config_path' must be provided for {operation_name}. "
-            "Please provide either a configuration object or a path to a configuration file."
-        )
-        logger.error(error_msg)
-        raise FlyRigLoaderError(error_msg)
+    config_dict = _resolve_config_source(config, config_path, operation_name, _deps)
     
     # Determine the data directory with enhanced validation
     base_directory = _resolve_base_directory(config_dict, base_directory, operation_name)
@@ -1881,22 +1854,7 @@ def load_dataset_files(
         logger.error(error_msg)
         raise FlyRigLoaderError(error_msg)
     
-    # Handle Pydantic model directly or load from config_path
-    if config is not None:
-        # Support direct Pydantic model usage
-        logger.debug("Using provided configuration object (Pydantic model, LegacyConfigAdapter, or dict)")
-        config_dict = config
-    elif config_path is not None:
-        # Load from file path
-        logger.debug(f"Loading configuration from file: {config_path}")
-        config_dict = _load_and_validate_config(config_path, None, operation_name, _deps)
-    else:
-        error_msg = (
-            f"Either 'config' or 'config_path' must be provided for {operation_name}. "
-            "Please provide either a configuration object or a path to a configuration file."
-        )
-        logger.error(error_msg)
-        raise FlyRigLoaderError(error_msg)
+    config_dict = _resolve_config_source(config, config_path, operation_name, _deps)
     
     # Determine the data directory with enhanced validation
     base_directory = _resolve_base_directory(config_dict, base_directory, operation_name)
@@ -2003,22 +1961,7 @@ def get_experiment_parameters(
         logger.error(error_msg)
         raise FlyRigLoaderError(error_msg)
     
-    # Handle Pydantic model directly or load from config_path
-    if config is not None:
-        # Support direct Pydantic model usage
-        logger.debug("Using provided configuration object (Pydantic model, LegacyConfigAdapter, or dict)")
-        config_dict = config
-    elif config_path is not None:
-        # Load from file path
-        logger.debug(f"Loading configuration from file: {config_path}")
-        config_dict = _load_and_validate_config(config_path, None, operation_name, _deps)
-    else:
-        error_msg = (
-            f"Either 'config' or 'config_path' must be provided for {operation_name}. "
-            "Please provide either a configuration object or a path to a configuration file."
-        )
-        logger.error(error_msg)
-        raise FlyRigLoaderError(error_msg)
+    config_dict = _resolve_config_source(config, config_path, operation_name, _deps)
     
     # Get experiment info with enhanced error handling
     try:
@@ -2099,22 +2042,7 @@ def get_dataset_parameters(
         logger.error(error_msg)
         raise FlyRigLoaderError(error_msg)
     
-    # Handle Pydantic model directly or load from config_path
-    if config is not None:
-        # Support direct Pydantic model usage
-        logger.debug("Using provided configuration object (Pydantic model, LegacyConfigAdapter, or dict)")
-        config_dict = config
-    elif config_path is not None:
-        # Load from file path
-        logger.debug(f"Loading configuration from file: {config_path}")
-        config_dict = _load_and_validate_config(config_path, None, operation_name, _deps)
-    else:
-        error_msg = (
-            f"Either 'config' or 'config_path' must be provided for {operation_name}. "
-            "Please provide either a configuration object or a path to a configuration file."
-        )
-        logger.error(error_msg)
-        raise FlyRigLoaderError(error_msg)
+    config_dict = _resolve_config_source(config, config_path, operation_name, _deps)
     
     # Get dataset info with enhanced error handling
     try:
