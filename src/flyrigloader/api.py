@@ -814,7 +814,7 @@ def discover_experiment_manifest(
             manifest_dict[file_info.path] = {
                 'path': file_info.path,
                 'size': file_info.size or 0,
-                'metadata': file_info.extracted_metadata,
+                'metadata': file_info.extracted_metadata if file_info.extracted_metadata is not None else {},
                 'parsed_dates': {'parsed_date': file_info.parsed_date} if file_info.parsed_date else {}
             }
         
