@@ -376,7 +376,7 @@ class TestConfigurationLoadingPerformance:
         from collections.abc import MutableMapping
         assert isinstance(result, MutableMapping)
         
-        # Check that the core content is preserved (migration may add additional fields)
+        # Check that the core content is preserved (compatibility logic may add additional fields)
         # For benchmark testing, we need to verify that all original data is present and accessible
         result_dict = dict(result)
         
@@ -401,7 +401,7 @@ class TestConfigurationLoadingPerformance:
         # Verify all original data is preserved
         check_data_preservation(config_dict, result_dict)
         
-        # Validate SLA: <150ms validation for Kedro parameter dictionaries (updated for migration overhead)
+        # Validate SLA: <150ms validation for Kedro parameter dictionaries (accounting for compatibility overhead)
         assert benchmark.stats.stats.mean < 0.15, (
             f"Kedro dict validation SLA violation ({size_name}): "
             f"{benchmark.stats.stats.mean:.3f}s > 0.15s"
@@ -422,7 +422,7 @@ class TestConfigurationLoadingPerformance:
         assert isinstance(result, dict)
         assert result == medium_config_dict
         
-        # Validate SLA: <100ms validation (updated for migration overhead)
+        # Validate SLA: <100ms validation (accounting for compatibility overhead)
         assert benchmark.stats.stats.mean < 0.10, (
             f"Config validation SLA violation: {benchmark.stats.stats.mean:.3f}s > 0.10s"
         )
@@ -447,7 +447,7 @@ class TestConfigurationLoadingPerformance:
         assert "experiments" in result
         
         # Validate memory usage constraint: <80MB for large configurations 
-        # (increased from 20MB to accommodate enhanced Pydantic validation, migration overhead, and registry features)
+        # (increased from 20MB to accommodate enhanced Pydantic validation, compatibility overhead, and registry features)
         assert peak_memory_mb < 80.0, (
             f"Memory usage SLA violation: {peak_memory_mb:.2f}MB > 80.0MB"
         )
@@ -970,7 +970,7 @@ class TestConfigurationFileFormatPerformance:
         assert "datasets" in result
         assert "experiments" in result
         
-        # All formats should meet SLA requirements (updated for migration overhead)
+        # All formats should meet SLA requirements (accounting for compatibility overhead)
         assert benchmark.stats.stats.mean < 0.2, (
             f"Format loading SLA violation ({format_name}): "
             f"{benchmark.stats.stats.mean:.3f}s > 0.2s"

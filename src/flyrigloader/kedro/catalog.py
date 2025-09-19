@@ -56,7 +56,7 @@ import warnings
 from flyrigloader.config.models import ExperimentConfig
 from flyrigloader.config.yaml_config import load_config
 from flyrigloader.kedro.datasets import FlyRigLoaderDataSet
-from flyrigloader.migration.versions import detect_config_version
+from flyrigloader.config.validators import validate_config_version
 from flyrigloader.exceptions import KedroIntegrationError
 # from flyrigloader.api import validate_manifest  # Moved to lazy import to avoid circular dependency
 
@@ -360,9 +360,16 @@ def validate_catalog_config(
                 config_data = load_config(config_file_path)
                 
                 # Detect configuration version
-                detected_version = detect_config_version(config_data)
+                is_valid, detected_version, message = validate_config_version(config_data)
                 validation_report["metadata"]["config_version"] = str(detected_version)
                 logger.debug(f"Detected configuration version: {detected_version}")
+
+                if not is_valid:
+                    raise KedroIntegrationError(
+                        message,
+                        error_code="KEDRO_003",
+                        context={"config_path": str(config_file_path)},
+                    )
                 
                 # Validate experiment exists in configuration
                 if experiment_name:
@@ -1058,10 +1065,15 @@ def create_workflow_catalog_entries(
         if validate_config:
             logger.debug("Validating configuration for workflow")
             config_data = load_config(base_config_path)
-            
-            # Detect configuration version
-            config_version = detect_config_version(config_data)
+
+            is_valid, config_version, message = validate_config_version(config_data)
             logger.debug(f"Configuration version: {config_version}")
+            if not is_valid:
+                raise KedroIntegrationError(
+                    message,
+                    error_code="KEDRO_003",
+                    context={"config_path": str(base_config_path)},
+                )
             
             # Validate experiments exist
             if hasattr(config_data, 'get'):

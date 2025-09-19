@@ -23,7 +23,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 from pydantic.types import DirectoryPath
 
 from .validators import path_existence_validator, validate_config_version
-from ..migration.versions import CURRENT_VERSION
+from .versioning import CURRENT_SCHEMA_VERSION
 
 # Set up logger for configuration model events
 logger = logging.getLogger(__name__)
@@ -53,8 +53,8 @@ class ProjectConfig(BaseModel):
     )
     
     schema_version: str = Field(
-        default=CURRENT_VERSION,
-        description="Configuration schema version for compatibility and migration tracking",
+        default=CURRENT_SCHEMA_VERSION,
+        description="Configuration schema version for compatibility tracking",
         json_schema_extra={
             "example": "1.0.0"
         }
@@ -106,16 +106,15 @@ class ProjectConfig(BaseModel):
         """Validate schema version using version-aware validation rules."""
         if not isinstance(v, str):
             raise ValueError("schema_version must be a string")
-        
+
         try:
             # Use the comprehensive version validation from validators
             is_valid, detected_version, message = validate_config_version({"schema_version": v})
-            if not is_valid and "migration" not in message.lower():
-                # Only raise if there's a real validation error, not just migration needed
-                logger.warning(f"Schema version validation warning: {message}")
-            
-            logger.debug(f"Schema version validated: {v}")
-            return v
+            if not is_valid:
+                raise ValueError(message)
+
+            logger.debug("Schema version validated: %s", detected_version)
+            return detected_version
         except Exception as e:
             logger.error(f"Schema version validation failed: {e}")
             raise ValueError(f"Invalid schema version '{v}': {e}")
@@ -232,71 +231,13 @@ class ProjectConfig(BaseModel):
         logger.debug(f"Validated {len(validated_patterns)} extraction patterns")
         return validated_patterns if validated_patterns else None
     
-    def migrate_config(self, target_version: str = CURRENT_VERSION) -> 'ProjectConfig':
-        """
-        Migrate this configuration to a target schema version.
-        
-        This method handles automatic configuration migration when version mismatches
-        are detected, ensuring backward compatibility while upgrading configurations
-        to support new features and validation rules.
-        
-        Args:
-            target_version: Target schema version to migrate to (defaults to current)
-            
-        Returns:
-            ProjectConfig: Migrated configuration instance
-            
-        Raises:
-            ValueError: If migration is not possible or fails
-            
-        Example:
-            >>> old_config = ProjectConfig(schema_version="0.1.0", directories={})
-            >>> new_config = old_config.migrate_config("1.0.0")
-            >>> assert new_config.schema_version == "1.0.0"
-        """
-        logger.info(f"Migrating ProjectConfig from version {self.schema_version} to {target_version}")
-        
-        # If already at target version, return copy
-        if self.schema_version == target_version:
-            logger.debug("Configuration already at target version, returning copy")
-            return self.model_copy()
-        
-        try:
-            # Get current config as dict for migration
-            config_dict = self.model_dump()
-            
-            # Validate migration path exists
-            is_valid, detected_version, message = validate_config_version(config_dict)
-            
-            # Create migrated config with updated version
-            migrated_dict = config_dict.copy()
-            migrated_dict['schema_version'] = target_version
-            
-            # Apply version-specific migrations
-            if self.schema_version == "0.1.0" and target_version == "1.0.0":
-                # Add any missing fields required by v1.0.0
-                if 'extraction_patterns' not in migrated_dict or not migrated_dict['extraction_patterns']:
-                    migrated_dict['extraction_patterns'] = [
-                        r"(?P<date>\d{4}-\d{2}-\d{2})",
-                        r"(?P<date>\d{8})",
-                        r"(?P<subject>\w+)",
-                        r"(?P<rig>rig\d+)",
-                    ]
-                logger.debug("Applied v0.1.0 -> v1.0.0 migration transformations")
-            
-            elif self.schema_version == "0.2.0" and target_version == "1.0.0":
-                # Ensure all v1.0.0 requirements are met
-                logger.debug("Applied v0.2.0 -> v1.0.0 migration transformations")
-            
-            # Create and validate migrated instance
-            migrated_config = ProjectConfig(**migrated_dict)
-            logger.info(f"Successfully migrated ProjectConfig to version {target_version}")
-            return migrated_config
-            
-        except Exception as e:
-            error_msg = f"Migration failed from {self.schema_version} to {target_version}: {e}"
-            logger.error(error_msg)
-            raise ValueError(error_msg) from e
+    def model_post_init(self, __context: Any) -> None:  # type: ignore[override]
+        """Ensure project configurations are pinned to the supported schema version."""
+        super().model_post_init(__context)
+        if self.schema_version != CURRENT_SCHEMA_VERSION:
+            raise ValueError(
+                f"Unsupported schema version {self.schema_version}; expected {CURRENT_SCHEMA_VERSION}."
+            )
 
 
 class DatasetConfig(BaseModel):
@@ -322,8 +263,8 @@ class DatasetConfig(BaseModel):
     )
     
     schema_version: str = Field(
-        default=CURRENT_VERSION,
-        description="Configuration schema version for compatibility and migration tracking",
+        default=CURRENT_SCHEMA_VERSION,
+        description="Configuration schema version for compatibility tracking",
         json_schema_extra={
             "example": "1.0.0"
         }
@@ -375,14 +316,12 @@ class DatasetConfig(BaseModel):
             raise ValueError("schema_version must be a string")
         
         try:
-            # Use the comprehensive version validation from validators
             is_valid, detected_version, message = validate_config_version({"schema_version": v})
-            if not is_valid and "migration" not in message.lower():
-                # Only raise if there's a real validation error, not just migration needed
-                logger.warning(f"Schema version validation warning: {message}")
-            
-            logger.debug(f"Schema version validated: {v}")
-            return v
+            if not is_valid:
+                raise ValueError(message)
+
+            logger.debug("Schema version validated: %s", detected_version)
+            return detected_version
         except Exception as e:
             logger.error(f"Schema version validation failed: {e}")
             raise ValueError(f"Invalid schema version '{v}': {e}")
@@ -469,89 +408,35 @@ class DatasetConfig(BaseModel):
             if patterns is not None:
                 if not isinstance(patterns, list):
                     raise ValueError("metadata extraction_patterns must be a list")
-                
+
                 for pattern in patterns:
                     if not isinstance(pattern, str):
                         raise ValueError("metadata extraction pattern must be string")
-                    
+
                     # Validate pattern by compiling it
                     try:
                         re.compile(pattern)
                     except re.error as e:
                         raise ValueError(f"Invalid regex pattern in metadata '{pattern}': {e}")
-        
+
         logger.debug("Metadata validated successfully")
         return v
+
+    def model_post_init(self, __context: Any) -> None:  # type: ignore[override]
+        """Ensure experiment configurations use the supported schema version."""
+        super().model_post_init(__context)
+        if self.schema_version != CURRENT_SCHEMA_VERSION:
+            raise ValueError(
+                f"Unsupported schema version {self.schema_version}; expected {CURRENT_SCHEMA_VERSION}."
+            )
     
-    def migrate_config(self, target_version: str = CURRENT_VERSION) -> 'DatasetConfig':
-        """
-        Migrate this configuration to a target schema version.
-        
-        This method handles automatic configuration migration when version mismatches
-        are detected, ensuring backward compatibility while upgrading configurations
-        to support new features and validation rules.
-        
-        Args:
-            target_version: Target schema version to migrate to (defaults to current)
-            
-        Returns:
-            DatasetConfig: Migrated configuration instance
-            
-        Raises:
-            ValueError: If migration is not possible or fails
-            
-        Example:
-            >>> old_config = DatasetConfig(schema_version="0.1.0", rig="rig1")
-            >>> new_config = old_config.migrate_config("1.0.0")
-            >>> assert new_config.schema_version == "1.0.0"
-        """
-        logger.info(f"Migrating DatasetConfig from version {self.schema_version} to {target_version}")
-        
-        # If already at target version, return copy
-        if self.schema_version == target_version:
-            logger.debug("Configuration already at target version, returning copy")
-            return self.model_copy()
-        
-        try:
-            # Get current config as dict for migration
-            config_dict = self.model_dump()
-            
-            # Validate migration path exists
-            is_valid, detected_version, message = validate_config_version(config_dict)
-            
-            # Create migrated config with updated version
-            migrated_dict = config_dict.copy()
-            migrated_dict['schema_version'] = target_version
-            
-            # Apply version-specific migrations
-            if self.schema_version == "0.1.0" and target_version == "1.0.0":
-                # Ensure metadata has proper structure for v1.0.0
-                if 'metadata' not in migrated_dict or not migrated_dict['metadata']:
-                    migrated_dict['metadata'] = {
-                        "created_by": "flyrigloader",
-                        "dataset_type": "behavioral",
-                        "extraction_patterns": [
-                            r"(?P<temperature>\d+)C",
-                            r"(?P<humidity>\d+)%",
-                            r"(?P<trial_number>\d+)",
-                            r"(?P<condition>\w+_condition)",
-                        ],
-                    }
-                logger.debug("Applied v0.1.0 -> v1.0.0 migration transformations")
-            
-            elif self.schema_version == "0.2.0" and target_version == "1.0.0":
-                # Ensure all v1.0.0 requirements are met
-                logger.debug("Applied v0.2.0 -> v1.0.0 migration transformations")
-            
-            # Create and validate migrated instance
-            migrated_config = DatasetConfig(**migrated_dict)
-            logger.info(f"Successfully migrated DatasetConfig to version {target_version}")
-            return migrated_config
-            
-        except Exception as e:
-            error_msg = f"Migration failed from {self.schema_version} to {target_version}: {e}"
-            logger.error(error_msg)
-            raise ValueError(error_msg) from e
+    def model_post_init(self, __context: Any) -> None:  # type: ignore[override]
+        """Ensure dataset configurations use the supported schema version."""
+        super().model_post_init(__context)
+        if self.schema_version != CURRENT_SCHEMA_VERSION:
+            raise ValueError(
+                f"Unsupported schema version {self.schema_version}; expected {CURRENT_SCHEMA_VERSION}."
+            )
 
 
 class ExperimentConfig(BaseModel):
@@ -578,8 +463,8 @@ class ExperimentConfig(BaseModel):
     )
     
     schema_version: str = Field(
-        default=CURRENT_VERSION,
-        description="Configuration schema version for compatibility and migration tracking",
+        default=CURRENT_SCHEMA_VERSION,
+        description="Configuration schema version for compatibility tracking",
         json_schema_extra={
             "example": "1.0.0"
         }
@@ -648,14 +533,12 @@ class ExperimentConfig(BaseModel):
             raise ValueError("schema_version must be a string")
         
         try:
-            # Use the comprehensive version validation from validators
             is_valid, detected_version, message = validate_config_version({"schema_version": v})
-            if not is_valid and "migration" not in message.lower():
-                # Only raise if there's a real validation error, not just migration needed
-                logger.warning(f"Schema version validation warning: {message}")
-            
-            logger.debug(f"Schema version validated: {v}")
-            return v
+            if not is_valid:
+                raise ValueError(message)
+
+            logger.debug("Schema version validated: %s", detected_version)
+            return detected_version
         except Exception as e:
             logger.error(f"Schema version validation failed: {e}")
             raise ValueError(f"Invalid schema version '{v}': {e}")
@@ -774,82 +657,6 @@ class ExperimentConfig(BaseModel):
         logger.debug("Metadata validated successfully")
         return v
     
-    def migrate_config(self, target_version: str = CURRENT_VERSION) -> 'ExperimentConfig':
-        """
-        Migrate this configuration to a target schema version.
-        
-        This method handles automatic configuration migration when version mismatches
-        are detected, ensuring backward compatibility while upgrading configurations
-        to support new features and validation rules.
-        
-        Args:
-            target_version: Target schema version to migrate to (defaults to current)
-            
-        Returns:
-            ExperimentConfig: Migrated configuration instance
-            
-        Raises:
-            ValueError: If migration is not possible or fails
-            
-        Example:
-            >>> old_config = ExperimentConfig(schema_version="0.1.0", datasets=["test"])
-            >>> new_config = old_config.migrate_config("1.0.0")
-            >>> assert new_config.schema_version == "1.0.0"
-        """
-        logger.info(f"Migrating ExperimentConfig from version {self.schema_version} to {target_version}")
-        
-        # If already at target version, return copy
-        if self.schema_version == target_version:
-            logger.debug("Configuration already at target version, returning copy")
-            return self.model_copy()
-        
-        try:
-            # Get current config as dict for migration
-            config_dict = self.model_dump()
-            
-            # Validate migration path exists
-            is_valid, detected_version, message = validate_config_version(config_dict)
-            
-            # Create migrated config with updated version
-            migrated_dict = config_dict.copy()
-            migrated_dict['schema_version'] = target_version
-            
-            # Apply version-specific migrations
-            if self.schema_version == "0.1.0" and target_version == "1.0.0":
-                # Ensure parameters have proper structure for v1.0.0
-                if 'parameters' not in migrated_dict or not migrated_dict['parameters']:
-                    migrated_dict['parameters'] = {
-                        "analysis_window": 10.0,
-                        "sampling_rate": 1000.0,
-                        "threshold": 0.5,
-                        "method": "correlation",
-                        "confidence_level": 0.95,
-                    }
-                
-                # Ensure filters have proper structure for v1.0.0
-                if 'filters' not in migrated_dict or not migrated_dict['filters']:
-                    migrated_dict['filters'] = {
-                        "ignore_substrings": ["temp", "backup", "test"],
-                        "mandatory_experiment_strings": ["experiment", "trial"],
-                    }
-                    
-                logger.debug("Applied v0.1.0 -> v1.0.0 migration transformations")
-            
-            elif self.schema_version == "0.2.0" and target_version == "1.0.0":
-                # Ensure all v1.0.0 requirements are met
-                logger.debug("Applied v0.2.0 -> v1.0.0 migration transformations")
-            
-            # Create and validate migrated instance
-            migrated_config = ExperimentConfig(**migrated_dict)
-            logger.info(f"Successfully migrated ExperimentConfig to version {target_version}")
-            return migrated_config
-            
-        except Exception as e:
-            error_msg = f"Migration failed from {self.schema_version} to {target_version}: {e}"
-            logger.error(error_msg)
-            raise ValueError(error_msg) from e
-
-
 class LegacyConfigAdapter(MutableMapping):
     """
     Backward compatibility adapter for Pydantic configuration models.
@@ -1117,7 +924,7 @@ def create_config(
         logger.debug(f"Using current working directory: {base_directory}")
     
     if schema_version is None:
-        schema_version = CURRENT_VERSION
+        schema_version = CURRENT_SCHEMA_VERSION
         logger.debug(f"Using current schema version: {schema_version}")
     
     logger.info(f"Creating ProjectConfig for project: {project_name} with schema version {schema_version}")
@@ -1184,8 +991,8 @@ def create_config(
         
         # Pre-validate schema version
         is_valid, detected_version, message = validate_config_version(config_data)
-        if not is_valid and "migration" in message.lower():
-            logger.warning(f"Configuration validation warning: {message}")
+        if not is_valid:
+            raise ValueError(message)
         
         # Create the ProjectConfig instance
         project_config = ProjectConfig(**config_data)
@@ -1248,7 +1055,7 @@ def create_experiment(
         ['plume_tracking', 'odor_response']
     """
     if schema_version is None:
-        schema_version = CURRENT_VERSION
+        schema_version = CURRENT_SCHEMA_VERSION
         logger.debug(f"Using current schema version: {schema_version}")
     
     logger.info(f"Creating ExperimentConfig for experiment: {name} with schema version {schema_version}")
@@ -1350,7 +1157,7 @@ def create_dataset(
         rig1
     """
     if schema_version is None:
-        schema_version = CURRENT_VERSION
+        schema_version = CURRENT_SCHEMA_VERSION
         logger.debug(f"Using current schema version: {schema_version}")
     
     logger.info(f"Creating DatasetConfig for dataset: {name} with schema version {schema_version}")

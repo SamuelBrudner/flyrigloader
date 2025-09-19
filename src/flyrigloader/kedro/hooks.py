@@ -8,7 +8,7 @@ execution lifecycle.
 
 The module implements three specialized hook classes:
 - FlyRigLoaderHooks: Primary lifecycle hooks for comprehensive pipeline integration
-- FlyRigLoaderConfigHooks: Configuration-specific validation and migration hooks  
+- FlyRigLoaderConfigHooks: Configuration-specific validation hooks
 - FlyRigLoaderPerformanceHooks: Performance monitoring and metrics collection hooks
 
 Key Features:
@@ -140,8 +140,7 @@ class FlyRigLoaderHooks:
         2. FlyRigLoader dataset configuration validation
         3. Performance monitoring baseline establishment
         4. Resource allocation and temporary directory setup
-        5. Configuration migration and version compatibility checking
-        6. Thread-safe state initialization for parallel execution
+        5. Thread-safe state initialization for parallel execution
         
         Args:
             run_params: Kedro run parameters including pipeline configuration
@@ -851,28 +850,11 @@ class FlyRigLoaderHooks:
 
 
 class FlyRigLoaderConfigHooks:
-    """
-    Configuration-specific hooks for FlyRigLoader validation and migration.
-    
-    This specialized hook class focuses exclusively on configuration management
-    within Kedro pipelines, providing comprehensive validation, migration, and
-    configuration health monitoring throughout pipeline execution.
-    
-    Hook Methods:
-        before_pipeline_run: Comprehensive configuration validation and migration
-        validate_configuration: Deep validation of configuration structure and content
-        migrate_configuration: Automatic configuration migration and compatibility checks
-    
-    Examples:
-        >>> config_hooks = FlyRigLoaderConfigHooks()
-        >>> # Hooks automatically validate all FlyRigLoader configurations
-        >>> # during pipeline startup
-    """
+    """Configuration-specific hooks for FlyRigLoader validation."""
     
     def __init__(self):
         """Initialize configuration hooks with validation state tracking."""
         self._validated_configs = {}
-        self._migration_results = {}
         
         logger.info("FlyRigLoaderConfigHooks initialized for configuration management")
     
@@ -882,18 +864,7 @@ class FlyRigLoaderConfigHooks:
         pipeline: Pipeline,
         catalog: Any
     ) -> None:
-        """
-        Perform comprehensive configuration validation and migration before pipeline execution.
-        
-        This hook validates all FlyRigLoader configurations in the catalog, performs
-        necessary migrations, and ensures configuration compatibility across the
-        entire pipeline before execution begins.
-        
-        Args:
-            run_params: Kedro run parameters
-            pipeline: Kedro Pipeline object
-            catalog: Kedro DataCatalog containing configurations
-        """
+        """Validate configurations before pipeline execution."""
         logger.info("Starting comprehensive FlyRigLoader configuration validation")
         
         try:
@@ -964,48 +935,6 @@ class FlyRigLoaderConfigHooks:
         
         return validation_result
     
-    def migrate_configuration(self, config_path: Union[str, Path]) -> Dict[str, Any]:
-        """
-        Perform automatic configuration migration and compatibility checks.
-        
-        Args:
-            config_path: Path to configuration file requiring migration
-            
-        Returns:
-            Dict containing migration results and status
-        """
-        logger.debug(f"Checking configuration migration for: {config_path}")
-        
-        migration_result = {
-            'config_path': str(config_path),
-            'migration_needed': False,
-            'migration_successful': False,
-            'source_version': None,
-            'target_version': None,
-            'changes_applied': [],
-            'errors': []
-        }
-        
-        try:
-            # This is a placeholder for actual migration logic
-            # In a real implementation, this would:
-            # 1. Detect configuration version
-            # 2. Apply necessary migrations
-            # 3. Validate migrated configuration
-            # 4. Save migrated configuration if needed
-            
-            migration_result['migration_successful'] = True
-            self._migration_results[str(config_path)] = migration_result
-            
-            logger.debug(f"Migration check completed for '{config_path}'")
-            
-        except Exception as e:
-            migration_result['errors'].append(str(e))
-            logger.error(f"Configuration migration failed for '{config_path}': {e}")
-        
-        return migration_result
-
-
 class FlyRigLoaderPerformanceHooks:
     """
     Performance monitoring and metrics collection hooks for FlyRigLoader operations.

@@ -10,7 +10,7 @@ The test suite validates:
 - Configuration standardization with Pydantic models per Section 0.2.1
 - Type-safe configuration construction with comprehensive validation
 - Enhanced configuration builder pattern per Section 5.2.2
-- Schema version handling and migration capabilities
+- Schema version handling and compatibility enforcement
 - Performance testing for builder pattern construction efficiency
 """
 
@@ -470,7 +470,7 @@ class TestFactoryMethods:
 
 class TestSchemaVersionHandling:
     """
-    Test suite for schema version handling, migration capabilities,
+    Test suite for schema version handling, compatibility guarantees,
     and version-aware configuration management.
     """
     
@@ -513,20 +513,11 @@ class TestSchemaVersionHandling:
         )
         assert dataset_config.schema_version == version
     
-    def test_migration_capabilities(self):
-        """Test configuration migration capabilities for version upgrades."""
-        # Create a config with older version (simulated)
+    def test_no_automatic_upgrade_utilities(self):
+        """FlyRigLoader configurations do not expose automatic upgrade utilities."""
         config = create_config(schema_version="1.0.0")
-        
-        # Test migration method exists and is callable
-        assert hasattr(config, 'migrate_config')
-        assert callable(config.migrate_config)
-        
-        # Test migration to same version returns copy
-        migrated = config.migrate_config("1.0.0")
-        assert isinstance(migrated, ProjectConfig)
-        assert migrated.schema_version == "1.0.0"
-        assert migrated is not config  # Should be a copy, not the same object
+
+        assert not hasattr(config, 'migrate_config')
     
     @patch('src.flyrigloader.config.models.validate_config_version')
     def test_version_validation_integration(self, mock_validate):

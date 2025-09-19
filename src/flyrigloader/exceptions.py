@@ -158,7 +158,7 @@ class ConfigError(FlyRigLoaderError):
         CONFIG_002: YAML parsing error
         CONFIG_003: Pydantic validation failure
         CONFIG_004: Security validation failed (path traversal, etc.)
-        CONFIG_005: Configuration schema migration required
+        CONFIG_005: Unsupported configuration schema version
         CONFIG_006: Environment variable validation failed
         CONFIG_007: Configuration builder validation failed
         CONFIG_008: Legacy configuration adapter error
@@ -400,25 +400,7 @@ class RegistryError(FlyRigLoaderError):
 
 
 class VersionError(FlyRigLoaderError):
-    """
-    Configuration version and migration errors.
-    
-    This exception is raised when configuration version detection, validation,
-    or migration operations fail, including version mismatch detection,
-    migration process failures, and version compatibility issues.
-    
-    Error Codes:
-        VERSION_001: Version detection failed
-        VERSION_002: Unsupported version format
-        VERSION_003: Version migration failed
-        VERSION_004: Version compatibility check failed
-        VERSION_005: Migration path not found
-        VERSION_006: Version validation failed
-        VERSION_007: Backward compatibility broken
-        VERSION_008: Migration rollback failed
-        VERSION_009: Version schema validation failed
-        VERSION_010: Future version not supported
-    """
+    """Configuration version errors."""
     
     def __init__(
         self,
@@ -432,7 +414,7 @@ class VersionError(FlyRigLoaderError):
         Args:
             message: Human-readable error description
             error_code: Version-specific error code
-            context: Additional context including versions, migration paths, compatibility
+            context: Additional context including versions and compatibility details
         """
         super().__init__(message, error_code, context)
         
@@ -444,14 +426,10 @@ class VersionError(FlyRigLoaderError):
                 self.context['target_version'] = context['target_version']
             if 'detected_version' in context:
                 self.context['detected_version'] = context['detected_version']
-            if 'migration_path' in context:
-                self.context['migration_path'] = context['migration_path']
             if 'supported_versions' in context:
                 self.context['supported_versions'] = context['supported_versions']
             if 'config_schema' in context:
                 self.context['config_schema'] = context['config_schema']
-            if 'migration_step' in context:
-                self.context['migration_step'] = context['migration_step']
 
 
 class KedroIntegrationError(FlyRigLoaderError):

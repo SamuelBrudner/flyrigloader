@@ -119,7 +119,6 @@ collect_ignore: List[str] = []
 
 if not HYPOTHESIS_AVAILABLE:
     hypothesis_only_modules = [
-        "flyrigloader/test_config_migration.py",
         "flyrigloader/test_registry_threading.py",
         "flyrigloader/discovery/test_patterns.py",
         "flyrigloader/discovery/test_stats.py",

@@ -16,9 +16,12 @@ import warnings
 # New imports for Pydantic integration
 from pydantic import ValidationError
 from .models import LegacyConfigAdapter
-from .validators import pattern_validation, validate_config_with_version
-from ..migration.versions import detect_config_version
-from ..migration.migrators import ConfigMigrator
+from .validators import (
+    pattern_validation,
+    validate_config_with_version,
+    validate_config_version,
+)
+from .versioning import CURRENT_SCHEMA_VERSION
 
 # Set up logger with null handler by default
 logger = logging.getLogger(__name__)
@@ -123,33 +126,32 @@ def validate_config_dict(config: Union[Dict[str, Any], LegacyConfigAdapter]) -> 
 
 
 def load_config(
-    config_path_or_dict: Union[str, Path, Dict[str, Any]], 
+    config_path_or_dict: Union[str, Path, Dict[str, Any]],
     legacy_mode: bool = False
 ) -> Union[Dict[str, Any], LegacyConfigAdapter]:
-    """
-    Load and validate a YAML configuration file or dictionary with version-aware migration support.
-    
-    This function loads a YAML configuration from a file path or dictionary, automatically
-    detects the configuration schema version, performs necessary migrations to the current
-    version, and returns the parsed configuration. By default, returns Pydantic-backed
-    configurations for enhanced type safety and validation.
+    """Load and validate a YAML configuration file or dictionary.
+
+    This function loads a YAML configuration from a file path or dictionary,
+    validates that it targets the supported schema version, and returns the
+    parsed configuration. By default, returns Pydantic-backed configurations
+    for enhanced type safety and validation.
     
     Args:
         config_path_or_dict: Path to the YAML config file or a dictionary
             containing the configuration.
         legacy_mode: If True, return a raw dictionary for backward compatibility.
             If False (default), return a LegacyConfigAdapter with Pydantic validation
-            and automatic version migration support.
+            and schema version enforcement.
             
     Returns:
         Union[Dict[str, Any], LegacyConfigAdapter]: The loaded and validated configuration.
-        Returns a LegacyConfigAdapter by default with automatic migration applied, or a 
-        raw dictionary when legacy_mode=True (with deprecation warning).
+        Returns a LegacyConfigAdapter by default, or a raw dictionary when
+        ``legacy_mode=True`` (with deprecation warning).
         
     Raises:
         FileNotFoundError: If the config file doesn't exist.
         yaml.YAMLError: If there's an error parsing the YAML.
-        ValueError: If the config structure is invalid or migration fails.
+        ValueError: If the config structure is invalid or targets an unsupported version.
         ValidationError: If Pydantic validation fails with detailed error reporting.
         
     Example:
@@ -169,14 +171,13 @@ def load_config(
         if legacy_mode:
             warnings.warn(
                 "Dictionary configurations with legacy_mode=True are deprecated. "
-                "Use the default Pydantic-backed configuration or create_config() builder. "
-                "See migration guide for details.",
+                "Use the default Pydantic-backed configuration or create_config() builder.",
                 DeprecationWarning,
                 stacklevel=2
             )
         
-        # Process configuration with version awareness and migration
-        processed_config = _process_config_with_migration(config_path_or_dict)
+        # Process configuration with version awareness
+        processed_config = _process_config(config_path_or_dict)
         
         # Return appropriate format based on legacy_mode flag
         if legacy_mode:
@@ -258,8 +259,7 @@ def load_config(
             )
             return empty_config
         else:
-            # Process through migration system for consistency
-            processed_config = _process_config_with_migration(empty_config)
+            processed_config = _process_config(empty_config)
             return LegacyConfigAdapter(processed_config)
     
     with open(config_path, 'r') as f:
@@ -273,14 +273,12 @@ def load_config(
             if legacy_mode:
                 warnings.warn(
                     f"Loading configuration from {config_path} with legacy_mode=True is deprecated. "
-                    "Use the default Pydantic-backed configuration or create_config() builder. "
-                    "See migration guide for details.",
+                    "Use the default Pydantic-backed configuration or create_config() builder.",
                     DeprecationWarning,
                     stacklevel=2
                 )
             
-            # Process configuration with version awareness and migration
-            processed_config = _process_config_with_migration(raw_config)
+            processed_config = _process_config(raw_config)
             
             # Return appropriate format based on legacy_mode flag
             if legacy_mode:
@@ -309,103 +307,33 @@ def load_config(
             raise yaml.YAMLError(f"Error parsing YAML configuration: {e}") from e
 
 
-def _process_config_with_migration(raw_config: Dict[str, Any]) -> Dict[str, Any]:
-    """
-    Process configuration with automatic version detection and migration.
-    
-    This internal function implements the core version-aware configuration processing
-    workflow, including version detection, compatibility validation, automatic migration,
-    and comprehensive validation with the enhanced validation system.
-    
-    Args:
-        raw_config: Raw configuration data loaded from YAML or passed as dictionary
-        
-    Returns:
-        Dict[str, Any]: Processed and migrated configuration ready for use
-        
-    Raises:
-        ValueError: If configuration is invalid or migration fails
-        ValidationError: If final configuration validation fails
-        
-    Technical Implementation:
-        1. Detect configuration version using structural analysis and explicit version fields
-        2. Validate configuration compatibility with current system version 
-        3. Execute automatic migration if version mismatch is detected
-        4. Perform comprehensive validation with version-aware validators
-        5. Return validated and migrated configuration
-    """
-    logger.debug("Starting configuration processing with version awareness and migration")
-    
+def _process_config(raw_config: Dict[str, Any]) -> Dict[str, Any]:
+    """Validate configuration dictionaries without performing automatic upgrades."""
+
+    logger.debug("Starting configuration processing without automatic upgrade support")
+
     try:
-        # Step 1: Detect configuration version
-        try:
-            detected_version = detect_config_version(raw_config)
-            logger.info(f"Detected configuration version: {detected_version}")
-        except Exception as e:
-            logger.warning(f"Version detection failed, assuming legacy format: {e}")
-            detected_version = detect_config_version({"project": {"directories": {}}})  # Default to legacy
-        
-        # Step 2: Validate configuration with version awareness
         is_valid, validation_result = validate_config_with_version(
-            raw_config, 
-            expected_version=None,  # Auto-detect version
-            allow_migration=True
+            raw_config,
+            expected_version=None,
         )
-        
-        current_config = raw_config
-        
-        # Step 3: Execute migration if required
-        if validation_result.get('migration_required', False):
-            migration_path = validation_result.get('migration_path')
-            if migration_path:
-                logger.info(f"Migration required: {' -> '.join(migration_path)}")
-                
-                try:
-                    migrator = ConfigMigrator()
-                    from_version = str(detected_version)
-                    to_version = "1.0.0"  # Target current version
-                    
-                    # Execute migration
-                    migrated_config, migration_report = migrator.migrate(
-                        current_config, 
-                        from_version=from_version,
-                        to_version=to_version,
-                        validate_result=True
-                    )
-                    
-                    # Log migration results
-                    report_dict = migration_report.to_dict()
-                    logger.info(f"Configuration migration completed: {report_dict['migration_summary']}")
-                    
-                    if migration_report.warnings:
-                        for warning in migration_report.warnings:
-                            logger.warning(f"Migration warning: {warning}")
-                    
-                    if migration_report.errors:
-                        for error in migration_report.errors:
-                            logger.error(f"Migration error: {error}")
-                        raise ValueError(f"Migration failed with {len(migration_report.errors)} errors")
-                    
-                    current_config = migrated_config
-                    logger.info("Configuration migration successful")
-                    
-                except Exception as e:
-                    error_msg = f"Configuration migration failed: {e}"
-                    logger.error(error_msg)
-                    raise ValueError(error_msg) from e
-            else:
-                logger.warning("Migration required but no migration path available")
-        
-        # Step 4: Perform final validation
-        try:
-            validated_config = validate_config_dict(current_config)
-            logger.debug("Final configuration validation successful")
-            return validated_config
-            
-        except Exception as e:
-            logger.error(f"Final configuration validation failed: {e}")
-            raise ValueError(f"Configuration validation failed after migration: {e}") from e
-    
+
+        if not is_valid:
+            errors = validation_result.get('errors') or validation_result.get('validation_messages')
+            error_msg = "; ".join(str(err) for err in errors if err)
+            if not error_msg:
+                error_msg = "Configuration validation failed."
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+
+        _, detected_version, message = validate_config_version(raw_config)
+        logger.info("Configuration version confirmed: %s", detected_version)
+        logger.debug(message)
+
+        validated_config = validate_config_dict(raw_config)
+        logger.debug("Final configuration validation successful")
+        return validated_config
+
     except Exception as e:
         logger.error(f"Configuration processing failed: {e}")
         raise ValueError(f"Failed to process configuration: {e}") from e
