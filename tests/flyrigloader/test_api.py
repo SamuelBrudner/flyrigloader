@@ -15,6 +15,7 @@ from typing import Dict, List, Any, Optional, Union
 import time
 import logging
 from copy import deepcopy
+from datetime import datetime
 
 import pytest
 import numpy as np
@@ -33,9 +34,11 @@ from flyrigloader.api import (
     discover_experiment_manifest,
     load_data_file,
     transform_to_dataframe,
-    MISSING_DATA_DIR_ERROR
+    MISSING_DATA_DIR_ERROR,
+    FlyRigLoaderError
 )
 from flyrigloader.config.models import LegacyConfigAdapter
+from flyrigloader.discovery.files import FileManifest, FileInfo
 
 
 # =============================================================================
@@ -1445,35 +1448,25 @@ class TestDecoupledPipelineFunctions:
     
     def test_discover_experiment_manifest_basic_functionality(self, mocker):
         """Test basic manifest discovery functionality."""
-        # Mock dependencies
-        mock_deps = mocker.patch('flyrigloader.api.get_dependency_provider')
-        mock_provider = mocker.Mock()
-        mock_deps.return_value = mock_provider
-        
-        # Mock config loading
-        mock_provider.config.get_experiment_info.return_value = {
-            'datasets': ['test_dataset'],
-            'parameters': {'param1': 'value1'}
-        }
-        
-        # Mock file discovery returning manifest format
-        expected_manifest = {
-            '/data/exp_file1.pkl': {
-                'path': '/data/exp_file1.pkl',
-                'size': 1024,
-                'modified': '2023-01-01T10:00:00',
-                'metadata': {'experiment': 'test', 'trial': '1'},
-                'parsed_dates': {}
-            },
-            '/data/exp_file2.pkl': {
-                'path': '/data/exp_file2.pkl',
-                'size': 2048,
-                'modified': '2023-01-01T11:00:00',
-                'metadata': {'experiment': 'test', 'trial': '2'},
-                'parsed_dates': {}
-            }
-        }
-        mock_provider.discovery.discover_experiment_files.return_value = expected_manifest
+        mock_discover = mocker.patch('flyrigloader.api._discover_experiment_manifest')
+
+        manifest = FileManifest(
+            files=[
+                FileInfo(
+                    path='/data/exp_file1.pkl',
+                    size=1024,
+                    extracted_metadata={'experiment': 'test', 'trial': '1'},
+                    parsed_date=datetime(2023, 1, 1, 10, 0, 0)
+                ),
+                FileInfo(
+                    path='/data/exp_file2.pkl',
+                    size=2048,
+                    extracted_metadata={'experiment': 'test', 'trial': '2'},
+                    parsed_date=datetime(2023, 1, 1, 11, 0, 0)
+                )
+            ]
+        )
+        mock_discover.return_value = manifest
         
         # Test manifest discovery
         config_dict = {
@@ -1489,31 +1482,45 @@ class TestDecoupledPipelineFunctions:
         )
         
         # Verify results
+        expected_manifest = {
+            '/data/exp_file1.pkl': {
+                'path': '/data/exp_file1.pkl',
+                'size': 1024,
+                'metadata': {'experiment': 'test', 'trial': '1'},
+                'parsed_dates': {'parsed_date': datetime(2023, 1, 1, 10, 0, 0)}
+            },
+            '/data/exp_file2.pkl': {
+                'path': '/data/exp_file2.pkl',
+                'size': 2048,
+                'metadata': {'experiment': 'test', 'trial': '2'},
+                'parsed_dates': {'parsed_date': datetime(2023, 1, 1, 11, 0, 0)}
+            }
+        }
         assert result == expected_manifest
         assert len(result) == 2
-        assert '/data/exp_file1.pkl' in result
-        assert result['/data/exp_file1.pkl']['metadata']['experiment'] == 'test'
-        
-        # Verify dependency calls
-        mock_provider.discovery.discover_experiment_files.assert_called_once()
-        call_kwargs = mock_provider.discovery.discover_experiment_files.call_args.kwargs
-        assert call_kwargs['experiment_name'] == 'test_exp'
-        assert call_kwargs['extract_metadata'] is True
-        assert call_kwargs['parse_dates'] is True
+        assert set(result) == {"/data/exp_file1.pkl", "/data/exp_file2.pkl"}
+
+        mock_discover.assert_called_once_with(
+            config=config_dict,
+            experiment_name='test_exp',
+            patterns=None,
+            parse_dates=True,
+            include_stats=True,
+            test_mode=False
+        )
     
     def test_discover_experiment_manifest_with_legacy_config_adapter(self, mocker):
         """Test manifest discovery with LegacyConfigAdapter."""
-        # Mock dependencies
-        mock_deps = mocker.patch('flyrigloader.api.get_dependency_provider')
-        mock_provider = mocker.Mock()
-        mock_deps.return_value = mock_provider
-        
-        mock_provider.config.get_experiment_info.return_value = {
-            'datasets': ['test_dataset']
-        }
-        mock_provider.discovery.discover_experiment_files.return_value = {
-            '/data/test.pkl': {'path': '/data/test.pkl', 'size': 512, 'metadata': {}}
-        }
+        mock_discover = mocker.patch('flyrigloader.api._discover_experiment_manifest')
+        mock_discover.return_value = FileManifest(
+            files=[
+                FileInfo(
+                    path='/data/test.pkl',
+                    size=512,
+                    extracted_metadata={'source': 'adapter-test'}
+                )
+            ]
+        )
         
         # Create LegacyConfigAdapter
         config_data = {
@@ -1527,130 +1534,125 @@ class TestDecoupledPipelineFunctions:
             config=adapter,
             experiment_name='test_exp'
         )
-        
+
         # Verify the adapter was converted to dict internally
         assert isinstance(result, dict)
         assert len(result) == 1
+        assert result['/data/test.pkl']['metadata']['source'] == 'adapter-test'
+
+        mock_discover.assert_called_once()
+        assert mock_discover.call_args.kwargs['config'] is adapter
     
     def test_discover_experiment_manifest_file_list_conversion(self, mocker):
         """Test manifest discovery converts file lists to manifest format."""
-        # Mock dependencies
-        mock_deps = mocker.patch('flyrigloader.api.get_dependency_provider')
-        mock_provider = mocker.Mock()
-        mock_deps.return_value = mock_provider
-        
-        mock_provider.config.get_experiment_info.return_value = {'datasets': ['test']}
-        
-        # Mock discovery returning simple file list (legacy format)
-        file_list = ['/data/file1.pkl', '/data/file2.pkl']
-        mock_provider.discovery.discover_experiment_files.return_value = file_list
-        
-        # Mock Path.stat for file size
-        mock_stat = mocker.patch('pathlib.Path.stat')
-        mock_stat.return_value.st_size = 1024
-        mock_exists = mocker.patch('pathlib.Path.exists')
-        mock_exists.return_value = True
-        
+        mock_discover = mocker.patch('flyrigloader.api._discover_experiment_manifest')
+        mock_discover.return_value = FileManifest(
+            files=[
+                FileInfo(path='/data/file1.pkl'),
+                FileInfo(path='/data/file2.pkl', size=4096, extracted_metadata={'trial': 2})
+            ]
+        )
+
         config_dict = {
             'project': {'directories': {'major_data_directory': '/data'}},
             'experiments': {'test_exp': {'datasets': ['test']}}
         }
-        
+
         result = discover_experiment_manifest(
             config=config_dict,
             experiment_name='test_exp'
         )
-        
+
         # Verify conversion to manifest format
         assert isinstance(result, dict)
         assert len(result) == 2
-        for file_path in file_list:
-            assert file_path in result
-            assert result[file_path]['path'] == str(Path(file_path).resolve())
-            assert result[file_path]['size'] == 1024
-            assert 'metadata' in result[file_path]
-    
+        assert result['/data/file1.pkl']['path'] == '/data/file1.pkl'
+        assert result['/data/file1.pkl']['size'] == 0  # default when size missing
+        assert result['/data/file1.pkl']['metadata'] == {}
+        assert result['/data/file1.pkl']['parsed_dates'] == {}
+
+        assert result['/data/file2.pkl']['size'] == 4096
+        assert result['/data/file2.pkl']['metadata'] == {'trial': 2}
+
+        mock_discover.assert_called_once_with(
+            config=config_dict,
+            experiment_name='test_exp',
+            patterns=None,
+            parse_dates=False,
+            include_stats=False,
+            test_mode=False
+        )
+
+    def test_discover_experiment_manifest_error_handling(self, mocker):
+        """Ensure discovery errors are surfaced clearly."""
+        mock_discover = mocker.patch('flyrigloader.api._discover_experiment_manifest')
+        mock_discover.side_effect = ValueError("unexpected failure")
+
+        with pytest.raises(RuntimeError, match="Failed to discover experiment manifest"):
+            discover_experiment_manifest(
+                config={'project': {'directories': {}}},
+                experiment_name='broken'
+            )
+
+        mock_discover.assert_called_once()
+
     def test_load_data_file_basic_functionality(self, mocker):
         """Test basic data file loading functionality."""
-        # Mock dependencies
-        mock_deps = mocker.patch('flyrigloader.api.get_dependency_provider')
-        mock_provider = mocker.Mock()
-        mock_deps.return_value = mock_provider
-        
-        # Mock file existence
-        mock_path_exists = mocker.patch('pathlib.Path.exists')
-        mock_path_exists.return_value = True
-        
-        # Mock file stat
-        mock_path_stat = mocker.patch('pathlib.Path.stat')
-        mock_stat_result = mocker.Mock()
-        mock_stat_result.st_size = 2048
-        mock_path_stat.return_value = mock_stat_result
-        
-        # Mock pickle loading
+        mock_loader = mocker.patch('flyrigloader.api._load_data_file')
         expected_data = {
             't': [1, 2, 3, 4, 5],
             'x': [0.1, 0.2, 0.3, 0.4, 0.5],
             'y': [0.2, 0.3, 0.4, 0.5, 0.6]
         }
-        mock_provider.io.read_pickle_any_format.return_value = expected_data
-        
+        mock_loader.return_value = expected_data
+
         # Test data loading
         result = load_data_file('/data/test_file.pkl')
-        
+
         # Verify results
         assert result == expected_data
         assert 't' in result
         assert len(result['t']) == 5
-        
-        # Verify dependency calls
-        mock_provider.io.read_pickle_any_format.assert_called_once_with('/data/test_file.pkl')
-    
+
+        mock_loader.assert_called_once_with('/data/test_file.pkl', None)
+
     def test_load_data_file_validation_errors(self, mocker):
         """Test data file loading validation and error handling."""
-        # Test with non-existent file
-        mock_path_exists = mocker.patch('pathlib.Path.exists')
-        mock_path_exists.return_value = False
-        
-        with pytest.raises(Exception, match="Data file not found"):
+        mock_loader = mocker.patch('flyrigloader.api._load_data_file')
+        mock_loader.side_effect = FileNotFoundError("File not found: /nonexistent/file.pkl")
+
+        with pytest.raises(FlyRigLoaderError, match="Failed to load data from /nonexistent/file.pkl"):
             load_data_file('/nonexistent/file.pkl')
-        
+
+        mock_loader.assert_called_once_with('/nonexistent/file.pkl', None)
+
         # Test with invalid file_path
-        with pytest.raises(Exception, match="Invalid file_path"):
+        with pytest.raises(FlyRigLoaderError, match="Invalid file_path"):
             load_data_file("")
-        
-        with pytest.raises(Exception, match="Invalid file_path"):
+
+        with pytest.raises(FlyRigLoaderError, match="Invalid file_path"):
             load_data_file(None)
-    
+
     def test_load_data_file_format_validation(self, mocker):
         """Test data file format validation."""
-        # Mock dependencies and file existence
-        mock_deps = mocker.patch('flyrigloader.api.get_dependency_provider')
-        mock_provider = mocker.Mock()
-        mock_deps.return_value = mock_provider
-        
-        mock_path_exists = mocker.patch('pathlib.Path.exists')
-        mock_path_exists.return_value = True
-        mock_path_stat = mocker.patch('pathlib.Path.stat')
-        mock_path_stat.return_value.st_size = 1024
-        
-        # Test with non-dict data (should trigger warning but not error by default)
-        mock_provider.io.read_pickle_any_format.return_value = [1, 2, 3]  # Not a dict
-        
+        mock_loader = mocker.patch('flyrigloader.api._load_data_file')
+        mock_loader.side_effect = [
+            [1, 2, 3],
+            [1, 2, 3],
+            {'t': [1, 2, 3], 'x': [0.1, 0.2, 0.3]}
+        ]
+
         result = load_data_file('/data/test.pkl', validate_format=False)
         assert result == [1, 2, 3]
-        
+
         # Test with validation enabled (should raise error)
-        from flyrigloader.api import FlyRigLoaderError
         with pytest.raises(FlyRigLoaderError, match="Invalid data format"):
             load_data_file('/data/test.pkl', validate_format=True)
-        
-        # Test with valid dict format
-        valid_data = {'t': [1, 2, 3], 'x': [0.1, 0.2, 0.3]}
-        mock_provider.io.read_pickle_any_format.return_value = valid_data
-        
+
         result = load_data_file('/data/test.pkl', validate_format=True)
-        assert result == valid_data
+        assert result == {'t': [1, 2, 3], 'x': [0.1, 0.2, 0.3]}
+
+        assert mock_loader.call_count == 3
     
     def test_transform_to_dataframe_basic_functionality(self, mocker):
         """Test basic DataFrame transformation functionality."""
