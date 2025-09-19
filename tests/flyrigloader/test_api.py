@@ -983,7 +983,7 @@ class TestAPIIntegrationWorkflows:
                     df[key] = value
             return df
         
-        mocker.patch('flyrigloader.io.transformers.transform_to_dataframe', side_effect=mock_dataframe_transform)
+        mocker.patch('flyrigloader.api._transform_to_dataframe', side_effect=mock_dataframe_transform)
         
         # Update config to use temporary directory
         if hasattr(config_in_both_formats, '__getitem__'):  # Dictionary or LegacyConfigAdapter
@@ -1578,8 +1578,8 @@ class TestDecoupledPipelineFunctions:
             config=config_dict,
             experiment_name='test_exp',
             patterns=None,
-            parse_dates=False,
-            include_stats=False,
+            parse_dates=True,
+            include_stats=True,
             test_mode=False
         )
 
@@ -1657,7 +1657,7 @@ class TestDecoupledPipelineFunctions:
     def test_transform_to_dataframe_basic_functionality(self, mocker):
         """Test basic DataFrame transformation functionality."""
         # Mock the transform_to_dataframe import
-        mock_transform = mocker.patch('flyrigloader.io.transformers.transform_to_dataframe')
+        mock_transform = mocker.patch('flyrigloader.api._transform_to_dataframe')
         expected_df = pd.DataFrame({
             't': [1, 2, 3],
             'x': [0.1, 0.2, 0.3],
@@ -1689,7 +1689,7 @@ class TestDecoupledPipelineFunctions:
     def test_transform_to_dataframe_with_file_path(self, mocker):
         """Test DataFrame transformation with file path addition."""
         # Mock the transform function
-        mock_transform = mocker.patch('flyrigloader.io.transformers.transform_to_dataframe')
+        mock_transform = mocker.patch('flyrigloader.api._transform_to_dataframe')
         base_df = pd.DataFrame({
             't': [1, 2, 3],
             'x': [0.1, 0.2, 0.3]
@@ -1711,7 +1711,7 @@ class TestDecoupledPipelineFunctions:
     
     def test_transform_to_dataframe_with_metadata(self, mocker):
         """Test DataFrame transformation with metadata inclusion."""
-        mock_transform = mocker.patch('flyrigloader.io.transformers.transform_to_dataframe')
+        mock_transform = mocker.patch('flyrigloader.api._transform_to_dataframe')
         base_df = pd.DataFrame({'t': [1, 2], 'x': [0.1, 0.2]})
         mock_transform.return_value = base_df
         
@@ -1731,7 +1731,7 @@ class TestDecoupledPipelineFunctions:
     def test_transform_to_dataframe_strict_schema(self, mocker):
         """Test DataFrame transformation with strict schema enforcement."""
         # Mock dependencies
-        mock_transform = mocker.patch('flyrigloader.io.transformers.transform_to_dataframe')
+        mock_transform = mocker.patch('flyrigloader.api._transform_to_dataframe')
         mock_get_config = mocker.patch('flyrigloader.api._get_config_from_source')
         
         # Create DataFrame with extra columns
@@ -1853,7 +1853,7 @@ class TestBackwardCompatibilityTests:
                     df[key] = value
             return df
         
-        mocker.patch('flyrigloader.io.transformers.transform_to_dataframe', side_effect=mock_transform_func)
+        mocker.patch('flyrigloader.api._transform_to_dataframe', side_effect=mock_transform_func)
         
         # Test legacy approach
         legacy_result = process_experiment_data(str(test_file))
@@ -1901,7 +1901,7 @@ class TestBackwardCompatibilityTests:
             df = df.round(6)  # Ensure consistent precision
             return df
         
-        mocker.patch('flyrigloader.io.transformers.transform_to_dataframe', side_effect=consistent_transform)
+        mocker.patch('flyrigloader.api._transform_to_dataframe', side_effect=consistent_transform)
         
         file_path = '/data/comparison_test.pkl'
         
@@ -2425,7 +2425,7 @@ class TestPerformanceValidation:
                     df[key] = value
             return df
         
-        mocker.patch('flyrigloader.io.transformers.transform_to_dataframe', side_effect=mock_transform_with_delay)
+        mocker.patch('flyrigloader.api._transform_to_dataframe', side_effect=mock_transform_with_delay)
         
         # Large dataset for transformation
         large_raw_data = {
@@ -2491,7 +2491,7 @@ class TestPerformanceValidation:
                     df[key] = value
             return df
         
-        mocker.patch('flyrigloader.io.transformers.transform_to_dataframe', side_effect=mock_transform)
+        mocker.patch('flyrigloader.api._transform_to_dataframe', side_effect=mock_transform)
         
         config_dict = {
             'project': {'directories': {'major_data_directory': '/data'}},
