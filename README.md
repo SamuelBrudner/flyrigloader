@@ -15,7 +15,6 @@ flyrigloader/
 │       ├── io/              # Input/output utilities (separated loading/transformation)
 │       ├── registries/      # Registry infrastructure for extensibility
 │       ├── kedro/           # Kedro integration module (optional)
-│       ├── migration/       # Configuration migration infrastructure
 │       ├── exceptions.py    # Domain-specific exception hierarchy
 │       ├── utils/           # Utility functions and testing support
 │       └── api.py           # High-level API with backward compatibility
@@ -24,7 +23,6 @@ flyrigloader/
 │   ├── architecture.md     # Technical architecture guide
 │   ├── extension_guide.md  # Plugin development guide
 │   ├── kedro_integration.md # Kedro integration guide
-│   └── migration_guide.md  # Migration instructions
 ├── logs/                    # Log files (auto-created)
 ├── config/                  # Configuration files
 └── pyproject.toml           # Project metadata and dependencies
@@ -41,7 +39,6 @@ The latest version includes a comprehensive refactoring that enhances modularity
 - **Pydantic Configuration Models**: Type-safe configuration with comprehensive validation
 - **Configuration Builder Functions**: Programmatic configuration creation with sensible defaults
 - **Kedro Integration**: First-class support for Kedro pipelines with AbstractDataset implementations
-- **Version-Aware Migration**: Automatic configuration migration with version compatibility tracking
 - **Domain-Specific Exception Hierarchy**: Granular error handling with context preservation
 - **Enhanced Memory Efficiency**: Process large datasets with selective loading and transformation
 - **Backward Compatibility**: Existing code continues to work with deprecation warnings
@@ -139,7 +136,6 @@ The `config` module provides a modern, type-safe configuration system built with
 - **Pydantic schema validation**: Automatic validation with clear error messages
 - **Type-safe configuration**: Full IDE autocomplete and type checking support
 - **Hierarchical settings**: Access settings at project, dataset, and experiment levels with inheritance
-- **Backward compatibility**: Seamless migration from dictionary-based configurations
 - **Path resolution**: Clear, logged precedence for data directory resolution
 - **Config-aware discovery**: Find files using validated configuration filters
 - **Enhanced error handling**: Detailed validation feedback with field-level error reporting
@@ -812,42 +808,9 @@ all_schemas = schema_registry.get_all_schemas()
 print(f"Available schemas: {list(all_schemas.keys())}")
 ```
 
-### Deprecation Warnings and Migration Guide
-
-The refactored system maintains backward compatibility with clear deprecation warnings:
-
-```python
-import warnings
-warnings.filterwarnings("default", category=DeprecationWarning)
-
-# Legacy monolithic data processing (deprecated)
-from flyrigloader.api import process_experiment_data
-
-df = process_experiment_data(config, experiment)
-# DeprecationWarning: process_experiment_data is deprecated since 2.0.0. 
-# The monolithic approach is less flexible. Use the decoupled pipeline instead:
-# manifest = discover_experiment_manifest(config, experiment)
-# raw_data = load_data_file(manifest.files[0].path)
-# df = transform_to_dataframe(raw_data, config_source=config)
-
-# Legacy path-based configuration (deprecated)
-files = load_experiment_files(
-    config_path="/path/to/config.yaml",
-    experiment_name="experiment"
-)
-# DeprecationWarning: config_path parameter is deprecated since 2.0.0. 
-# Use config parameter with Pydantic model instead.
-
-# Migration to modern API
-from flyrigloader.config.models import create_config
-config = create_config(
-    project_name="project",
-    base_directory="/path/to/data"
-)
-files = load_experiment_files(config=config, experiment_name="experiment")
-```
-
 ### Metadata Extraction with Enhanced Validation
+
+
 
 ```python
 from flyrigloader.config.models import create_config
@@ -999,264 +962,15 @@ except Exception as e:
     })
 ```
 
-### Migration Guide: Upgrading from Legacy Dictionary-Based Configurations
+### Documentation Resources
 
-FlyRigLoader v2.0+ provides seamless migration from legacy dictionary-based configurations to the new Pydantic-based system with automatic version detection and migration support.
+For detailed configuration guidance:
 
-#### Legacy Configuration Support
+- **[Configuration Guide](docs/configuration_guide.md)** - Comprehensive documentation of configuration options and Pydantic schema models.
+- **[Extension Guide](docs/extension_guide.md)** - Plugin development guide for custom loaders and schemas.
+- **[Kedro Integration Guide](docs/kedro_integration.md)** - Complete guide for integrating FlyRigLoader with Kedro pipelines.
 
-Existing dictionary-based configurations continue to work with deprecation warnings:
-
-```python
-import warnings
-warnings.filterwarnings("default", category=DeprecationWarning)
-
-# Legacy dictionary configuration (still supported)
-legacy_config = {
-    'project': {
-        'directories': {'major_data_directory': '/data/fly_experiments'},
-        'ignore_substrings': ['temp', 'backup']
-    },
-    'experiments': {
-        'my_experiment': {
-            'datasets': ['tracking_data'],
-            'parameters': {'threshold': 0.5}
-        }
-    }
-}
-
-# This still works but shows deprecation warning
-from flyrigloader.api import load_experiment_files
-files = load_experiment_files(legacy_config, 'my_experiment')
-# DeprecationWarning: Dictionary-based configuration format is deprecated. 
-# Use create_config() builder and Pydantic models for new configurations.
-```
-
-#### Automatic Configuration Migration
-
-The system automatically detects and migrates legacy configurations:
-
-```python
-from flyrigloader.config.yaml_config import load_config
-
-# Load legacy YAML configuration (automatically migrated)
-config = load_config("legacy_config.yaml")
-
-# Configuration is automatically migrated to current version
-print(f"Migrated to schema version: {config.get_model('project').schema_version}")
-# Output: Migrated to schema version: 1.0.0
-
-# Access with modern type-safe API
-project_config = config.get_model('project')
-print(f"Data directory: {project_config.directories['major_data_directory']}")
-```
-
-#### Step-by-Step Migration to Builder Pattern
-
-**Step 1: Identify your current configuration structure**
-
-```python
-# Legacy approach (dictionary-based)
-old_config = {
-    'project': {
-        'directories': {'major_data_directory': '/data/experiments'},
-        'ignore_substrings': ['temp', 'backup']
-    },
-    'experiments': {
-        'behavior_test': {
-            'datasets': ['tracking'],
-            'parameters': {'window': 10.0}
-        }
-    }
-}
-```
-
-**Step 2: Convert to builder pattern**
-
-```python
-from flyrigloader.config.models import create_config, create_experiment
-
-# Modern approach (builder pattern with validation)
-project_config = create_config(
-    project_name="behavior_analysis",
-    base_directory="/data/experiments",
-    ignore_substrings=['temp', 'backup']
-)
-
-experiment_config = create_experiment(
-    name="behavior_test",
-    datasets=["tracking"],
-    parameters={"analysis_window": 10.0}
-)
-
-# Benefits: Type safety, validation, comprehensive defaults, version tracking
-print(f"Schema version: {project_config.schema_version}")
-print(f"Auto-generated directories: {list(project_config.directories.keys())}")
-```
-
-**Step 3: Update your analysis code**
-
-```python
-# Legacy API usage (still supported with warnings)
-from flyrigloader.api import load_experiment_files
-
-files = load_experiment_files(
-    config_path="config.yaml",  # Legacy path-based (deprecated)
-    experiment_name="behavior_test"
-)
-
-# Modern API usage (recommended)
-files = load_experiment_files(
-    config=project_config,  # Direct Pydantic model
-    experiment_name="behavior_test"
-)
-```
-
-#### Version-Aware Configuration Migration
-
-The system provides version-aware migration with clear upgrade paths:
-
-```python
-from flyrigloader.config.models import ExperimentConfig, create_experiment
-
-# Load old configuration (automatically detects version)
-old_experiment = ExperimentConfig(
-    schema_version="0.1.0",  # Old version
-    datasets=["tracking"],
-    parameters={"window": 5.0}  # Limited parameters
-)
-
-# Migrate to current version
-new_experiment = old_experiment.migrate_config("1.0.0")
-
-print(f"Migrated from {old_experiment.schema_version} to {new_experiment.schema_version}")
-print(f"Parameters before: {list(old_experiment.parameters.keys())}")
-print(f"Parameters after: {list(new_experiment.parameters.keys())}")
-# Output shows expanded parameter set with sensible defaults
-```
-
-#### Migration Validation and Warnings
-
-The migration system provides clear feedback and validation:
-
-```python
-from flyrigloader.config.yaml_config import load_config
-import logging
-
-# Enable migration logging
-logging.basicConfig(level=logging.INFO)
-
-# Load configuration with automatic migration
-config = load_config("legacy_config.yaml")
-# INFO: Configuration version 0.2.0 detected, migrating to 1.0.0
-# INFO: Migration completed successfully
-# WARNING: Some legacy fields were updated with new defaults
-
-# Validate migration success
-project_model = config.get_model('project')
-if project_model and project_model.schema_version == "1.0.0":
-    print("Migration successful!")
-```
-
-#### Common Migration Scenarios
-
-**Scenario 1: Basic project configuration**
-
-```python
-# Before (legacy dictionary)
-legacy = {
-    'project': {'major_data_directory': '/data'}
-}
-
-# After (builder pattern)
-from flyrigloader.config.models import create_config
-modern = create_config(base_directory="/data")
-```
-
-**Scenario 2: Experiment with parameters**
-
-```python
-# Before (limited parameter support)
-legacy = {
-    'experiments': {
-        'test': {
-            'datasets': ['data'],
-            'threshold': 0.3  # Ad-hoc parameter
-        }
-    }
-}
-
-# After (structured parameters with validation)
-from flyrigloader.config.models import create_experiment
-modern = create_experiment(
-    name="test",
-    datasets=["data"],
-    parameters={
-        "threshold": 0.3,
-        "analysis_window": 10.0,  # Auto-added defaults
-        "method": "correlation"   # Auto-added defaults
-    }
-)
-```
-
-**Scenario 3: Complex multi-experiment setup**
-
-```python
-# Before (nested dictionaries)
-legacy = {
-    'project': {'major_data_directory': '/experiments'},
-    'datasets': {
-        'tracking': {'rig': 'rig1', 'dates_vials': {'2024-01-01': [1, 2]}}
-    },
-    'experiments': {
-        'behavior': {'datasets': ['tracking'], 'window': 5.0},
-        'response': {'datasets': ['tracking'], 'threshold': 0.2}
-    }
-}
-
-# After (structured with builders)
-from flyrigloader.config.models import create_config, create_dataset, create_experiment
-
-project = create_config(base_directory="/experiments")
-
-dataset = create_dataset(
-    name="tracking",
-    rig="rig1", 
-    dates_vials={"2024-01-01": [1, 2]}
-)
-
-behavior_exp = create_experiment(
-    name="behavior",
-    datasets=["tracking"],
-    parameters={"analysis_window": 5.0}
-)
-
-response_exp = create_experiment(
-    name="response", 
-    datasets=["tracking"],
-    parameters={"threshold": 0.2}
-)
-```
-
-### Migration and Documentation Resources
-
-For users upgrading from the legacy system or needing detailed configuration guidance:
-
-- **[Migration Guide](docs/migration_guide.md)** - Step-by-step instructions for transitioning from legacy configurations (5-minute migration)
-- **[Configuration Guide](docs/configuration_guide.md)** - Comprehensive documentation of all configuration options and Pydantic schema models
-- **[Architecture Guide](docs/architecture.md)** - Technical architecture documentation with extension patterns
-- **[Extension Guide](docs/extension_guide.md)** - Plugin development guide for custom loaders and schemas
-- **[Kedro Integration Guide](docs/kedro_integration.md)** - Complete guide for integrating FlyRigLoader with Kedro pipelines
-- **[Migration Example](examples/external_project/migration_example.py)** - Practical demonstration script showing side-by-side legacy vs. new patterns
-
-### Quick Migration Options
-
-1. **Zero-Change Migration** (Recommended): Your existing code works unchanged with enhanced validation and clearer error messages
-2. **Gradual Migration**: Enable new features incrementally while maintaining backward compatibility  
-3. **Full Migration**: Adopt the decoupled architecture for maximum control and memory efficiency
-4. **Kedro Integration**: Use FlyRigLoader datasets directly in Kedro pipelines with `pip install flyrigloader[kedro]`
-
-See the [examples directory](examples/external_project) for complete demonstrations of integrating `flyrigloader` into external analysis projects with both legacy and modern patterns.
+See the [examples directory](examples/external_project) for demonstrations of integrating `flyrigloader` into external analysis projects using the current configuration system.
 
 ## Configuration Structure with Pydantic Schema Validation
 

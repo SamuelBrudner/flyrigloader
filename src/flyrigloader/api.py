@@ -36,8 +36,8 @@ from flyrigloader.exceptions import FlyRigLoaderError
 
 # New imports for enhanced refactoring per Section 0.2.1
 from flyrigloader.registries import get_loader_capabilities as _get_loader_capabilities
-from flyrigloader.migration.migrators import ConfigMigrator
-from flyrigloader.migration.versions import detect_config_version
+from flyrigloader.config.validators import validate_config_version
+from flyrigloader.config.versioning import CURRENT_SCHEMA_VERSION
 from semantic_version import Version
 
 import warnings
@@ -1206,24 +1206,23 @@ def validate_manifest(
         # Check configuration compatibility if available
         if config_dict is not None:
             try:
-                # Detect configuration version for compatibility validation
-                detected_version = detect_config_version(config_dict)
+                is_valid, detected_version, message = validate_config_version(config_dict)
                 validation_report['metadata']['config_version'] = str(detected_version)
-                logger.debug(f"Detected configuration version: {detected_version}")
-                
-                # Validate version compatibility
-                current_version = Version("1.0.0")  # Current system version
+                logger.debug("Detected configuration version: %s", detected_version)
+
+                current_version = Version(CURRENT_SCHEMA_VERSION)
                 config_version = Version(str(detected_version))
-                
-                if config_version < current_version:
+
+                if not is_valid:
+                    validation_report['errors'].append(message)
+                elif config_version < current_version:
                     validation_report['warnings'].append(
-                        f"Configuration version {detected_version} is older than system version 1.0.0. "
-                        "Consider migrating configuration for optimal compatibility."
+                        f"Configuration version {detected_version} is older than supported version {CURRENT_SCHEMA_VERSION}."
                     )
                 elif config_version > current_version:
                     validation_report['errors'].append(
-                        f"Configuration version {detected_version} is newer than system version 1.0.0. "
-                        "Please upgrade FlyRigLoader to support this configuration version."
+                        f"Configuration version {detected_version} is newer than supported version {CURRENT_SCHEMA_VERSION}. "
+                        "Please upgrade FlyRigLoader."
                     )
                 
             except Exception as e:

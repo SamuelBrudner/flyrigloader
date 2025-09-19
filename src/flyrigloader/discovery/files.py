@@ -21,7 +21,7 @@ from semantic_version import Version
 from flyrigloader import logger
 from flyrigloader.discovery.patterns import PatternMatcher, match_files_to_patterns
 from flyrigloader.discovery.stats import get_file_stats, attach_file_stats
-from flyrigloader.migration.versions import CURRENT_VERSION
+from flyrigloader.config.versioning import CURRENT_SCHEMA_VERSION
 
 
 @dataclass
@@ -50,7 +50,7 @@ class FileInfo:
     catalog_metadata: Dict[str, Any] = field(default_factory=dict)
     
     # Version-aware discovery fields
-    schema_version: str = CURRENT_VERSION
+    schema_version: str = CURRENT_SCHEMA_VERSION
     version_compatibility: Optional[Dict[str, bool]] = field(default_factory=dict)
     
     def get_kedro_dataset_path(self) -> Optional[str]:
@@ -122,7 +122,7 @@ class FileManifest:
     supported_kedro_versions: List[str] = field(default_factory=list)
     
     # Version management fields
-    manifest_version: str = CURRENT_VERSION
+    manifest_version: str = CURRENT_SCHEMA_VERSION
     discovery_metadata: Dict[str, Any] = field(default_factory=dict)
     
     def __post_init__(self):
@@ -417,7 +417,7 @@ class FileDiscoverer:
         kedro_namespace: Optional[str] = None,
         kedro_tags: Optional[List[str]] = None,
         # Version management parameters
-        schema_version: str = CURRENT_VERSION,
+        schema_version: str = CURRENT_SCHEMA_VERSION,
         version_aware_patterns: bool = True
     ):
         """
@@ -1102,7 +1102,7 @@ class FileDiscoverer:
         
         try:
             target_ver = Version(target_version)
-            current_ver = Version(CURRENT_VERSION)
+            current_ver = Version(CURRENT_SCHEMA_VERSION)
             
             # If target version is current or newer, no filtering needed
             if target_ver >= current_ver:
@@ -1177,7 +1177,7 @@ class FileDiscoverer:
         compatibility = {}
         
         try:
-            current_ver = Version(CURRENT_VERSION)
+            current_ver = Version(CURRENT_SCHEMA_VERSION)
             
             # Check compatibility with major versions
             for major_version in [0, 1]:
@@ -1282,7 +1282,7 @@ def discover_experiment_manifest(
         # Determine schema version from config or use provided/default
         config_schema_version = schema_version
         if config_schema_version is None:
-            config_schema_version = getattr(config, 'schema_version', CURRENT_VERSION)
+            config_schema_version = getattr(config, 'schema_version', CURRENT_SCHEMA_VERSION)
         
         logger.debug(f"Using schema version: {config_schema_version}")
         
@@ -1418,7 +1418,7 @@ def discover_files(
     kedro_namespace: Optional[str] = None,
     kedro_tags: Optional[List[str]] = None,
     # Version management parameters
-    schema_version: str = CURRENT_VERSION,
+    schema_version: str = CURRENT_SCHEMA_VERSION,
     version_aware_patterns: bool = False
 ) -> Union[List[str], Dict[str, Dict[str, Any]]]:
     """

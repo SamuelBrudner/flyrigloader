@@ -7,20 +7,20 @@ version validation that enhance the robustness of configuration loading and prev
 security vulnerabilities.
 
 Enhanced with semantic versioning support for configuration schema validation and
-automatic migration compatibility checking, supporting the FlyRigLoader refactoring
-initiative for version-aware configuration management.
+compatibility checking, supporting the FlyRigLoader refactoring initiative for
+version-aware configuration management.
 """
 
 from pathlib import Path
 import re
 import os
 import logging
-import warnings
 from typing import Any, Dict, Union, Tuple, Optional, List
 from datetime import datetime
 
 from semantic_version import Version
-from flyrigloader.migration.versions import COMPATIBILITY_MATRIX
+
+from .versioning import CURRENT_SCHEMA_VERSION
 
 
 # Set up logger for validation events
@@ -409,161 +409,90 @@ def validate_version_format(version_string: Any) -> bool:
 
 
 def validate_version_compatibility(
-    config_version: str, 
-    system_version: str = "1.0.0"
+    config_version: str,
+    system_version: str = CURRENT_SCHEMA_VERSION
 ) -> Tuple[bool, str, Optional[List[str]]]:
     """
     Validate configuration version compatibility with the current system version.
-    
-    This function checks whether a configuration version is compatible with the
-    current system version using the compatibility matrix. It determines if
-    direct usage is possible, migration is required, or the configuration is
-    incompatible with the current system.
-    
+
     Args:
         config_version: Version of the configuration to validate
-        system_version: Current system version (defaults to "1.0.0")
-        
+        system_version: Current system version (defaults to CURRENT_SCHEMA_VERSION)
+
     Returns:
-        Tuple[bool, str, Optional[List[str]]]: 
-            - is_compatible: True if directly compatible, False if migration needed
+        Tuple[bool, str, Optional[List[str]]]:
+            - is_compatible: True if supported without changes
             - message: Detailed compatibility status message
-            - migration_path: List of version strings for migration (if needed)
-            
+            - details: Reserved for future use (currently ``None``)
+
     Raises:
         ValueError: If version formats are invalid
         TypeError: If version inputs are not strings
-        
-    Example:
-        >>> compatible, msg, path = validate_version_compatibility("0.1.0", "1.0.0")
-        >>> if not compatible and path:
-        ...     print(f"Migration required: {' -> '.join(path)}")
-        
-        >>> compatible, msg, path = validate_version_compatibility("1.0.0", "1.0.0")
-        >>> assert compatible == True  # Same version, directly compatible
     """
-    logger.debug(f"Validating compatibility: config v{config_version} with system v{system_version}")
-    
-    # Type validation
+    logger.debug(
+        "Validating compatibility without upgrade pathways: config v%s vs system v%s",
+        config_version,
+        system_version,
+    )
+
     if not isinstance(config_version, str):
         raise TypeError(f"config_version must be string, got {type(config_version)}")
     if not isinstance(system_version, str):
         raise TypeError(f"system_version must be string, got {type(system_version)}")
-    
-    # Format validation
+
     validate_version_format(config_version)
     validate_version_format(system_version)
-    
-    try:
-        config_ver = Version(config_version)
-        system_ver = Version(system_version)
-        
-        # Same version - fully compatible
-        if config_ver == system_ver:
-            logger.info(f"Configuration version {config_version} matches system version")
-            return True, f"Configuration version {config_version} is fully compatible", None
-        
-        # Check compatibility matrix for migration availability
-        if config_version in COMPATIBILITY_MATRIX:
-            compat_info = COMPATIBILITY_MATRIX[config_version]
-            
-            # Direct migration to system version available
-            if system_version in compat_info and compat_info[system_version] is True:
-                logger.info(f"Direct migration available: {config_version} -> {system_version}")
-                return False, (
-                    f"Configuration version {config_version} can be migrated to {system_version}"
-                ), [config_version, system_version]
-            
-            # Check for multi-step migration path
-            migration_path = _find_version_migration_path(config_version, system_version)
-            if migration_path:
-                logger.info(f"Multi-step migration path found: {' -> '.join(migration_path)}")
-                return False, (
-                    f"Configuration version {config_version} can be migrated to {system_version} "
-                    f"via multi-step path"
-                ), migration_path
-        
-        # Check if configuration is newer than system (potential forward compatibility issue)
-        if config_ver > system_ver:
-            logger.warning(f"Configuration version {config_version} is newer than system {system_version}")
-            return False, (
-                f"Configuration version {config_version} is newer than system version {system_version}. "
-                f"System upgrade may be required."
-            ), None
-        
-        # No migration path available for older configuration
-        logger.error(f"No migration path available from {config_version} to {system_version}")
-        return False, (
-            f"Configuration version {config_version} is incompatible with system version {system_version}. "
-            f"No migration path available."
-        ), None
-    
-    except Exception as e:
-        logger.error(f"Version compatibility validation failed: {e}")
-        raise ValueError(f"Version compatibility check failed: {e}") from e
 
+    config_ver = Version(config_version)
+    system_ver = Version(system_version)
 
-def _find_version_migration_path(from_version: str, to_version: str) -> Optional[List[str]]:
-    """
-    Find a multi-step migration path between versions using the compatibility matrix.
-    
-    Args:
-        from_version: Source version string
-        to_version: Target version string
-        
-    Returns:
-        Optional[List[str]]: Migration path as list of version strings, or None if no path
-    """
-    logger.debug(f"Searching for migration path: {from_version} -> {to_version}")
-    
-    # Simple implementation for the defined versions in compatibility matrix
-    # For more complex scenarios, this could use graph algorithms (BFS/DFS)
-    
-    # Known migration chains based on current compatibility matrix
-    if from_version == "0.1.0" and to_version == "1.0.0":
-        # Check if intermediate migration is available
-        if ("0.1.0" in COMPATIBILITY_MATRIX and 
-            "0.2.0" in COMPATIBILITY_MATRIX["0.1.0"] and
-            "0.2.0" in COMPATIBILITY_MATRIX and
-            "1.0.0" in COMPATIBILITY_MATRIX["0.2.0"]):
-            return ["0.1.0", "0.2.0", "1.0.0"]
-    
-    # Could be extended with more sophisticated path finding algorithms
-    return None
+    if config_ver == system_ver:
+        logger.info("Configuration version %s is supported", config_version)
+        return True, f"Configuration version {config_version} is supported", None
+
+    if config_ver > system_ver:
+        message = (
+            f"Configuration version {config_version} is newer than the supported "
+            f"system version {system_version}. Upgrade FlyRigLoader to use this configuration."
+        )
+        logger.error(message)
+        return False, message, None
+
+    message = (
+        f"Configuration version {config_version} is deprecated and no supported upgrade path exists. "
+        f"Update the configuration to version {system_version}."
+    )
+    logger.error(message)
+    return False, message, None
 
 
 def validate_config_version(config_data: Union[Dict[str, Any], str]) -> Tuple[bool, str, str]:
-    """
-    Validate configuration version information and determine migration requirements.
-    
-    This function analyzes configuration data to extract and validate version information,
-    checking compatibility with the current system version and providing migration
-    guidance when necessary. It serves as the primary entry point for version-aware
-    configuration validation workflows.
-    
+    """Validate configuration version information and determine compatibility.
+
     Args:
-        config_data: Configuration data as dictionary or raw YAML string
-        
+        config_data: Configuration data as dictionary or raw YAML string.
+
     Returns:
         Tuple[bool, str, str]:
-            - is_valid: True if configuration is valid and compatible
-            - detected_version: The detected or extracted version string
-            - validation_message: Detailed validation result message
-            
+            - is_valid: True if configuration is valid and compatible.
+            - detected_version: The detected or extracted version string.
+            - validation_message: Detailed validation result message.
+
     Raises:
-        TypeError: If config_data is not dict or string
-        ValueError: If version cannot be detected or is invalid
-        
+        TypeError: If ``config_data`` is not dict or string.
+        ValueError: If a version cannot be detected or is invalid.
+
     Example:
         >>> config = {"schema_version": "1.0.0", "project": {"name": "test"}}
         >>> valid, version, msg = validate_config_version(config)
-        >>> assert valid == True
+        >>> assert valid is True
         >>> assert version == "1.0.0"
-        
-        >>> legacy_config = {"project": {"directories": {}}, "experiments": {}}
-        >>> valid, version, msg = validate_config_version(legacy_config)
-        >>> assert valid == False  # Migration required
-        >>> assert "0.1.0" in version  # Detected legacy version
+
+        >>> outdated_config = {"project": {"directories": {}}, "experiments": {}}
+        >>> validate_config_version(outdated_config)
+        Traceback (most recent call last):
+        ...
+        ValueError: Configuration version validation failed: Cannot detect version: unrecognized configuration structure
     """
     logger.debug("Starting configuration version validation")
     
@@ -572,31 +501,21 @@ def validate_config_version(config_data: Union[Dict[str, Any], str]) -> Tuple[bo
         raise TypeError(f"Configuration data must be dict or str, got {type(config_data)}")
     
     try:
-        # Extract version from configuration data
         detected_version = _extract_version_from_config(config_data)
-        logger.info(f"Detected configuration version: {detected_version}")
-        
-        # Validate the detected version format
+        logger.info("Detected configuration version: %s", detected_version)
+
         validate_version_format(detected_version)
-        
-        # Check compatibility with current system
-        is_compatible, compat_message, migration_path = validate_version_compatibility(detected_version)
-        
-        # Prepare validation result
+
+        is_compatible, compat_message, _ = validate_version_compatibility(detected_version)
+
         if is_compatible:
             validation_message = f"Configuration version {detected_version} is valid and compatible"
             logger.info(validation_message)
             return True, detected_version, validation_message
-        else:
-            validation_message = (
-                f"Configuration version {detected_version} requires migration. {compat_message}"
-            )
-            if migration_path:
-                validation_message += f". Migration path: {' -> '.join(migration_path)}"
-            
-            logger.warning(validation_message)
-            return False, detected_version, validation_message
-    
+
+        logger.error(compat_message)
+        return False, detected_version, compat_message
+
     except Exception as e:
         error_msg = f"Configuration version validation failed: {str(e)}"
         logger.error(error_msg)
@@ -604,17 +523,16 @@ def validate_config_version(config_data: Union[Dict[str, Any], str]) -> Tuple[bo
 
 
 def _extract_version_from_config(config_data: Union[Dict[str, Any], str]) -> str:
-    """
-    Extract version information from configuration data.
-    
+    """Extract version information from configuration data.
+
     Args:
-        config_data: Configuration data as dictionary or YAML string
-        
+        config_data: Configuration data as dictionary or YAML string.
+
     Returns:
-        str: Detected version string
-        
+        str: Detected version string.
+
     Raises:
-        ValueError: If version cannot be detected
+        ValueError: If a version cannot be detected.
     """
     logger.debug("Extracting version from configuration data")
     
@@ -673,14 +591,10 @@ def _extract_version_from_config(config_data: Union[Dict[str, Any], str]) -> str
             logger.info("Detected legacy v0.1.0 pattern in YAML")
             return "0.1.0"
         else:
-            logger.warning("Cannot detect version from YAML content, assuming legacy v0.1.0")
-            warnings.warn(
-                "Configuration version could not be determined from content. "
-                "Consider adding 'schema_version' field to your configuration.",
-                DeprecationWarning,
-                stacklevel=3
+            logger.error("Cannot detect version from YAML content")
+            raise ValueError(
+                "Cannot detect version: add an explicit 'schema_version' field or update the configuration structure"
             )
-            return "0.1.0"
     
     raise ValueError("Unsupported configuration data type for version extraction")
 
@@ -688,40 +602,20 @@ def _extract_version_from_config(config_data: Union[Dict[str, Any], str]) -> str
 def validate_config_with_version(
     config_data: Union[Dict[str, Any], str],
     expected_version: Optional[str] = None,
-    allow_migration: bool = True
 ) -> Tuple[bool, Dict[str, Any]]:
-    """
-    Comprehensive configuration validation with version awareness and migration support.
-    
-    This function provides complete configuration validation that combines version
-    checking, compatibility validation, and preparation for migration workflows.
-    It serves as the main validation entry point for version-aware configuration
-    processing in the refactored FlyRigLoader system.
-    
+    """Comprehensively validate configuration data with version awareness.
+
     Args:
-        config_data: Configuration data as dictionary or YAML string
-        expected_version: Expected version string (None to auto-detect)
-        allow_migration: Whether to allow configurations requiring migration
-        
+        config_data: Configuration data as dictionary or YAML string.
+        expected_version: Expected version string (``None`` to auto-detect).
+
     Returns:
-        Tuple[bool, Dict[str, Any]]:
-            - is_valid: True if configuration passes all validation
-            - validation_result: Detailed validation information
-            
+        Tuple[bool, Dict[str, Any]]: Validation status and detailed results including
+        the detected version, warnings, and errors.
+
     Raises:
-        TypeError: If config_data is not dict or string
-        ValueError: If configuration is invalid or incompatible
-        
-    Example:
-        >>> config = {"schema_version": "1.0.0", "project": {"name": "test"}}
-        >>> valid, result = validate_config_with_version(config)
-        >>> assert valid == True
-        >>> assert result['version'] == "1.0.0"
-        >>> assert result['compatible'] == True
-        
-        >>> legacy_config = {"project": {"directories": {}}, "experiments": {}}
-        >>> valid, result = validate_config_with_version(legacy_config, allow_migration=True)
-        >>> assert result['migration_required'] == True
+        TypeError: If ``config_data`` is not dict or string.
+        ValueError: If configuration is invalid or incompatible.
     """
     logger.debug("Starting comprehensive configuration validation with version awareness")
     
@@ -729,8 +623,6 @@ def validate_config_with_version(
     validation_result = {
         'version': None,
         'compatible': False,
-        'migration_required': False,
-        'migration_path': None,
         'validation_messages': [],
         'warnings': [],
         'errors': []
@@ -746,24 +638,22 @@ def validate_config_with_version(
         if expected_version is not None:
             validate_version_format(expected_version)
             if detected_version != expected_version:
-                warning_msg = f"Detected version {detected_version} differs from expected {expected_version}"
-                logger.warning(warning_msg)
-                validation_result['warnings'].append(warning_msg)
-        
-        # Step 3: Compatibility assessment
-        is_compatible, compat_message, migration_path = validate_version_compatibility(detected_version)
-        validation_result['compatible'] = is_compatible
-        validation_result['validation_messages'].append(compat_message)
-        
-        if not is_compatible:
-            validation_result['migration_required'] = True
-            validation_result['migration_path'] = migration_path
-            
-            if not allow_migration:
-                error_msg = f"Configuration requires migration but migration is not allowed: {compat_message}"
+                error_msg = (
+                    f"Detected version {detected_version} does not match expected {expected_version}."
+                )
                 logger.error(error_msg)
                 validation_result['errors'].append(error_msg)
                 return False, validation_result
+
+        # Step 3: Compatibility assessment
+        is_compatible, compat_message, _ = validate_version_compatibility(detected_version)
+        validation_result['compatible'] = is_compatible
+        validation_result['validation_messages'].append(compat_message)
+
+        if not is_compatible:
+            logger.error(compat_message)
+            validation_result['errors'].append(compat_message)
+            return False, validation_result
         
         # Step 4: Additional configuration structure validation
         structure_valid, structure_messages = _validate_config_structure(config_data, detected_version)
@@ -777,18 +667,13 @@ def validate_config_with_version(
         deprecation_warnings = _get_version_deprecation_warnings(detected_version)
         validation_result['warnings'].extend(deprecation_warnings)
         
-        # Final validation result
-        overall_valid = (
-            is_version_valid and 
-            structure_valid and
-            (is_compatible or (validation_result['migration_required'] and allow_migration))
-        )
-        
+        overall_valid = is_version_valid and structure_valid and is_compatible
+
         if overall_valid:
-            logger.info(f"Configuration validation passed for version {detected_version}")
+            logger.info("Configuration validation passed for version %s", detected_version)
         else:
-            logger.warning(f"Configuration validation failed for version {detected_version}")
-        
+            logger.warning("Configuration validation failed for version %s", detected_version)
+
         return overall_valid, validation_result
     
     except Exception as e:
@@ -799,15 +684,14 @@ def validate_config_with_version(
 
 
 def _validate_config_structure(config_data: Union[Dict[str, Any], str], version: str) -> Tuple[bool, List[str]]:
-    """
-    Validate configuration structure based on version-specific requirements.
-    
+    """Validate configuration structure based on version-specific requirements.
+
     Args:
-        config_data: Configuration data to validate
-        version: Configuration version for validation rules
-        
+        config_data: Configuration data to validate.
+        version: Configuration version for validation rules.
+
     Returns:
-        Tuple[bool, List[str]]: (is_valid, validation_messages)
+        Tuple[bool, List[str]]: (is_valid, validation_messages).
     """
     logger.debug(f"Validating configuration structure for version {version}")
     
@@ -850,35 +734,21 @@ def _validate_config_structure(config_data: Union[Dict[str, Any], str], version:
 
 
 def _get_version_deprecation_warnings(version: str) -> List[str]:
-    """
-    Get version-specific deprecation warnings.
-    
-    Args:
-        version: Configuration version to check
-        
-    Returns:
-        List[str]: List of deprecation warning messages
-    """
-    warnings_list = []
-    
+    """Get version-specific deprecation warnings without upgrade guidance."""
+
+    warnings_list: List[str] = []
+
     try:
         version_obj = Version(version)
-        current_version = Version("1.0.0")
-        
+        current_version = Version(CURRENT_SCHEMA_VERSION)
+
         if version_obj < current_version:
             warnings_list.append(
                 f"Configuration version {version} is deprecated. "
-                f"Consider upgrading to version {current_version} for full feature support."
+                f"Update to {CURRENT_SCHEMA_VERSION} to ensure compatibility."
             )
-        
-        # Version-specific warnings based on compatibility matrix
-        if version in COMPATIBILITY_MATRIX:
-            version_info = COMPATIBILITY_MATRIX[version]
-            if 'limitations' in version_info:
-                for limitation in version_info['limitations']:
-                    warnings_list.append(f"Version {version} limitation: {limitation}")
-    
+
     except Exception as e:
         logger.debug(f"Could not generate deprecation warnings for version {version}: {e}")
-    
+
     return warnings_list
