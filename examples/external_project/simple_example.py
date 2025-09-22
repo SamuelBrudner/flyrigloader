@@ -10,7 +10,7 @@ This script showcases:
 5. Configuration object introspection showing both dict-style and attribute-style access patterns
 6. Conditional code paths demonstrating when to use legacy vs new API patterns
 
-This example serves as a migration guide for existing users while demonstrating
+This example serves as a compatibility guide for existing users while demonstrating
 the improved architecture and error handling capabilities of the refactored flyrigloader.
 """
 
@@ -393,7 +393,7 @@ def choose_api_pattern(config_adapter: Optional[LegacyConfigAdapter], experiment
         "memory_constrained": False,
         "selective_processing": False,
         "existing_integration": True,  # Assume existing integration by default
-        "migration_phase": True  # Assume we're in migration phase
+        "compatibility_phase": True  # Assume we're validating coexistence of APIs
     }
     
     if config_adapter:
@@ -447,9 +447,9 @@ def choose_api_pattern(config_adapter: Optional[LegacyConfigAdapter], experiment
         legacy_api_score += 1
         print("   💡 Existing integration favors legacy API for compatibility")
     
-    if factors["migration_phase"]:
-        # During migration, recommend trying both
-        print("   💡 Migration phase: recommend testing both approaches")
+    if factors["compatibility_phase"]:
+        # During compatibility verification, recommend trying both
+        print("   💡 Compatibility phase: recommend testing both approaches")
         return "both"
     
     # Make recommendation
@@ -474,7 +474,7 @@ def main():
     2. Configuration validation and error handling
     3. Both legacy and new API patterns
     4. Conditional API selection based on requirements
-    5. Best practices for migration and integration
+    5. Best practices for compatibility and integration
     """
     print("🚀 Enhanced flyrigloader Example - Legacy and New API Patterns")
     print("="*70)
@@ -532,9 +532,9 @@ def main():
         print("   2. LegacyConfigAdapter maintains backward compatibility")
         print("   3. New API enables memory-efficient selective processing")
         print("   4. Path resolution logging provides clear audit trails")
-        print("   5. Both APIs can coexist during migration period")
-        
-        print("\n🔧 Best practices for migration:")
+        print("   5. Both APIs can coexist during compatibility testing")
+
+        print("\n🔧 Best practices for compatibility:")
         print("   1. Start with legacy API for existing integrations")
         print("   2. Use new API for memory-intensive or selective workflows")
         print("   3. Enable verbose logging during development and testing")

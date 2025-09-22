@@ -12,8 +12,7 @@ This guide provides comprehensive documentation for extending FlyRigLoader throu
 6. [Third-Party Extension Development](#third-party-extension-development)
 7. [Advanced Registration Patterns](#advanced-registration-patterns)
 8. [Testing Extensions](#testing-extensions)
-9. [Migration Guide](#migration-guide)
-10. [Best Practices](#best-practices)
+9. [Best Practices](#best-practices)
 
 ## Overview
 
@@ -1206,103 +1205,9 @@ class TestRegistryMocking:
         mock_entry_point.load.assert_called_once()
 ```
 
-## Migration Guide
-
-### Migrating from Legacy Loaders
-
-If you have existing custom loaders, migrate them to use the new registry system:
-
-#### Before (Legacy)
-
-```python
-# Old hardcoded loader
-def load_custom_file(path):
-    if path.suffix == '.custom':
-        return load_custom_format(path)
-    else:
-        raise ValueError(f"Unsupported format: {path.suffix}")
-
-# Usage
-data = load_custom_file(Path('data.custom'))
-```
-
-#### After (Registry-Based)
-
-```python
-from flyrigloader.registries import BaseLoader, register_loader
-
-class CustomLoader:
-    """New registry-compatible loader."""
-    
-    def load(self, path: Path) -> Any:
-        return load_custom_format(path)
-    
-    def supports_extension(self, extension: str) -> bool:
-        return extension == '.custom'
-    
-    @property
-    def priority(self) -> int:
-        return 10
-
-# Register the loader
-register_loader('.custom', CustomLoader, priority=10)
-
-# Usage (automatic format detection)
-from flyrigloader.io.loaders import load_data_file
-data = load_data_file('data.custom')
-```
-
-### Migrating from Legacy Schemas
-
-Update existing schema validators to use the new registry system:
-
-#### Before (Legacy)
-
-```python
-# Old hardcoded schema
-def validate_experiment_data(data):
-    if not isinstance(data, dict):
-        raise ValueError("Data must be dictionary")
-    # ... validation logic
-
-# Usage
-validate_experiment_data(data)
-```
-
-#### After (Registry-Based)
-
-```python
-from flyrigloader.registries import BaseSchema, register_schema
-
-class ExperimentSchema:
-    """New registry-compatible schema."""
-    
-    def validate(self, data: Any) -> Dict[str, Any]:
-        if not isinstance(data, dict):
-            raise TransformError("Data must be dictionary")
-        # ... validation logic
-        return data
-    
-    @property
-    def schema_name(self) -> str:
-        return 'experiment'
-    
-    @property
-    def supported_types(self) -> List[str]:
-        return ['experiment', 'behavioral']
-
-# Register the schema
-register_schema('experiment', ExperimentSchema, priority=10)
-
-# Usage
-from flyrigloader.registries import get_schema
-schema_class = get_schema('experiment')
-if schema_class:
-    validator = schema_class()
-    validated_data = validator.validate(data)
-```
-
 ## Best Practices
+
+
 
 ### 1. Error Handling
 

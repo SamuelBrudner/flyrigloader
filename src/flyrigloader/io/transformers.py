@@ -34,7 +34,8 @@ from datetime import datetime
 # Internal imports for configuration and logging
 from flyrigloader import logger
 from flyrigloader.io.column_models import get_config_from_source, ColumnConfigDict, SpecialHandlerType
-from flyrigloader.migration.versions import detect_config_version
+from flyrigloader.config.validators import validate_config_version
+from flyrigloader.config.versioning import CURRENT_SCHEMA_VERSION
 
 
 @runtime_checkable
@@ -1365,17 +1366,19 @@ def add_kedro_metadata(
     if config_source is not None:
         try:
             if isinstance(config_source, str):
-                # For file paths, read and detect version
                 with open(config_source, 'r') as f:
                     config_content = f.read()
-                detected_version = detect_config_version(config_content)
+                is_valid, detected_version, message = validate_config_version(config_content)
+                if not is_valid:
+                    raise ValueError(message)
+                config_version = str(detected_version)
             elif isinstance(config_source, dict):
-                detected_version = detect_config_version(config_source)
+                is_valid, detected_version, message = validate_config_version(config_source)
+                if not is_valid:
+                    raise ValueError(message)
+                config_version = str(detected_version)
             else:
-                # For ColumnConfigDict, assume current version
-                detected_version = detect_config_version({"schema_version": "1.0.0"})
-            
-            config_version = str(detected_version)
+                config_version = CURRENT_SCHEMA_VERSION
         except Exception as e:
             logger.warning(f"Could not detect configuration version: {e}")
             config_version = "unknown"

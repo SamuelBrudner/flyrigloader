@@ -8,7 +8,7 @@
 # • Clear error messages when configuration is invalid
 # • IDE autocomplete support for configuration fields
 # • Type safety and runtime validation
-# • Migration compatibility with existing configurations
+# • Compatibility with existing configurations
 # ==================================================================================
 
 # PROJECT CONFIGURATION
@@ -182,20 +182,20 @@ experiments:
       # reference_video_path: "/path/to/reference/video.mp4"
       # calibration_file_path: "/path/to/calibration/data.json"
 
-# MIGRATION GUIDANCE
+# COMPATIBILITY GUIDANCE
 # =================
 # EXISTING CONFIGURATIONS: All existing flyrigloader configurations will continue
 # to work without modification. The new Pydantic validation is additive and
 # maintains backward compatibility.
 #
-# BENEFITS OF MIGRATION:
+# BENEFITS OF THE UPGRADED CONFIGURATION:
 # • Immediate validation feedback when configuration is loaded
 # • IDE autocomplete and type hints for all configuration fields
 # • Clear error messages pointing to specific configuration issues
 # • Automatic detection of typos in field names
 # • Prevention of common configuration mistakes
 #
-# MIGRATION STEPS:
+# UPGRADE STEPS:
 # 1. Your existing YAML files work as-is (no changes required)
 # 2. Run flyrigloader with your current config to see validation messages
 # 3. Add any missing required fields identified by validation
