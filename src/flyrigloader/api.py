@@ -16,6 +16,7 @@ import copy
 import os
 import importlib.util
 from typing import Dict, List, Any, Optional, Union, Protocol, Callable
+from collections.abc import MutableMapping
 from abc import ABC, abstractmethod
 import pandas as pd
 from flyrigloader.io.pickle import (
@@ -529,6 +530,56 @@ def _load_and_validate_config(
     
     logger.debug(f"Configuration validation successful for {operation_name}")
     return config_dict
+
+
+def _coerce_config_for_version_validation(config_obj: Any) -> Union[Dict[str, Any], str]:
+    """Normalize configuration objects before schema version validation."""
+
+    if isinstance(config_obj, (dict, str)):
+        return config_obj
+
+    if isinstance(config_obj, MutableMapping):
+        logger.debug(
+            "Converted MutableMapping configuration of type %s for version validation",
+            type(config_obj).__name__,
+        )
+        return dict(config_obj)
+
+    model_dump = getattr(config_obj, "model_dump", None)
+    if callable(model_dump):
+        try:
+            dumped_config = model_dump()
+            logger.debug(
+                "Converted Pydantic model %s to dictionary via model_dump for version validation",
+                type(config_obj).__name__,
+            )
+            return dumped_config
+        except Exception as exc:
+            logger.debug(
+                "Failed to convert configuration %s using model_dump(): %s",
+                type(config_obj).__name__,
+                exc,
+            )
+
+    to_dict = getattr(config_obj, "to_dict", None)
+    if callable(to_dict):
+        try:
+            dict_config = to_dict()
+            logger.debug(
+                "Converted configuration %s using to_dict() for version validation",
+                type(config_obj).__name__,
+            )
+            return dict_config
+        except Exception as exc:
+            logger.debug(
+                "Failed to convert configuration %s using to_dict(): %s",
+                type(config_obj).__name__,
+                exc,
+            )
+
+    raise TypeError(
+        f"Configuration data must be dict-like or convertible, got {type(config_obj)}"
+    )
 
 
 def _attach_metadata_bucket(
@@ -1206,7 +1257,8 @@ def validate_manifest(
         # Check configuration compatibility if available
         if config_dict is not None:
             try:
-                is_valid, detected_version, message = validate_config_version(config_dict)
+                normalized_config = _coerce_config_for_version_validation(config_dict)
+                is_valid, detected_version, message = validate_config_version(normalized_config)
                 validation_report['metadata']['config_version'] = str(detected_version)
                 logger.debug("Detected configuration version: %s", detected_version)
 
