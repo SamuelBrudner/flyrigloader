@@ -5,7 +5,6 @@ from __future__ import annotations
 import contextlib
 import importlib
 import logging
-import os
 from pathlib import Path
 from typing import List
 
@@ -35,13 +34,60 @@ def test_logger_basic_output(caplog):
     assert any("debug message" in record.message for record in debug_records)
 
 
-def test_logger_file_creation():
-    """Importing the package should create the logs directory."""
-    src_dir = Path(flyrigloader.__file__).resolve().parent
-    project_root = src_dir.parent.parent
-    log_dir = project_root / "logs"
+def test_logger_file_creation(monkeypatch, tmp_path):
+    """Importing the package should create the user-scoped logs directory."""
 
-    assert log_dir.is_dir(), "Logger initialization should create the logs directory"
+    tmp_home = tmp_path / "home"
+    monkeypatch.setattr(Path, "home", staticmethod(lambda: tmp_home))
+
+    importlib.reload(flyrigloader)
+
+    expected_log_dir = tmp_home / ".flyrigloader" / "logs"
+
+    assert expected_log_dir.is_dir(), "Logger initialization should create the user log directory"
+    assert expected_log_dir.samefile(expected_log_dir.resolve())
+
+
+def test_initialize_logger_falls_back_to_user_directory(monkeypatch, tmp_path):
+    """Initialize logger should fallback to user directory when install path fails."""
+
+    tmp_home = tmp_path / "fallback_home"
+    monkeypatch.setattr(Path, "home", staticmethod(lambda: tmp_home))
+
+    install_dir = tmp_path / "install" / "logs"
+    attempted_dirs: List[Path] = []
+
+    real_ensure = flyrigloader._ensure_log_directory
+
+    def failing_default_dir() -> Path:
+        return install_dir
+
+    def tracking_ensure(path: Path) -> None:
+        attempted_dirs.append(Path(path))
+        if Path(path) == install_dir:
+            raise PermissionError("install directory is read-only")
+        return real_ensure(Path(path))
+
+    monkeypatch.setattr(flyrigloader, "_get_default_log_directory", failing_default_dir)
+    monkeypatch.setattr(flyrigloader, "_ensure_log_directory", tracking_ensure)
+
+    flyrigloader.reset_logger()
+    flyrigloader.initialize_logger()
+
+    expected_user_dir = tmp_home / ".flyrigloader" / "logs"
+
+    assert attempted_dirs[0] == install_dir
+    assert expected_user_dir in attempted_dirs
+    assert expected_user_dir.is_dir()
+
+    captured_messages: List[str] = []
+    sink_id = logger.add(lambda msg: captured_messages.append(str(msg)), level="INFO")
+    try:
+        logger.info("fallback info message")
+    finally:
+        logger.remove(sink_id)
+
+    assert any("fallback info message" in message for message in captured_messages)
 
 
 def test_console_log_format_validation():

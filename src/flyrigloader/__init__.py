@@ -22,7 +22,6 @@ __version__ = "0.1.1"
 __all__ = ["logger"]
 
 import sys
-import os
 from pathlib import Path
 from typing import Optional, Dict, Any, Union
 from loguru import logger
@@ -127,23 +126,25 @@ def _validate_logger_config(config: LoggerConfig) -> None:
             raise TypeError(f"log_dir must be string or Path, got {type(config.log_dir)}")
 
 
-def _get_default_log_directory() -> Path:
-    """
-    Determine the default log directory relative to project root.
-    
-    Returns:
-        Path object pointing to the logs directory
-        
-    Raises:
-        OSError: If unable to determine or create log directory
-    """
+def _get_user_log_directory() -> Path:
+    """Return the preferred user-scoped directory for log files."""
+
     try:
-        # Calculate project root from __init__.py location
-        project_root = Path(__file__).parent.parent.parent
-        log_dir = project_root / "logs"
-        return log_dir
-    except Exception as e:
-        raise OSError(f"Unable to determine default log directory: {e}") from e
+        home_path = Path.home()
+    except Exception:
+        home_path = None
+
+    if home_path:
+        return home_path / ".flyrigloader" / "logs"
+
+    cwd_path = Path.cwd()
+    return cwd_path / ".flyrigloader" / "logs"
+
+
+def _get_default_log_directory() -> Path:
+    """Determine the default log directory preferring user scope."""
+
+    return _get_user_log_directory()
 
 
 def _ensure_log_directory(log_dir: Path) -> None:
@@ -203,15 +204,40 @@ def initialize_logger(config: Optional[LoggerConfig] = None) -> None:
         
         # Configure file logging if enabled
         if config.enable_file_logging:
-            # Determine log directory
+            log_dir: Optional[Path] = None
+
             if config.log_dir is None:
-                log_dir = _get_default_log_directory()
+                primary_dir = _get_default_log_directory()
+                candidate_dirs = [primary_dir]
+
+                user_dir = _get_user_log_directory()
+                if user_dir not in candidate_dirs:
+                    candidate_dirs.append(user_dir)
+
+                last_error: Optional[Exception] = None
+                for candidate in candidate_dirs:
+                    try:
+                        _ensure_log_directory(candidate)
+                    except (PermissionError, OSError) as dir_error:
+                        last_error = dir_error
+                        continue
+                    else:
+                        log_dir = candidate
+                        if candidate != primary_dir:
+                            logger.warning(
+                                "Falling back to user log directory '{}' after failure with '{}': {}",
+                                candidate,
+                                primary_dir,
+                                last_error,
+                            )
+                        break
+
+                if log_dir is None:
+                    raise last_error or RuntimeError("Unable to determine writable log directory")
             else:
                 log_dir = Path(config.log_dir)
-            
-            # Ensure log directory exists
-            _ensure_log_directory(log_dir)
-            
+                _ensure_log_directory(log_dir)
+
             # Construct log file path with timestamp
             log_file_path = log_dir / "flyrigloader_{time:YYYYMMDD}.log"
             
@@ -285,9 +311,14 @@ def reset_logger() -> None:
 try:
     initialize_logger()
 except Exception as init_error:
-    # If initialization fails, log to stderr and continue
-    print(f"Warning: Logger initialization failed: {init_error}", file=sys.stderr)
-    # Ensure logger has at least basic stderr output for error reporting
-    logger.add(sys.stderr, level="ERROR")
+    fallback_config = LoggerConfig()
+    logger.remove()
+    logger.add(
+        sys.stderr,
+        level=fallback_config.console_level.upper(),
+        format=fallback_config.console_format,
+        colorize=fallback_config.colorize,
+    )
+    logger.warning("Logger initialization failed: %s", init_error)
 
 # --- End Logger Configuration ---
