@@ -242,7 +242,7 @@ FlyRigLoader datasets can be configured directly in Kedro's `catalog.yml` file u
 # conf/base/catalog.yml
 
 experiment_data:
-  type: flyrigloader.FlyRigLoaderDataSet
+  type: flyrigloader.kedro.datasets.FlyRigLoaderDataSet
   filepath: "${base_dir}/config/experiment_config.yaml"
   experiment_name: "baseline_study"
   recursive: true
@@ -250,7 +250,7 @@ experiment_data:
   parse_dates: true
 
 behavioral_analysis:
-  type: flyrigloader.FlyRigLoaderDataSet
+  type: flyrigloader.kedro.datasets.FlyRigLoaderDataSet
   filepath: "${base_dir}/config/experiments.yaml"
   experiment_name: "behavioral_analysis"
   recursive: true
@@ -293,7 +293,7 @@ For projects with multiple experiments, you can define catalog entries for each 
 
 # Baseline experiment
 baseline_data:
-  type: flyrigloader.FlyRigLoaderDataSet
+  type: flyrigloader.kedro.datasets.FlyRigLoaderDataSet
   filepath: "${base_dir}/config/experiments.yaml"
   experiment_name: "baseline"
   recursive: true
@@ -311,7 +311,7 @@ baseline_manifest:
 
 # Treatment experiment
 treatment_data:
-  type: flyrigloader.FlyRigLoaderDataSet
+  type: flyrigloader.kedro.datasets.FlyRigLoaderDataSet
   filepath: "${base_dir}/config/experiments.yaml"
   experiment_name: "treatment_1"
   recursive: true
@@ -329,7 +329,7 @@ treatment_manifest:
 
 # Control experiment
 control_data:
-  type: flyrigloader.FlyRigLoaderDataSet
+  type: flyrigloader.kedro.datasets.FlyRigLoaderDataSet
   filepath: "${base_dir}/config/experiments.yaml"
   experiment_name: "control"
   recursive: true
@@ -359,7 +359,7 @@ flyrigloader:
 
 # conf/base/catalog.yml
 baseline_data:
-  type: flyrigloader.FlyRigLoaderDataSet
+  type: flyrigloader.kedro.datasets.FlyRigLoaderDataSet
   filepath: "${flyrigloader.base_config_path}"
   experiment_name: "baseline"
   recursive: "${flyrigloader.default_options.recursive}"
@@ -616,7 +616,7 @@ def create_pipeline(**kwargs) -> Pipeline:
 
 # Input datasets using FlyRigLoader
 baseline_data:
-  type: flyrigloader.FlyRigLoaderDataSet
+  type: flyrigloader.kedro.datasets.FlyRigLoaderDataSet
   filepath: "${base_dir}/config/experiments.yaml"
   experiment_name: "baseline"
   recursive: true
@@ -626,7 +626,7 @@ baseline_data:
     experiment_name: "baseline"
 
 treatment_data:
-  type: flyrigloader.FlyRigLoaderDataSet
+  type: flyrigloader.kedro.datasets.FlyRigLoaderDataSet
   filepath: "${base_dir}/config/experiments.yaml"
   experiment_name: "treatment_1"
   recursive: true
@@ -859,7 +859,7 @@ template = generate_catalog_template(
 Output:
 ```yaml
 experiment_baseline_study:
-  type: flyrigloader.FlyRigLoaderDataSet
+  type: flyrigloader.kedro.datasets.FlyRigLoaderDataSet
   filepath: config/experiment_config.yaml
   experiment_name: baseline_study
   recursive: true
@@ -881,7 +881,7 @@ template = generate_catalog_template(
 Output:
 ```yaml
 fly_behavior_baseline:
-  type: flyrigloader.FlyRigLoaderDataSet
+  type: flyrigloader.kedro.datasets.FlyRigLoaderDataSet
   filepath: config/experiments.yaml
   experiment_name: baseline
   recursive: true
@@ -892,7 +892,7 @@ fly_behavior_baseline:
     experiment_name: baseline
 
 fly_behavior_treatment_1:
-  type: flyrigloader.FlyRigLoaderDataSet
+  type: flyrigloader.kedro.datasets.FlyRigLoaderDataSet
   filepath: config/experiments.yaml
   experiment_name: treatment_1
   recursive: true
@@ -903,7 +903,7 @@ fly_behavior_treatment_1:
     experiment_name: treatment_1
 
 fly_behavior_treatment_2:
-  type: flyrigloader.FlyRigLoaderDataSet
+  type: flyrigloader.kedro.datasets.FlyRigLoaderDataSet
   filepath: config/experiments.yaml
   experiment_name: treatment_2
   recursive: true
@@ -928,7 +928,7 @@ template = generate_catalog_template(
 Output:
 ```yaml
 experiment_baseline_raw:
-  type: flyrigloader.FlyRigLoaderDataSet
+  type: flyrigloader.kedro.datasets.FlyRigLoaderDataSet
   filepath: config/experiments.yaml
   experiment_name: baseline
   recursive: true
@@ -949,7 +949,7 @@ experiment_baseline_processed:
     index: false
 
 experiment_treatment_raw:
-  type: flyrigloader.FlyRigLoaderDataSet
+  type: flyrigloader.kedro.datasets.FlyRigLoaderDataSet
   filepath: config/experiments.yaml
   experiment_name: treatment
   recursive: true
@@ -1084,7 +1084,7 @@ flyrigloader_config:
 
 # conf/base/catalog.yml
 baseline_data:
-  type: flyrigloader.FlyRigLoaderDataSet
+  type: flyrigloader.kedro.datasets.FlyRigLoaderDataSet
   filepath: "${flyrigloader_config.base_config_path}"
   experiment_name: "baseline"
   recursive: "${flyrigloader_config.default_recursive}"
@@ -1101,7 +1101,7 @@ Configure different settings for development, testing, and production:
 ```yaml
 # conf/base/catalog.yml - Base configuration
 experiment_data_base: &experiment_data_base
-  type: flyrigloader.FlyRigLoaderDataSet
+  type: flyrigloader.kedro.datasets.FlyRigLoaderDataSet
   recursive: true
   extract_metadata: true
   parse_dates: true
@@ -1140,10 +1140,10 @@ Use consistent naming patterns for FlyRigLoader datasets:
 
 # Data loading datasets
 baseline_data:
-  type: flyrigloader.FlyRigLoaderDataSet
+  type: flyrigloader.kedro.datasets.FlyRigLoaderDataSet
   
 treatment_1_data:
-  type: flyrigloader.FlyRigLoaderDataSet
+  type: flyrigloader.kedro.datasets.FlyRigLoaderDataSet
 
 # Manifest datasets  
 baseline_manifest:
@@ -1179,7 +1179,7 @@ project/
 ```yaml
 # conf/base/catalog.yml
 baseline_data:
-  type: flyrigloader.FlyRigLoaderDataSet
+  type: flyrigloader.kedro.datasets.FlyRigLoaderDataSet
   filepath: "${base_dir}/conf/base/flyrigloader/experiments.yaml"
   experiment_name: "${experiment_names.baseline}"
   recursive: "${flyrigloader_defaults.recursive}"
@@ -1273,7 +1273,7 @@ def optimize_large_experiment_loading(manifest_dataset, parameters):
 ```yaml
 # conf/base/catalog.yml
 large_experiment_data:
-  type: flyrigloader.FlyRigLoaderDataSet
+  type: flyrigloader.kedro.datasets.FlyRigLoaderDataSet
   filepath: "${base_dir}/config/experiments.yaml"
   experiment_name: "large_experiment"
   recursive: true
@@ -1361,7 +1361,7 @@ DatasetNotFoundError: Dataset 'experiment_data' not found in catalog
 ```yaml
 # Correct format in catalog.yml
 experiment_data:  # Must match exactly in pipeline
-  type: flyrigloader.FlyRigLoaderDataSet
+  type: flyrigloader.kedro.datasets.FlyRigLoaderDataSet
   filepath: "${base_dir}/config/experiments.yaml"  # Check this path exists
   experiment_name: "baseline"
 ```
@@ -1452,7 +1452,7 @@ KeyError: 'experiment_name' column not found in DataFrame
 ```yaml
 # Correct catalog configuration with Kedro metadata
 experiment_data:
-  type: flyrigloader.FlyRigLoaderDataSet
+  type: flyrigloader.kedro.datasets.FlyRigLoaderDataSet
   filepath: "${base_dir}/config/experiments.yaml"
   experiment_name: "baseline"
   transform_options:

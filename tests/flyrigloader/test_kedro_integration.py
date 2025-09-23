@@ -403,7 +403,7 @@ class TestKedroCalogIntegration:
         """Create sample catalog configuration for testing."""
         return {
             'experiment_data': {
-                'type': 'flyrigloader.FlyRigLoaderDataSet',
+                'type': 'flyrigloader.kedro.datasets.FlyRigLoaderDataSet',
                 'filepath': 'config/experiments.yaml',
                 'experiment_name': 'baseline_study',
                 'recursive': True,
@@ -424,7 +424,7 @@ class TestKedroCalogIntegration:
         """Create temporary catalog.yml file for testing."""
         catalog_content = """
 experiment_data:
-  type: flyrigloader.FlyRigLoaderDataSet
+  type: flyrigloader.kedro.datasets.FlyRigLoaderDataSet
   filepath: "${base_dir}/config/experiments.yaml"
   experiment_name: baseline_study
   recursive: true
@@ -471,7 +471,7 @@ processed_data:
     def test_catalog_config_validation_missing_required_fields(self):
         """Test validation failure for missing required fields."""
         invalid_config = {
-            'type': 'flyrigloader.FlyRigLoaderDataSet'
+            'type': 'flyrigloader.kedro.datasets.FlyRigLoaderDataSet'
             # Missing filepath and experiment_name
         }
         
@@ -487,7 +487,7 @@ processed_data:
     def test_catalog_config_validation_invalid_types(self):
         """Test validation failure for incorrect parameter types."""
         invalid_config = {
-            'type': 'flyrigloader.FlyRigLoaderDataSet',
+            'type': 'flyrigloader.kedro.datasets.FlyRigLoaderDataSet',
             'filepath': 123,  # Should be string
             'experiment_name': ['not_a_string'],  # Should be string
             'recursive': 'not_boolean'  # Should be boolean
@@ -515,7 +515,7 @@ processed_data:
             yaml.safe_dump(config_content, f)
         
         valid_config = {
-            'type': 'flyrigloader.FlyRigLoaderDataSet',
+            'type': 'flyrigloader.kedro.datasets.FlyRigLoaderDataSet',
             'filepath': str(config_file),
             'experiment_name': 'test_experiment',
             'recursive': True
@@ -547,7 +547,7 @@ processed_data:
         
         # Test FlyRigLoader dataset configuration
         experiment_config = catalog_dict['experiment_data']
-        assert experiment_config['type'] == 'flyrigloader.FlyRigLoaderDataSet'
+        assert experiment_config['type'] == 'flyrigloader.kedro.datasets.FlyRigLoaderDataSet'
         assert experiment_config['experiment_name'] == 'baseline_study'
         assert experiment_config['recursive'] is True
         assert 'transform_options' in experiment_config
@@ -579,7 +579,7 @@ processed_data:
     def test_catalog_config_property_based_validation(self, experiment_name, recursive, extract_metadata):
         """Property-based testing for catalog configuration validation."""
         config = {
-            'type': 'flyrigloader.FlyRigLoaderDataSet',
+            'type': 'flyrigloader.kedro.datasets.FlyRigLoaderDataSet',
             'filepath': 'test_config.yaml',
             'experiment_name': experiment_name,
             'recursive': recursive,
@@ -746,7 +746,7 @@ class TestKedroFactoryFunctions:
             # Create dataset entry using factory pattern
             dataset_name = f"experiment_{experiment}_data"
             catalog_entries[dataset_name] = {
-                'type': 'flyrigloader.FlyRigLoaderDataSet',
+                'type': 'flyrigloader.kedro.datasets.FlyRigLoaderDataSet',
                 'filepath': str(sample_config_file),
                 'experiment_name': experiment,
                 'recursive': True,
@@ -1771,7 +1771,7 @@ class TestCompleteKedroWorkflow:
         # Create catalog configuration
         catalog_content = f"""
 input_data:
-  type: flyrigloader.FlyRigLoaderDataSet
+  type: flyrigloader.kedro.datasets.FlyRigLoaderDataSet
   filepath: {config_file}
   experiment_name: workflow_test
   recursive: true
