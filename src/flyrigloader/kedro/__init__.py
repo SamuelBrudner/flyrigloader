@@ -48,7 +48,7 @@ Usage Examples:
 
 Integration with catalog.yml:
     experiment_data:
-      type: flyrigloader.FlyRigLoaderDataSet
+      type: flyrigloader.kedro.datasets.FlyRigLoaderDataSet
       filepath: "${base_dir}/config/experiment_config.yaml"
       experiment_name: "baseline_study"
       recursive: true

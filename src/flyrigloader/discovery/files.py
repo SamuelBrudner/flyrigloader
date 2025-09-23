@@ -248,7 +248,7 @@ class FileManifest:
                 entry_name = file_info.get_kedro_dataset_path() or file_info.kedro_dataset_name
                 
                 catalog_entries[entry_name] = {
-                    'type': 'flyrigloader.FlyRigLoaderDataSet',
+                    'type': 'flyrigloader.kedro.datasets.FlyRigLoaderDataSet',
                     'filepath': file_info.path,
                     'metadata': file_info.catalog_metadata.copy(),
                     'versioned': file_info.is_kedro_versioned(),

@@ -73,7 +73,7 @@ def create_flyrigloader_catalog_entry(
     extract_metadata: bool = True,
     parse_dates: bool = True,
     transform_options: Optional[Dict[str, Any]] = None,
-    dataset_type: str = "flyrigloader.FlyRigLoaderDataSet",
+    dataset_type: str = "flyrigloader.kedro.datasets.FlyRigLoaderDataSet",
     validate_entry: bool = True
 ) -> Dict[str, Any]:
     """
@@ -91,7 +91,7 @@ def create_flyrigloader_catalog_entry(
         extract_metadata: Whether to extract metadata from filenames (default: True)  
         parse_dates: Whether to parse dates from filenames (default: True)
         transform_options: Additional options for DataFrame transformation
-        dataset_type: Full import path for the dataset class (default: flyrigloader.FlyRigLoaderDataSet)
+        dataset_type: Full import path for the dataset class (default: flyrigloader.kedro.datasets.FlyRigLoaderDataSet)
         validate_entry: Whether to validate the created entry (default: True)
         
     Returns:
@@ -112,7 +112,7 @@ def create_flyrigloader_catalog_entry(
         ... )
         >>> print(yaml.safe_dump({entry['name']: entry['config']}))
         plume_tracking_data:
-          type: flyrigloader.FlyRigLoaderDataSet
+          type: flyrigloader.kedro.datasets.FlyRigLoaderDataSet
           filepath: config/experiments.yaml
           experiment_name: plume_navigation
           recursive: true
@@ -262,7 +262,7 @@ def validate_catalog_config(
         
     Example:
         >>> config = {
-        ...     "type": "flyrigloader.FlyRigLoaderDataSet",
+        ...     "type": "flyrigloader.kedro.datasets.FlyRigLoaderDataSet",
         ...     "filepath": "config/experiments.yaml",
         ...     "experiment_name": "baseline_study"
         ... }
@@ -443,7 +443,7 @@ def get_dataset_parameters(
         
     Example:
         >>> config = {
-        ...     "type": "flyrigloader.FlyRigLoaderDataSet",
+        ...     "type": "flyrigloader.kedro.datasets.FlyRigLoaderDataSet",
         ...     "filepath": "config/experiments.yaml",
         ...     "experiment_name": "baseline_study",
         ...     "recursive": True,
@@ -593,7 +593,7 @@ def generate_catalog_template(
         ... )
         >>> print(template)
         fly_behavior_baseline:
-          type: flyrigloader.FlyRigLoaderDataSet
+          type: flyrigloader.kedro.datasets.FlyRigLoaderDataSet
           filepath: "${base_dir}/config/experiments.yaml"
           experiment_name: baseline
           recursive: true
@@ -621,7 +621,7 @@ def generate_catalog_template(
             dataset_name = f"{dataset_prefix}_{experiment_name}"
             
             catalog_template[dataset_name] = {
-                "type": "flyrigloader.FlyRigLoaderDataSet",
+                "type": "flyrigloader.kedro.datasets.FlyRigLoaderDataSet",
                 "filepath": base_config_path or "${base_dir}/config/experiment_config.yaml",
                 "experiment_name": experiment_name,
                 "recursive": True,
@@ -637,7 +637,7 @@ def generate_catalog_template(
             for experiment in experiments:
                 dataset_name = f"{dataset_prefix}_{experiment}"
                 catalog_template[dataset_name] = {
-                    "type": "flyrigloader.FlyRigLoaderDataSet",
+                    "type": "flyrigloader.kedro.datasets.FlyRigLoaderDataSet",
                     "filepath": base_config_path or "${base_dir}/config/experiments.yaml",
                     "experiment_name": experiment,
                     "recursive": True,
@@ -658,7 +658,7 @@ def generate_catalog_template(
                 # Raw data dataset
                 raw_dataset_name = f"{dataset_prefix}_{experiment}_raw"
                 catalog_template[raw_dataset_name] = {
-                    "type": "flyrigloader.FlyRigLoaderDataSet",
+                    "type": "flyrigloader.kedro.datasets.FlyRigLoaderDataSet",
                     "filepath": base_config_path or "${base_dir}/config/experiments.yaml",
                     "experiment_name": experiment,
                     "recursive": True,
@@ -804,7 +804,7 @@ def create_multi_experiment_catalog(
             # Main data dataset
             data_dataset_name = f"{dataset_prefix}_{experiment}_data"
             catalog[data_dataset_name] = {
-                "type": "flyrigloader.FlyRigLoaderDataSet",
+                "type": "flyrigloader.kedro.datasets.FlyRigLoaderDataSet",
                 "filepath": str(base_config_path),
                 "experiment_name": experiment,
                 "recursive": True,
@@ -901,8 +901,8 @@ def inject_catalog_parameters(
         
     Example:
         >>> catalog = {
-        ...     "data1": {"type": "flyrigloader.FlyRigLoaderDataSet", "recursive": False},
-        ...     "data2": {"type": "flyrigloader.FlyRigLoaderDataSet", "extract_metadata": False}
+        ...     "data1": {"type": "flyrigloader.kedro.datasets.FlyRigLoaderDataSet", "recursive": False},
+        ...     "data2": {"type": "flyrigloader.kedro.datasets.FlyRigLoaderDataSet", "extract_metadata": False}
         ... }
         >>> overrides = {"recursive": True, "extract_metadata": True, "parse_dates": True}
         >>> updated_catalog = inject_catalog_parameters(catalog, overrides)
@@ -1097,7 +1097,7 @@ def create_workflow_catalog_entries(
                 if stage == "raw":
                     # Raw data from FlyRigLoader
                     workflow_catalog[dataset_name] = {
-                        "type": "flyrigloader.FlyRigLoaderDataSet",
+                        "type": "flyrigloader.kedro.datasets.FlyRigLoaderDataSet",
                         "filepath": str(base_config_path),
                         "experiment_name": experiment,
                         "recursive": True,
@@ -1224,8 +1224,8 @@ def validate_catalog_against_schema(
         
     Example:
         >>> catalog = {
-        ...     "experiment_1": {"type": "flyrigloader.FlyRigLoaderDataSet", ...},
-        ...     "experiment_2": {"type": "flyrigloader.FlyRigLoaderDataSet", ...}
+        ...     "experiment_1": {"type": "flyrigloader.kedro.datasets.FlyRigLoaderDataSet", ...},
+        ...     "experiment_2": {"type": "flyrigloader.kedro.datasets.FlyRigLoaderDataSet", ...}
         ... }
         >>> validation_result = validate_catalog_against_schema(catalog)
         >>> if validation_result['valid']:
@@ -1245,7 +1245,7 @@ def validate_catalog_against_schema(
         schema_requirements = {
             "required_dataset_fields": ["type", "filepath", "experiment_name"],
             "valid_dataset_types": [
-                "flyrigloader.FlyRigLoaderDataSet",
+                "flyrigloader.kedro.datasets.FlyRigLoaderDataSet",
                 "flyrigloader.FlyRigManifestDataSet"
             ],
             "parameter_types": {
