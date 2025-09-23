@@ -53,6 +53,8 @@ from flyrigloader.config.models import (
     ExperimentConfig
 )
 
+from flyrigloader.exceptions import ConfigError
+
 
 # ============================================================================
 # Test Data Generation Strategies for Hypothesis
@@ -592,9 +594,9 @@ class TestConfigurationLoadingPydanticIntegration:
         with open(config_path, 'w') as f:
             yaml.dump(invalid_config, f)
         
-        # Loading should either raise ValidationError or handle gracefully
+        # Loading should either raise ConfigError or handle gracefully
         # depending on implementation strategy
-        with contextlib.suppress(ValidationError, ValueError):
+        with contextlib.suppress(ConfigError, ValidationError, ValueError):
             config = load_config(config_path)
             # If it doesn't raise, it should still be accessible
             assert "project" in config

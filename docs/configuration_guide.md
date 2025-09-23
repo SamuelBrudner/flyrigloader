@@ -349,7 +349,9 @@ is_valid = adapter.validate_all()
 #### Automatic Validation During Load
 
 ```python
-# Invalid configuration will raise detailed ValidationError
+from flyrigloader.exceptions import ConfigError
+
+# Invalid configuration will raise detailed ConfigError
 invalid_config = {
     "project": {
         "directories": {"major_data_directory": "/invalid/../path"}  # Path traversal
@@ -366,10 +368,10 @@ invalid_config = {
 
 try:
     config = load_config(invalid_config)
-except ValidationError as e:
+except ConfigError as e:
     print("Configuration validation failed:")
-    for error in e.errors():
-        print(f"  {error['loc']}: {error['msg']}")
+    for error in e.context.get("validation_errors", []):
+        print(f"  {error}")
 ```
 
 #### Runtime Validation Functions
@@ -495,7 +497,7 @@ mandatory_strings = get_mandatory_substrings(config, experiment="my_experiment")
 
 ### Common Configuration Issues
 
-#### Issue 1: ValidationError on Load
+#### Issue 1: ConfigError on Load
 
 **Problem:** Configuration fails to load with Pydantic validation errors.
 
@@ -503,24 +505,23 @@ mandatory_strings = get_mandatory_substrings(config, experiment="my_experiment")
 ```python
 # Debug validation errors step by step
 def debug_config_validation(config_path):
+    from flyrigloader.exceptions import ConfigError
+
     try:
         config = load_config(config_path)
         print("✅ Configuration loaded successfully")
-    except ValidationError as e:
+    except ConfigError as e:
         print("❌ Validation errors found:")
-        
-        for error in e.errors():
-            loc = " -> ".join(str(x) for x in error["loc"])
-            print(f"\nField: {loc}")
-            print(f"Error: {error['msg']}")
-            print(f"Input: {error.get('input', 'N/A')}")
-            
+
+        for error in e.context.get("validation_errors", []):
+            print(f"\nField: {error}")
+
             # Provide specific guidance based on error type
-            if "rig" in loc and "invalid characters" in error["msg"]:
+            if "rig" in error and "invalid characters" in error:
                 print("💡 Tip: Rig names should only contain letters, numbers, underscore, and hyphen")
-            elif "dates_vials" in loc:
+            elif "dates_vials" in error:
                 print("💡 Tip: Dates should be in YYYY-MM-DD format, vials should be lists of integers")
-            elif "extraction_patterns" in loc:
+            elif "extraction_patterns" in error:
                 print("💡 Tip: Check regex pattern syntax - escape backslashes in YAML strings")
 ```
 
