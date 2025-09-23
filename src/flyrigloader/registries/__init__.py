@@ -30,18 +30,14 @@ import importlib.metadata
 import warnings
 from functools import wraps
 from enum import Enum
-import logging
 
 from flyrigloader.exceptions import RegistryError
+from flyrigloader import logger
 
 
 # Type variables for generic registry implementation
 T = TypeVar('T')
 RegistryItem = TypeVar('RegistryItem')
-
-# Logger for comprehensive registration event tracking
-logger = logging.getLogger(__name__)
-
 
 class RegistryPriority(Enum):
     """

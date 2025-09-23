@@ -32,16 +32,12 @@ Usage Example:
     >>> data = load_data_file(Path('data.custom'), loader='custom')
 """
 
-import logging
 from pathlib import Path
 from typing import Any, Dict, Optional, Union
 
+from flyrigloader import logger
 from flyrigloader.registries import LoaderRegistry, get_loader_capabilities
 from flyrigloader.exceptions import RegistryError
-
-
-# Configure module-level logging
-logger = logging.getLogger(__name__)
 
 
 class LoaderError(Exception):
