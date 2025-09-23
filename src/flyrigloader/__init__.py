@@ -21,10 +21,33 @@ __version__ = "0.1.1"
 # Explicit exports for decoupled architecture components
 __all__ = ["logger"]
 
+import logging
 import sys
 from pathlib import Path
 from typing import Optional, Dict, Any, Union
-from loguru import logger
+from loguru import logger as _LOGURU_LOGGER
+
+logger = _LOGURU_LOGGER
+
+
+class InterceptHandler(logging.Handler):
+    """Bridge standard logging records into the shared Loguru logger."""
+
+    def emit(self, record: logging.LogRecord) -> None:
+        try:
+            level = _LOGURU_LOGGER.level(record.levelname).name
+        except ValueError:
+            level = record.levelno
+
+        frame, depth = logging.currentframe(), 2
+        while frame and frame.f_code.co_filename == logging.__file__:
+            frame = frame.f_back
+            depth += 1
+
+        _LOGURU_LOGGER.opt(depth=depth, exception=record.exc_info).log(level, record.getMessage())
+
+
+logging.basicConfig(handlers=[InterceptHandler()], level=logging.NOTSET, force=True)
 
 # Standard log formats for consistent logging across the application
 log_format_console = (

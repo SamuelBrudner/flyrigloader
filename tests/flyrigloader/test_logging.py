@@ -157,6 +157,24 @@ def test_log_sanitization_security():
         assert value not in message
 
 
+def test_load_data_file_logs_route_through_loguru(tmp_path):
+    """load_data_file should emit loguru messages for error conditions."""
+
+    from flyrigloader.io.loaders import load_data_file
+
+    missing_file = tmp_path / "missing.pkl"
+
+    captured_messages = []
+    sink_id = logger.add(lambda message: captured_messages.append(str(message)), level="ERROR")
+    try:
+        with pytest.raises(FileNotFoundError):
+            load_data_file(missing_file)
+    finally:
+        logger.remove(sink_id)
+
+    assert any("File not found" in message for message in captured_messages)
+
+
 def test_pickle_error_logging(monkeypatch):
     """Errors in pickle helper should be logged through the shared logger."""
 

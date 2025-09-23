@@ -60,7 +60,7 @@ of the FlyRigLoader refactoring specification, providing plugin-style extensibil
 and unified configuration interfaces for seamless Kedro catalog and pipeline workflows.
 """
 
-import logging
+from flyrigloader import logger
 
 # Import dataset classes from kedro.datasets module
 from flyrigloader.kedro.datasets import (
@@ -82,9 +82,6 @@ from flyrigloader.kedro.catalog import (
     create_workflow_catalog_entries,
     validate_catalog_against_schema
 )
-
-# Configure module-level logging
-logger = logging.getLogger(__name__)
 
 # Lazy import function to avoid circular dependency with api.py
 def _get_create_kedro_dataset():

@@ -41,7 +41,6 @@ Integration Points:
 - on_node_error: Node-level error handling and diagnostics
 """
 
-import logging
 import time
 import threading
 import os
@@ -57,9 +56,7 @@ from flyrigloader.config.models import ProjectConfig
 from flyrigloader.api import get_registered_loaders
 from flyrigloader.kedro.datasets import FlyRigLoaderDataSet
 from flyrigloader.exceptions import RegistryError
-
-# Configure module-level logging with Kedro integration
-logger = logging.getLogger(__name__)
+from flyrigloader import logger
 
 # Thread-safe lock for hook coordination
 _hooks_lock = threading.RLock()
