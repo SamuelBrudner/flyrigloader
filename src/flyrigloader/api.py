@@ -850,10 +850,16 @@ def discover_experiment_manifest(
         # Convert FileManifest to dictionary format for backward compatibility
         manifest_dict = {}
         for file_info in file_manifest.files:
+            metadata_payload: Dict[str, Any]
+            if isinstance(file_info.extracted_metadata, dict):
+                metadata_payload = dict(file_info.extracted_metadata)
+            else:
+                metadata_payload = {}
+
             manifest_dict[file_info.path] = {
                 'path': file_info.path,
-                'size': file_info.size or 0,
-                'metadata': file_info.extracted_metadata if file_info.extracted_metadata is not None else {},
+                'size': file_info.size if file_info.size is not None else 0,
+                'metadata': metadata_payload,
                 'parsed_dates': {'parsed_date': file_info.parsed_date} if file_info.parsed_date else {}
             }
         

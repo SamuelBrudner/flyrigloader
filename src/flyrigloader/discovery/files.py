@@ -1200,11 +1200,36 @@ class FileDiscoverer:
         """
         # Extract Kedro metadata if enabled
         kedro_metadata = self.extract_kedro_metadata(file_path) if self.enable_kedro_metadata else {}
-        
-        # Create base FileInfo
+
+        # Normalize metadata payload to avoid mutating the caller's dictionary
+        normalized_metadata = dict(metadata) if metadata else {}
+
+        def _pop_stat(*keys: str) -> Any:
+            value: Any = None
+            found = False
+            for key in keys:
+                if key in normalized_metadata:
+                    if not found:
+                        value = normalized_metadata[key]
+                        found = True
+                    normalized_metadata.pop(key)
+            return value
+
+        size = _pop_stat('size', 'size_bytes')
+        mtime = _pop_stat('mtime', 'modified_time')
+        ctime = _pop_stat('ctime')
+        creation_time = _pop_stat('creation_time', 'created_time')
+        parsed_date = normalized_metadata.pop('parsed_date', None)
+
+        # Create base FileInfo populated with extracted statistics
         file_info = FileInfo(
             path=file_path,
-            extracted_metadata=metadata,
+            size=size,
+            mtime=mtime,
+            ctime=ctime,
+            creation_time=creation_time,
+            extracted_metadata=normalized_metadata,
+            parsed_date=parsed_date,
             schema_version=self.schema_version
         )
         
@@ -1478,11 +1503,6 @@ def discover_experiment_manifest(
                             seen_files.add(file_path)
 
                             file_info = discoverer.create_version_aware_file_info(file_path, metadata)
-                            file_info.size = metadata.get('size')
-                            file_info.mtime = metadata.get('mtime')
-                            file_info.ctime = metadata.get('ctime')
-                            file_info.creation_time = metadata.get('creation_time')
-                            file_info.parsed_date = metadata.get('parsed_date')
 
                             all_files.append(file_info)
                     else:
