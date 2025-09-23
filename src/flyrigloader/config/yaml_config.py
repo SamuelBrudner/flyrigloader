@@ -15,6 +15,7 @@ import warnings
 
 # New imports for Pydantic integration
 from pydantic import ValidationError
+from ..exceptions import ConfigError
 from .models import LegacyConfigAdapter
 from .validators import (
     pattern_validation,
@@ -89,10 +90,14 @@ def validate_config_dict(config: Union[Dict[str, Any], LegacyConfigAdapter]) -> 
             field_path = " -> ".join(str(loc) for loc in error['loc'])
             error_msg = f"Field '{field_path}': {error['msg']}"
             error_details.append(error_msg)
-        
+
         detailed_error = f"Configuration validation failed:\n" + "\n".join(error_details)
         logger.error(detailed_error)
-        raise ValueError(detailed_error) from e
+        raise ConfigError(
+            detailed_error,
+            error_code="CONFIG_003",
+            context={"validation_errors": error_details}
+        ) from e
         
     except Exception as e:
         logger.warning(f"Advanced validation failed ({e}), falling back to basic validation")
@@ -196,10 +201,14 @@ def load_config(
                     field_path = " -> ".join(str(loc) for loc in error['loc'])
                     error_msg = f"Field '{field_path}': {error['msg']}"
                     error_details.append(error_msg)
-                
+
                 detailed_error = f"Pydantic configuration validation failed:\n" + "\n".join(error_details)
                 logger.error(detailed_error)
-                raise ValidationError(detailed_error) from e
+                raise ConfigError(
+                    detailed_error,
+                    error_code="CONFIG_003",
+                    context={"validation_errors": error_details}
+                ) from e
     
     # Check for invalid input types
     if not isinstance(config_path_or_dict, (str, Path)):
@@ -297,10 +306,17 @@ def load_config(
                         field_path = " -> ".join(str(loc) for loc in error['loc'])
                         error_msg = f"Field '{field_path}': {error['msg']}"
                         error_details.append(error_msg)
-                    
+
                     detailed_error = f"Pydantic configuration validation failed for {config_path}:\n" + "\n".join(error_details)
                     logger.error(detailed_error)
-                    raise ValidationError(detailed_error) from e
+                    raise ConfigError(
+                        detailed_error,
+                        error_code="CONFIG_003",
+                        context={
+                            "config_path": str(config_path),
+                            "validation_errors": error_details
+                        }
+                    ) from e
                 
         except yaml.YAMLError as e:
             # Re-raise with additional context while preserving the original exception
@@ -336,6 +352,8 @@ def _process_config(raw_config: Dict[str, Any]) -> Dict[str, Any]:
 
     except Exception as e:
         logger.error(f"Configuration processing failed: {e}")
+        if isinstance(e, ConfigError):
+            raise e
         raise ValueError(f"Failed to process configuration: {e}") from e
 
 
