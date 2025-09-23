@@ -10,7 +10,7 @@ Kedro integration capabilities, version-aware pattern matching, and catalog-spec
 metadata extraction for seamless pipeline integration.
 """
 import os
-from collections.abc import Iterable as IterableABC
+from collections.abc import Iterable as IterableABC, Mapping
 from typing import List, Optional, Iterable, Union, Dict, Any, Tuple, Set, Callable, Protocol
 from pathlib import Path
 import re
@@ -24,6 +24,30 @@ from flyrigloader import logger
 from flyrigloader.discovery.patterns import PatternMatcher, match_files_to_patterns
 from flyrigloader.discovery.stats import get_file_stats, attach_file_stats
 from flyrigloader.config.versioning import CURRENT_SCHEMA_VERSION
+from flyrigloader.config.yaml_config import (
+    get_dataset_info,
+    get_experiment_info,
+    get_extraction_patterns,
+    get_ignore_patterns,
+)
+
+
+def _convert_substring_to_glob(pattern: str) -> str:
+    """Convert a raw substring ignore pattern into a glob-compatible string."""
+
+    if not pattern:
+        return pattern
+
+    if any(char in pattern for char in ("*", "?")):
+        return pattern
+
+    if pattern == "._":
+        return "*._*"
+
+    if pattern.startswith('.'):
+        return f"{pattern}*"
+
+    return f"*{pattern}*"
 
 
 def _normalize_directory_argument(directory: Union[str, os.PathLike, Iterable[Union[str, os.PathLike]]]) -> List[str]:
@@ -1283,27 +1307,109 @@ def discover_experiment_manifest(
         FileManifest containing discovered files metadata with Kedro integration support
     """
     logger.info(f"Discovering experiment manifest for '{experiment_name}'")
-    
+
     try:
-        # Extract configuration parameters
-        if hasattr(config, 'get'):
-            # Dictionary-like access for backward compatibility
-            base_directory = config.get('base_directory', '.')
-            experiment_patterns = config.get('patterns', {}).get(experiment_name, ['*'])
-            ignore_patterns = config.get('ignore_patterns', [])
-            extensions = config.get('extensions', [])
-            recursive = config.get('recursive', True)
+        # Normalize configuration input
+        if hasattr(config, "model_dump") and not isinstance(config, Mapping):
+            config_mapping: Mapping[str, Any] = config.model_dump()  # type: ignore[assignment]
         else:
-            # Pydantic model or object access
-            base_directory = getattr(config, 'base_directory', '.')
-            experiment_patterns = getattr(config, 'patterns', {}).get(experiment_name, ['*'])
-            ignore_patterns = getattr(config, 'ignore_patterns', [])
-            extensions = getattr(config, 'extensions', [])
-            recursive = getattr(config, 'recursive', True)
-        
-        # Build search directory for the experiment
-        search_directory = Path(base_directory) / experiment_name
-        
+            config_mapping = config  # type: ignore[assignment]
+
+        if not isinstance(config_mapping, Mapping):
+            raise TypeError(
+                "Configuration for discover_experiment_manifest must be mapping-like or support model_dump()."
+            )
+
+        if "project" not in config_mapping:
+            raise KeyError("Configuration missing 'project' section required for discovery")
+
+        project_config = config_mapping["project"]
+        if not isinstance(project_config, Mapping):
+            raise TypeError("Project configuration must be mapping-like for discovery operations")
+
+        directories_cfg = project_config.get("directories", {})
+        if not isinstance(directories_cfg, Mapping):
+            raise TypeError("Project directories configuration must be mapping-like")
+
+        base_directory = directories_cfg.get("major_data_directory")
+        if not base_directory:
+            raise ValueError("Project configuration must define 'major_data_directory' for discovery")
+
+        base_directory_path = Path(str(base_directory))
+
+        # Gather experiment and dataset information from config helpers
+        experiment_info = get_experiment_info(config_mapping, experiment_name)
+        dataset_names = experiment_info.get("datasets", [])
+        if not dataset_names:
+            raise ValueError(
+                f"Experiment '{experiment_name}' does not reference any datasets; unable to perform discovery."
+            )
+
+        extraction_patterns = patterns or get_extraction_patterns(config_mapping, experiment_name)
+
+        ignore_patterns = get_ignore_patterns(config_mapping, experiment_name)
+
+        project_extensions = project_config.get("file_extensions")
+        if project_extensions is None:
+            extensions: Optional[List[str]] = None
+        elif isinstance(project_extensions, IterableABC) and not isinstance(project_extensions, (str, bytes)):
+            extensions = [str(ext) for ext in project_extensions]
+        else:
+            raise TypeError("project.file_extensions must be a list of extensions when provided")
+
+        recursive = True
+
+        dataset_targets: List[Dict[str, Any]] = []
+        dataset_ignore_patterns: List[str] = []
+
+        for dataset_name in dataset_names:
+            dataset_info = get_dataset_info(config_mapping, dataset_name)
+
+            raw_patterns = dataset_info.get("patterns") or ["*"]
+            if isinstance(raw_patterns, IterableABC) and not isinstance(raw_patterns, (str, bytes)):
+                dataset_patterns = [str(pattern) for pattern in raw_patterns]
+            else:
+                raise TypeError(
+                    f"Dataset '{dataset_name}' patterns must be provided as an iterable of strings"
+                )
+
+            dataset_filters = dataset_info.get("filters", {})
+            if dataset_filters and not isinstance(dataset_filters, Mapping):
+                raise TypeError(f"Dataset '{dataset_name}' filters must be mapping-like if provided")
+
+            if isinstance(dataset_filters, Mapping):
+                ignore_from_dataset = dataset_filters.get("ignore_substrings", [])
+                if ignore_from_dataset:
+                    if not isinstance(ignore_from_dataset, IterableABC) or isinstance(
+                        ignore_from_dataset, (str, bytes)
+                    ):
+                        raise TypeError(
+                            f"Dataset '{dataset_name}' ignore_substrings must be a list of strings"
+                        )
+                    dataset_ignore_patterns.extend(
+                        _convert_substring_to_glob(str(pattern)) for pattern in ignore_from_dataset
+                    )
+
+            dataset_base_dir = base_directory_path / dataset_name
+            directories: List[str] = []
+
+            dates_vials = dataset_info.get("dates_vials")
+            if isinstance(dates_vials, Mapping) and dates_vials:
+                for date_key in dates_vials.keys():
+                    directories.append(str(dataset_base_dir / str(date_key)))
+            else:
+                directories.append(str(dataset_base_dir))
+
+            dataset_targets.append(
+                {
+                    "dataset": dataset_name,
+                    "directories": directories,
+                    "patterns": dataset_patterns,
+                }
+            )
+
+        combined_ignore_patterns = list(dict.fromkeys(ignore_patterns + dataset_ignore_patterns))
+
         # Determine schema version from config or use provided/default
         config_schema_version = schema_version
         if config_schema_version is None:
@@ -1313,7 +1419,7 @@ def discover_experiment_manifest(
         
         # Create FileDiscoverer with enhanced Kedro and version support
         discoverer = FileDiscoverer(
-            extract_patterns=patterns or getattr(config, 'extract_patterns', None),
+            extract_patterns=extraction_patterns,
             parse_dates=parse_dates,
             include_stats=include_stats,
             filesystem_provider=filesystem_provider,
@@ -1329,67 +1435,80 @@ def discover_experiment_manifest(
         
         # Discover files for each pattern
         all_files = []
+        seen_files: Set[str] = set()
         experiment_metadata = {
             'experiment_name': experiment_name,
-            'base_directory': str(base_directory),
-            'search_directory': str(search_directory),
-            'patterns_used': experiment_patterns,
+            'base_directory': str(base_directory_path),
+            'search_targets': dataset_targets,
             'discovery_settings': {
                 'recursive': recursive,
                 'parse_dates': parse_dates,
                 'include_stats': include_stats,
                 'extensions': extensions,
-                'ignore_patterns': ignore_patterns
-            }
+                'ignore_patterns': combined_ignore_patterns,
+                'extraction_patterns': extraction_patterns or [],
+            },
+            'ignore_patterns': combined_ignore_patterns,
+            'datasets': dataset_names,
         }
-        
-        for pattern in experiment_patterns:
-            logger.debug(f"Discovering files with pattern: {pattern}")
-            
-            # Use the existing discover method
-            discovered = discoverer.discover(
-                directory=str(search_directory),
-                pattern=pattern,
-                recursive=recursive,
-                extensions=extensions,
-                ignore_patterns=ignore_patterns
-            )
-            
-            # Convert discovered files to FileInfo objects with enhanced metadata
-            if isinstance(discovered, dict):
-                # Files with metadata
-                for file_path, metadata in discovered.items():
-                    # Create version-aware FileInfo with Kedro integration
-                    file_info = discoverer.create_version_aware_file_info(file_path, metadata)
-                    
-                    # Add file statistics if available
-                    file_info.size = metadata.get('size')
-                    file_info.mtime = metadata.get('mtime')
-                    file_info.ctime = metadata.get('ctime')
-                    file_info.creation_time = metadata.get('creation_time')
-                    file_info.parsed_date = metadata.get('parsed_date')
-                    
-                    all_files.append(file_info)
-            else:
-                # Simple file list - create basic FileInfo with version awareness
-                for file_path in discovered:
-                    file_info = discoverer.create_version_aware_file_info(file_path, {})
-                    all_files.append(file_info)
-        
+
+        for target in dataset_targets:
+            dataset_name = target['dataset']
+            for directory in target['directories']:
+                for pattern in target['patterns']:
+                    logger.debug(
+                        "Discovering files for dataset '%s' in '%s' with pattern '%s'",
+                        dataset_name,
+                        directory,
+                        pattern,
+                    )
+
+                    discovered = discoverer.discover(
+                        directory=str(directory),
+                        pattern=pattern,
+                        recursive=recursive,
+                        extensions=extensions,
+                        ignore_patterns=combined_ignore_patterns
+                    )
+
+                    if isinstance(discovered, dict):
+                        for file_path, metadata in discovered.items():
+                            if file_path in seen_files:
+                                continue
+                            seen_files.add(file_path)
+
+                            file_info = discoverer.create_version_aware_file_info(file_path, metadata)
+                            file_info.size = metadata.get('size')
+                            file_info.mtime = metadata.get('mtime')
+                            file_info.ctime = metadata.get('ctime')
+                            file_info.creation_time = metadata.get('creation_time')
+                            file_info.parsed_date = metadata.get('parsed_date')
+
+                            all_files.append(file_info)
+                    else:
+                        for file_path in discovered:
+                            if file_path in seen_files:
+                                continue
+                            seen_files.add(file_path)
+
+                            file_info = discoverer.create_version_aware_file_info(file_path, {})
+                            all_files.append(file_info)
+
         # Create enhanced FileManifest with Kedro integration
         manifest = FileManifest(
             files=all_files,
             metadata=experiment_metadata,
             manifest_version=config_schema_version
         )
-        
+
         # Add discovery metadata for version tracking
         manifest.discovery_metadata = {
             'discovery_timestamp': datetime.now().isoformat(),
             'schema_version': config_schema_version,
             'kedro_enabled': enable_kedro_metadata,
             'version_aware_patterns': version_aware_patterns,
-            'experiment_name': experiment_name
+            'experiment_name': experiment_name,
+            'datasets': dataset_names,
         }
         
         # Generate Kedro catalog entries if enabled
