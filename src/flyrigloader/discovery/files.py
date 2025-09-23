@@ -9,6 +9,8 @@ focusing exclusively on metadata extraction without data loading. Enhanced with
 Kedro integration capabilities, version-aware pattern matching, and catalog-specific
 metadata extraction for seamless pipeline integration.
 """
+import os
+from collections.abc import Iterable as IterableABC
 from typing import List, Optional, Iterable, Union, Dict, Any, Tuple, Set, Callable, Protocol
 from pathlib import Path
 import re
@@ -22,6 +24,29 @@ from flyrigloader import logger
 from flyrigloader.discovery.patterns import PatternMatcher, match_files_to_patterns
 from flyrigloader.discovery.stats import get_file_stats, attach_file_stats
 from flyrigloader.config.versioning import CURRENT_SCHEMA_VERSION
+
+
+def _normalize_directory_argument(directory: Union[str, os.PathLike, Iterable[Union[str, os.PathLike]]]) -> List[str]:
+    """Normalize directory inputs to a list of filesystem paths."""
+    logger.debug(f"Normalizing directory argument: {directory}")
+
+    if isinstance(directory, (str, os.PathLike, bytes)):
+        directories = [directory]
+    elif isinstance(directory, IterableABC):
+        directories = list(directory)
+    else:
+        raise TypeError("Directory must be a path-like object or an iterable of path-like objects.")
+
+    normalized_directories: List[str] = []
+    for entry in directories:
+        try:
+            normalized_directories.append(os.fspath(entry))
+        except TypeError as exc:
+            logger.error(f"Invalid path-like entry encountered during normalization: {entry}")
+            raise TypeError("Directory iterable must contain only path-like objects.") from exc
+
+    logger.debug(f"Normalized directories: {normalized_directories}")
+    return normalized_directories
 
 
 @dataclass
@@ -569,15 +594,15 @@ class FileDiscoverer:
         logger.debug(f"Extensions filter: {extensions}")
         logger.debug(f"Ignore patterns: {ignore_patterns}")
         logger.debug(f"Mandatory substrings: {mandatory_substrings}")
-        
+
         try:
-            # Handle single directory or multiple directories
-            directories = [directory] if isinstance(directory, str) else directory
-            logger.debug(f"Processing {len(directories)} directories")
-            
+            # Normalize directory inputs to handle str, Path, and iterables of path-like values
+            directories = _normalize_directory_argument(directory)
+            logger.debug(f"Processing {len(directories)} directories after normalization")
+
             # Collect all matching files
             all_matched_files = []
-            
+
             for dir_path in directories:
                 directory_path = Path(dir_path)
                 logger.debug(f"Searching in directory: {directory_path}")
@@ -1468,6 +1493,9 @@ def discover_files(
     logger.info(f"discover_files called with pattern='{pattern}', test_mode={test_mode}")
     
     try:
+        normalized_directory = _normalize_directory_argument(directory)
+        logger.debug(f"Forwarding normalized directories: {normalized_directory}")
+
         discoverer = FileDiscoverer(
             extract_patterns=extract_patterns,
             parse_dates=parse_dates,
@@ -1485,11 +1513,11 @@ def discover_files(
         )
         
         result = discoverer.discover(
-            directory, 
-            pattern, 
-            recursive=recursive, 
-            extensions=extensions, 
-            ignore_patterns=ignore_patterns, 
+            normalized_directory,
+            pattern,
+            recursive=recursive,
+            extensions=extensions,
+            ignore_patterns=ignore_patterns,
             mandatory_substrings=mandatory_substrings
         )
         

@@ -777,21 +777,41 @@ class TestFileDiscoveryCore:
         # Create files with unicode names
         unicode_files = [
             tmp_path / "测试文件.txt",  # Chinese characters
-            tmp_path / "файл_тест.txt",  # Cyrillic characters  
+            tmp_path / "файл_тест.txt",  # Cyrillic characters
             tmp_path / "archivo_español.txt",  # Spanish characters
             tmp_path / "émoji_🎉_file.txt"  # Emoji characters
         ]
-        
+
         for file_path in unicode_files:
             try:
                 file_path.write_text("Unicode content")
             except (UnicodeError, OSError):
                 # Skip if filesystem doesn't support unicode
                 continue
-                
+
         result = discover_files(str(tmp_path), "*.txt")
         # Should handle unicode filenames without crashing
         assert isinstance(result, list), "Should return list for unicode filenames"
+
+    def test_pathlike_directory_inputs(self, tmp_path):
+        """Ensure discover_files accepts Path objects and Path iterables."""
+        txt_files = [
+            tmp_path / "alpha.txt",
+            tmp_path / "beta.txt"
+        ]
+
+        for file_path in txt_files:
+            file_path.write_text("sample data")
+
+        expected = {str(path) for path in txt_files}
+
+        # Single Path instance
+        single_path_result = discover_files(tmp_path, "*.txt")
+        assert set(single_path_result) == expected, "Single Path input should discover all files"
+
+        # Iterable of Path instances
+        list_path_result = discover_files([tmp_path], "*.txt")
+        assert set(list_path_result) == expected, "Iterable Path input should discover all files"
 
 
 class TestFileDiscoverySpecialCases:
