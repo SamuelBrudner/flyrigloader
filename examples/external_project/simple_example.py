@@ -25,7 +25,7 @@ from pydantic import ValidationError
 # Import flyrigloader API components
 from flyrigloader.api import (
     # Legacy API functions for backward compatibility
-    load_experiment_files, 
+    load_experiment_files,
     get_experiment_parameters,
     # New decoupled architecture functions
     discover_experiment_manifest,
@@ -36,6 +36,7 @@ from flyrigloader.api import (
 # Import configuration components for enhanced validation and introspection
 from flyrigloader.config.models import LegacyConfigAdapter
 from flyrigloader.config.yaml_config import load_config
+from flyrigloader.exceptions import ConfigError
 
 
 def setup_logging(verbose: bool = False) -> None:
@@ -89,11 +90,20 @@ def demonstrate_config_validation_errors() -> None:
         # This will trigger Pydantic validation error
         load_config(invalid_config, use_pydantic_models=True)
         
-    except ValidationError as e:
+    except ConfigError as e:
         print("   ❌ Validation Error (as expected):")
-        for error in e.errors():
-            field_path = " -> ".join(str(loc) for loc in error['loc'])
-            print(f"     Field '{field_path}': {error['msg']}")
+        error_details = e.context.get("validation_errors", [])
+        if not error_details and isinstance(e.__cause__, ValidationError):
+            error_details = [
+                f"Field '{' -> '.join(str(loc) for loc in error['loc'])}': {error['msg']}"
+                for error in e.__cause__.errors()
+            ]
+
+        if not error_details:
+            error_details = [str(e)]
+
+        for error in error_details:
+            print(f"     {error}")
         print("   💡 Resolution: directories must be a dictionary mapping names to paths")
     
     # Example 2: Invalid regex pattern
@@ -108,11 +118,20 @@ def demonstrate_config_validation_errors() -> None:
         
         load_config(invalid_pattern_config, use_pydantic_models=True)
         
-    except ValidationError as e:
+    except ConfigError as e:
         print("   ❌ Validation Error (as expected):")
-        for error in e.errors():
-            field_path = " -> ".join(str(loc) for loc in error['loc'])
-            print(f"     Field '{field_path}': {error['msg']}")
+        error_details = e.context.get("validation_errors", [])
+        if not error_details and isinstance(e.__cause__, ValidationError):
+            error_details = [
+                f"Field '{' -> '.join(str(loc) for loc in error['loc'])}': {error['msg']}"
+                for error in e.__cause__.errors()
+            ]
+
+        if not error_details:
+            error_details = [str(e)]
+
+        for error in error_details:
+            print(f"     {error}")
         print("   💡 Resolution: fix the regex pattern syntax")
     
     # Example 3: Valid configuration (should work)
@@ -135,11 +154,20 @@ def demonstrate_config_validation_errors() -> None:
         print("   ✅ Configuration validated successfully!")
         print(f"   📊 Configuration type: {type(validated_config).__name__}")
         
-    except ValidationError as e:
+    except ConfigError as e:
         print("   ❌ Unexpected validation error:")
-        for error in e.errors():
-            field_path = " -> ".join(str(loc) for loc in error['loc'])
-            print(f"     Field '{field_path}': {error['msg']}")
+        error_details = e.context.get("validation_errors", [])
+        if not error_details and isinstance(e.__cause__, ValidationError):
+            error_details = [
+                f"Field '{' -> '.join(str(loc) for loc in error['loc'])}': {error['msg']}"
+                for error in e.__cause__.errors()
+            ]
+
+        if not error_details:
+            error_details = [str(e)]
+
+        for error in error_details:
+            print(f"     {error}")
 
 
 def demonstrate_config_introspection(config_path: str) -> Optional[LegacyConfigAdapter]:
@@ -192,11 +220,20 @@ def demonstrate_config_introspection(config_path: str) -> Optional[LegacyConfigA
         
         return config
         
-    except ValidationError as e:
+    except ConfigError as e:
         print("❌ Configuration validation failed:")
-        for error in e.errors():
-            field_path = " -> ".join(str(loc) for loc in error['loc'])
-            print(f"   Field '{field_path}': {error['msg']}")
+        error_details = e.context.get("validation_errors", [])
+        if not error_details and isinstance(e.__cause__, ValidationError):
+            error_details = [
+                f"Field '{' -> '.join(str(loc) for loc in error['loc'])}': {error['msg']}"
+                for error in e.__cause__.errors()
+            ]
+
+        if not error_details:
+            error_details = [str(e)]
+
+        for error in error_details:
+            print(f"   {error}")
         print("\n💡 Resolution strategies:")
         print("   1. Check configuration file syntax and structure")
         print("   2. Ensure all required fields are present")

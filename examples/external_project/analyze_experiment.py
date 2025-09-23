@@ -43,6 +43,7 @@ from flyrigloader.config.models import LegacyConfigAdapter
 
 # Import for comprehensive Pydantic validation error handling
 from pydantic import ValidationError
+from flyrigloader.exceptions import ConfigError
 
 
 def main():
@@ -97,9 +98,21 @@ def main():
         else:
             logger.info("Configuration loaded as legacy dictionary (backward compatibility mode)")
             
-    except ValidationError as e:
+    except ConfigError as e:
         logger.error("Pydantic validation error in configuration: {}", e)
-        logger.error("Please check your configuration file for syntax and structure errors")
+
+        error_details = e.context.get("validation_errors", [])
+        if not error_details and isinstance(e.__cause__, ValidationError):
+            error_details = [
+                f"{' -> '.join(str(loc) for loc in error['loc'])}: {error['msg']}"
+                for error in e.__cause__.errors()
+            ]
+
+        for detail in error_details:
+            logger.error("  • {}", detail)
+
+        if not error_details:
+            logger.error("Please check your configuration file for syntax and structure errors")
         return 1
     except Exception as e:
         logger.error("Error loading configuration: {}", e)

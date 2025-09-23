@@ -45,7 +45,7 @@ def validate_config_dict(config: Union[Dict[str, Any], LegacyConfigAdapter]) -> 
         
     Raises:
         ValueError: If the configuration dictionary is invalid
-        ValidationError: If Pydantic validation fails with detailed error reporting
+        ConfigError: If Pydantic validation fails with detailed error reporting
     """
     # Handle LegacyConfigAdapter (Pydantic-backed configuration)
     if isinstance(config, LegacyConfigAdapter):
@@ -157,7 +157,7 @@ def load_config(
         FileNotFoundError: If the config file doesn't exist.
         yaml.YAMLError: If there's an error parsing the YAML.
         ValueError: If the config structure is invalid or targets an unsupported version.
-        ValidationError: If Pydantic validation fails with detailed error reporting.
+        ConfigError: If enhanced Pydantic validation fails with detailed error reporting.
         
     Example:
         # Modern usage (default - returns Pydantic-backed configuration)
