@@ -50,7 +50,7 @@ def path_traversal_protection(path_input: Any) -> str:
     Security Checks:
     - Path traversal prevention (../, /.., ~, //)
     - Remote URL blocking (file://, http://, https://, ftp://)
-    - System path access restriction (/etc/, /var/, /usr/, etc.)
+    - Sensitive root access restriction (/etc, /var, /bin, etc.)
     - Null byte injection prevention
     - Excessive path length protection
     """
@@ -78,10 +78,32 @@ def path_traversal_protection(path_input: Any) -> str:
         raise ValueError(f"Remote or file:// URLs are not allowed: {path_str}")
     
     # Check for system path access (security violation)
-    sensitive_paths = ('/etc/', '/var/', '/usr/', '/bin/', '/sbin/', '/dev/', '/proc/', '/sys/')
-    if path_str.startswith(sensitive_paths):
-        logger.error(f"System path access blocked: {path_str}")
-        raise PermissionError(f"Access to system paths is not allowed: {path_str}")
+    sensitive_roots: Tuple[str, ...] = (
+        '/etc',
+        '/var',
+        '/bin',
+        '/sbin',
+        '/dev',
+        '/proc',
+        '/sys',
+        '/root',
+    )
+    for root in sensitive_roots:
+        normalized_root = root.rstrip('/') or '/'
+        root_prefix = (
+            normalized_root
+            if normalized_root == '/'
+            else f"{normalized_root}/"
+        )
+        if path_str == normalized_root or path_str.startswith(root_prefix):
+            logger.error(
+                "Sensitive root '%s' access blocked for path: %s",
+                normalized_root,
+                path_str,
+            )
+            raise PermissionError(
+                f"Access to sensitive system root '{normalized_root}' is not allowed: {path_str}"
+            )
     
     # Check for path traversal attempts (security violation)
     traversal_patterns = ('../', '/..', '..\\', '\\..', '~/', '~\\', '//', '\\\\')
