@@ -14,7 +14,6 @@ with existing dictionary-based configurations through the LegacyConfigAdapter.
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union, ClassVar
 from datetime import datetime
-import logging
 import re
 import warnings
 from collections.abc import MutableMapping
@@ -24,10 +23,7 @@ from pydantic.types import DirectoryPath
 
 from .validators import path_existence_validator, validate_config_version
 from .versioning import CURRENT_SCHEMA_VERSION
-
-# Set up logger for configuration model events
-logger = logging.getLogger(__name__)
-
+from flyrigloader import logger
 
 class ProjectConfig(BaseModel):
     """
