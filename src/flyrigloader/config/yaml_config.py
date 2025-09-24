@@ -5,7 +5,6 @@ Functions for loading, parsing, and accessing configuration data from YAML files
 Enhanced with Pydantic validation for improved configuration safety while maintaining
 backward compatibility with existing dictionary-based access patterns.
 """
-import logging
 import os
 from pathlib import Path
 from typing import Dict, List, Any, Optional, Union, Callable, Protocol, Set
@@ -23,10 +22,7 @@ from .validators import (
     validate_config_version,
 )
 from .versioning import CURRENT_SCHEMA_VERSION
-
-# Set up logger with null handler by default
-logger = logging.getLogger(__name__)
-logger.addHandler(logging.NullHandler())
+from flyrigloader import logger
 
 
 def validate_config_dict(config: Union[Dict[str, Any], LegacyConfigAdapter]) -> Union[Dict[str, Any], LegacyConfigAdapter]:

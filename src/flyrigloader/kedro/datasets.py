@@ -36,7 +36,6 @@ Usage Example:
       recursive: true
 """
 
-import logging
 from pathlib import Path
 from typing import Union, Any, Dict, Optional
 from threading import RLock
@@ -46,16 +45,14 @@ from copy import deepcopy
 from kedro.io import AbstractDataset
 import pandas as pd
 
-# Internal imports  
+# Internal imports
 from flyrigloader.config.models import ExperimentConfig
 from flyrigloader.exceptions import ConfigError
 from flyrigloader.discovery.files import discover_experiment_manifest
 from flyrigloader.io.loaders import load_data_file
 from flyrigloader.io.transformers import transform_to_dataframe
 from flyrigloader.config.yaml_config import load_config
-
-# Configure module-level logging
-logger = logging.getLogger(__name__)
+from flyrigloader import logger
 
 # Thread-safe lock for concurrent operations
 _dataset_lock = RLock()

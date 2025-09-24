@@ -8,7 +8,6 @@ configurations for improved type safety and validation.
 Implements dependency injection patterns for comprehensive testing support
 and provides enhanced configuration validation through Pydantic model integration.
 """
-import logging
 from pathlib import Path
 from typing import Dict, List, Any, Optional, Union, Callable, Protocol
 from abc import ABC, abstractmethod
@@ -24,10 +23,7 @@ from flyrigloader.config.yaml_config import (
 )
 from flyrigloader.config.models import ExperimentConfig, LegacyConfigAdapter
 from flyrigloader.config.validators import date_format_validator
-
-# Configure module logger for enhanced test observability
-logger = logging.getLogger(__name__)
-
+from flyrigloader import logger
 
 class PathProvider(Protocol):
     """Protocol for configurable path operations supporting test mocking."""

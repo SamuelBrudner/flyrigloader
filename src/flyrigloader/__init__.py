@@ -21,6 +21,7 @@ __version__ = "0.1.1"
 # Explicit exports for decoupled architecture components
 __all__ = ["logger"]
 
+import logging
 import sys
 from pathlib import Path
 from typing import Optional, Dict, Any, Union
@@ -38,6 +39,75 @@ log_format_file = (
     "{level: <8} | "
     "{name}:{function}:{line} - {message}"
 )
+
+
+_STANDARD_LOG_RECORD_FIELDS = {
+    "name",
+    "msg",
+    "args",
+    "levelname",
+    "levelno",
+    "pathname",
+    "filename",
+    "module",
+    "exc_info",
+    "exc_text",
+    "stack_info",
+    "lineno",
+    "funcName",
+    "created",
+    "msecs",
+    "relativeCreated",
+    "thread",
+    "threadName",
+    "processName",
+    "process",
+    "message",
+}
+
+
+class InterceptHandler(logging.Handler):
+    """Bridge standard logging records to Loguru sinks."""
+
+    def emit(self, record: logging.LogRecord) -> None:  # pragma: no cover - exercised via integration tests
+        try:
+            level = logger.level(record.levelname).name
+        except ValueError:
+            level = record.levelno
+
+        frame, depth = logging.currentframe(), 2
+        while frame and frame.f_code.co_filename == logging.__file__:
+            frame = frame.f_back
+            depth += 1
+
+        loguru_logger = logger.opt(depth=depth, exception=record.exc_info)
+
+        extras = {
+            key: value
+            for key, value in record.__dict__.items()
+            if key not in _STANDARD_LOG_RECORD_FIELDS and not key.startswith("_")
+        }
+        if extras:
+            loguru_logger = loguru_logger.bind(**extras)
+
+        message = record.getMessage()
+        if record.stack_info:
+            message = f"{message}\n{record.stack_info}"
+
+        loguru_logger.log(level, message)
+
+
+def _install_loguru_logging_bridge(level: Optional[int] = logging.NOTSET) -> None:
+    """Install Loguru intercept handler for the standard logging framework."""
+
+    root_logger = logging.getLogger()
+    if not any(isinstance(handler, InterceptHandler) for handler in root_logger.handlers):
+        root_logger.addHandler(InterceptHandler())
+
+    if level is not None:
+        root_logger.setLevel(level)
+
+    logging.captureWarnings(True)
 
 
 # --- Logger Configuration Infrastructure ---
@@ -250,10 +320,12 @@ def initialize_logger(config: Optional[LoggerConfig] = None) -> None:
                 format=config.file_format,
                 encoding="utf-8"
             )
-        
+
+        _install_loguru_logging_bridge()
+
         # Log successful initialization
         logger.info("--- FlyRigLoader Logger Initialized ---")
-        
+
     except Exception as e:
         # Re-raise with additional context for debugging
         raise RuntimeError(f"Logger initialization failed: {e}") from e
@@ -319,6 +391,7 @@ except Exception as init_error:
         format=fallback_config.console_format,
         colorize=fallback_config.colorize,
     )
+    _install_loguru_logging_bridge()
     logger.warning("Logger initialization failed: %s", init_error)
 
 # --- End Logger Configuration ---

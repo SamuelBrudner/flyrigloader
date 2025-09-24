@@ -48,7 +48,6 @@ Usage Examples:
 
 from typing import Union, Any, Dict, List, Optional, Tuple
 from pathlib import Path
-import logging
 import yaml
 import warnings
 
@@ -59,9 +58,7 @@ from flyrigloader.kedro.datasets import FlyRigLoaderDataSet
 from flyrigloader.config.validators import validate_config_version
 from flyrigloader.exceptions import KedroIntegrationError
 # from flyrigloader.api import validate_manifest  # Moved to lazy import to avoid circular dependency
-
-# Set up module-level logging  
-logger = logging.getLogger(__name__)
+from flyrigloader import logger
 
 
 def create_flyrigloader_catalog_entry(

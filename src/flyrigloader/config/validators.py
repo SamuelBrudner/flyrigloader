@@ -14,17 +14,13 @@ version-aware configuration management.
 from pathlib import Path
 import re
 import os
-import logging
 from typing import Any, Dict, Union, Tuple, Optional, List
 from datetime import datetime
 
 from semantic_version import Version
 
 from .versioning import CURRENT_SCHEMA_VERSION
-
-
-# Set up logger for validation events
-logger = logging.getLogger(__name__)
+from flyrigloader import logger
 
 
 def path_traversal_protection(path_input: Any) -> str:
