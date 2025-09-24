@@ -21,9 +21,80 @@ from collections.abc import MutableMapping
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from pydantic.types import DirectoryPath
 
-from .validators import path_existence_validator, validate_config_version
+from .validators import (
+    PathSecurityPolicy,
+    get_default_path_security_policy,
+    path_existence_validator,
+    validate_config_version,
+)
 from .versioning import CURRENT_SCHEMA_VERSION
 from flyrigloader import logger
+
+
+class PathSecurityConfig(BaseModel):
+    """Optional overrides for directory traversal protection."""
+
+    model_config = ConfigDict(extra='forbid', str_strip_whitespace=True)
+
+    sensitive_roots: Optional[List[str]] = Field(
+        default=None,
+        description="Override the full set of sensitive roots that should be blocked",
+    )
+    allowed_roots: Optional[List[str]] = Field(
+        default=None,
+        description="Additional root paths that should be explicitly allowed",
+    )
+
+    @field_validator('sensitive_roots', 'allowed_roots')
+    @classmethod
+    def _validate_root_list(
+        cls, value: Optional[List[str]], field_name: str
+    ) -> Optional[List[str]]:
+        if value is None:
+            return None
+
+        if not isinstance(value, list):
+            raise ValueError(f"{field_name} must be a list of absolute paths")
+
+        cleaned: List[str] = []
+        for entry in value:
+            if not isinstance(entry, str):
+                raise ValueError(
+                    f"{field_name} entries must be strings, got {type(entry)}"
+                )
+
+            stripped = entry.strip()
+            if not stripped:
+                raise ValueError(f"{field_name} entries cannot be empty")
+
+            cleaned.append(stripped)
+
+        return cleaned if cleaned else None
+
+    def to_policy(self, base_policy: Optional[PathSecurityPolicy] = None) -> PathSecurityPolicy:
+        """Create a ``PathSecurityPolicy`` reflecting this configuration."""
+
+        base_policy = base_policy or get_default_path_security_policy()
+
+        sensitive_roots = (
+            tuple(self.sensitive_roots)
+            if self.sensitive_roots is not None
+            else base_policy.sensitive_roots
+        )
+
+        if self.allowed_roots:
+            merged_allowed = (
+                *base_policy.allowed_roots,
+                *tuple(self.allowed_roots),
+            )
+        else:
+            merged_allowed = base_policy.allowed_roots
+
+        return PathSecurityPolicy(
+            sensitive_roots=sensitive_roots,
+            allowed_roots=tuple(dict.fromkeys(merged_allowed)),
+        )
+
 
 class ProjectConfig(BaseModel):
     """
@@ -65,6 +136,11 @@ class ProjectConfig(BaseModel):
                 "backup_directory": "/path/to/backup"
             }
         }
+    )
+
+    path_security: Optional[PathSecurityConfig] = Field(
+        default=None,
+        description="Optional overrides controlling directory traversal protection",
     )
     
     ignore_substrings: Optional[List[str]] = Field(
@@ -118,37 +194,20 @@ class ProjectConfig(BaseModel):
     @field_validator('directories')
     @classmethod
     def validate_directories(cls, v: Optional[Dict[str, Any]]) -> Dict[str, Any]:
-        """Validate directory paths with security checks and existence validation."""
+        """Ensure directories are represented as strings and omit null entries."""
         if v is None:
             return {}
         if not isinstance(v, dict):
             raise ValueError("directories must be a dictionary")
-        
-        validated_dirs = {}
+
+        sanitized: Dict[str, Any] = {}
         for key, value in v.items():
             if value is None:
                 continue
-                
-            # Convert to string for validation
-            path_str = str(value)
-            
-            # Use path_existence_validator for security and existence checks
-            # This validator is test-environment aware and will skip existence checks during testing
-            try:
-                path_existence_validator(path_str, require_file=False)
-                validated_dirs[key] = path_str
-                logger.debug(f"Directory validated: {key} = {path_str}")
-            except Exception as e:
-                logger.error(
-                    f"Directory validation failed for {key}: {path_str} - {e}"
-                )
-                if isinstance(e, FileNotFoundError):
-                    message = f"Path not found: {path_str}"
-                else:
-                    message = f"Directory '{key}' validation failed: {e}"
-                raise ValueError(message) from e
 
-        return validated_dirs
+            sanitized[key] = str(value)
+
+        return sanitized
     
     @field_validator('ignore_substrings')
     @classmethod
@@ -207,7 +266,7 @@ class ProjectConfig(BaseModel):
         """Validate regex extraction patterns by compiling them."""
         if v is None:
             return None
-        
+
         if not isinstance(v, list):
             raise ValueError("extraction_patterns must be a list")
         
@@ -231,6 +290,45 @@ class ProjectConfig(BaseModel):
         
         logger.debug(f"Validated {len(validated_patterns)} extraction patterns")
         return validated_patterns if validated_patterns else None
+
+    @model_validator(mode='after')
+    def apply_directory_security(self) -> 'ProjectConfig':
+        """Run directory security validation once configuration is available."""
+
+        directories = self.directories or {}
+        if not directories:
+            return self
+
+        policy: Optional[PathSecurityPolicy] = None
+        if self.path_security is not None:
+            try:
+                policy = self.path_security.to_policy()
+                logger.debug(
+                    "ProjectConfig using custom path security policy with {} allowed roots",
+                    len(policy.allowed_roots),
+                )
+            except Exception as exc:
+                logger.error(f"Failed to build path security policy: {exc}")
+                raise ValueError(f"Invalid path_security configuration: {exc}") from exc
+
+        validated_dirs: Dict[str, str] = {}
+        for key, value in directories.items():
+            try:
+                path_existence_validator(value, require_file=False, policy=policy)
+                validated_dirs[key] = value
+                logger.debug(f"Directory validated: {key} = {value}")
+            except Exception as e:
+                logger.error(
+                    f"Directory validation failed for {key}: {value} - {e}"
+                )
+                if isinstance(e, FileNotFoundError):
+                    message = f"Path not found: {value}"
+                else:
+                    message = f"Directory '{key}' validation failed: {e}"
+                raise ValueError(message) from e
+
+        object.__setattr__(self, 'directories', validated_dirs)
+        return self
     
     def model_post_init(self, __context: Any) -> None:  # type: ignore[override]
         """Ensure project configurations are pinned to the supported schema version."""

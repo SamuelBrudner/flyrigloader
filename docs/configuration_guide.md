@@ -50,6 +50,10 @@ class ProjectConfig(BaseModel):
         default_factory=dict,
         description="Dictionary of directory paths including major_data_directory"
     )
+    path_security: Optional[PathSecurityConfig] = Field(
+        default=None,
+        description="Overrides for directory traversal protection"
+    )
     ignore_substrings: Optional[List[str]] = Field(
         default=None,
         description="List of substring patterns to ignore during file discovery"
@@ -65,7 +69,7 @@ class ProjectConfig(BaseModel):
 ```
 
 **Key Features:**
-- **Directory validation**: Automatically checks path existence and security
+- **Directory validation**: Automatically checks path existence and security with configurable sensitive-root policies
 - **Pattern compilation**: Validates regex patterns at load time to prevent runtime errors
 - **Flexible structure**: Supports additional fields for future extensibility
 
@@ -778,3 +782,18 @@ configuration_health_check("config.yaml")
 This configuration guide provides comprehensive documentation for the new Pydantic-based configuration system in FlyRigLoader. The system offers powerful validation, type safety, and enhanced developer experience while maintaining full backward compatibility with existing configurations.
 
 For additional support or feature requests, please refer to the project documentation or open an issue in the repository.
+### PathSecurityConfig
+
+`PathSecurityConfig` allows projects to tailor which filesystem roots are treated
+as sensitive. When provided on `ProjectConfig`, the generated policy is supplied
+to the directory validator so that explicitly allowed locations (for example,
+`/var/lib`) are accepted while traversal patterns continue to be rejected.
+
+```python
+class PathSecurityConfig(BaseModel):
+    allowed_roots: Optional[List[str]] = Field(default=None)
+    sensitive_roots: Optional[List[str]] = Field(default=None)
+```
+
+If `allowed_roots` is set, the entries augment the defaults supplied by the
+validator module. Providing `sensitive_roots` replaces the default deny list.
