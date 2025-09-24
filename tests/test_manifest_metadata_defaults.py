@@ -1,3 +1,5 @@
+import importlib
+
 import flyrigloader.api as api
 from flyrigloader.api import discover_experiment_manifest
 from flyrigloader.discovery.files import FileManifest, FileInfo, FileDiscoverer
@@ -15,14 +17,15 @@ def test_manifest_metadata_defaults_to_empty_dict(monkeypatch):
             ]
         )
 
-    monkeypatch.setattr(api, '_discover_experiment_manifest', fake_discover)
+    api_module = importlib.import_module("flyrigloader.api")
+    monkeypatch.setattr(api_module, '_discover_experiment_manifest', fake_discover)
 
     config = {
         'project': {'directories': {'major_data_directory': '/data'}},
         'experiments': {'exp': {'datasets': ['dataset']}}
     }
 
-    manifest = discover_experiment_manifest(config=config, experiment_name='exp')
+    manifest = api_module.discover_experiment_manifest(config=config, experiment_name='exp')
 
     entry = manifest['/data/file.pkl']
 
@@ -51,14 +54,15 @@ def test_manifest_stats_payload_sets_size(monkeypatch):
         file_info = discoverer.create_version_aware_file_info('/data/file.pkl', stats_metadata)
         return FileManifest(files=[file_info])
 
-    monkeypatch.setattr(api, '_discover_experiment_manifest', fake_discover)
+    api_module = importlib.import_module("flyrigloader.api")
+    monkeypatch.setattr(api_module, '_discover_experiment_manifest', fake_discover)
 
     config = {
         'project': {'directories': {'major_data_directory': '/data'}},
         'experiments': {'exp': {'datasets': ['dataset']}}
     }
 
-    manifest = discover_experiment_manifest(config=config, experiment_name='exp')
+    manifest = api_module.discover_experiment_manifest(config=config, experiment_name='exp')
 
     entry = manifest['/data/file.pkl']
     assert entry['size'] == 1234
