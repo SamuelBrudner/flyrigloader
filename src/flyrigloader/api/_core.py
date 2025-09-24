@@ -14,10 +14,9 @@ and scientific reproducibility through comprehensive audit logging.
 from pathlib import Path
 import copy
 import os
-import importlib.util
-from typing import Dict, List, Any, Optional, Union, Protocol, Callable
+import importlib
+from typing import Dict, List, Any, Optional, Union, Callable
 from collections.abc import MutableMapping
-from abc import ABC, abstractmethod
 import pandas as pd
 from flyrigloader.io.pickle import (
     read_pickle_any_format as _read_pickle_any_format,
@@ -41,360 +40,43 @@ from flyrigloader.config.validators import validate_config_version
 from flyrigloader.config.versioning import CURRENT_SCHEMA_VERSION
 from semantic_version import Version
 
-import warnings
 import functools
-
-_KEDRO_IMPORT_ERROR: Optional[ModuleNotFoundError] = None
-try:
-    _KEDRO_SPEC = importlib.util.find_spec("kedro")
-except (ValueError, ModuleNotFoundError):
-    _KEDRO_SPEC = None
-
-if _KEDRO_SPEC is not None:
-    try:  # pragma: no branch - executed once at import
-        from flyrigloader.kedro.datasets import FlyRigLoaderDataSet
-    except ModuleNotFoundError as exc:  # pragma: no cover - environment specific
-        FlyRigLoaderDataSet = None  # type: ignore[assignment]
-        _KEDRO_IMPORT_ERROR = exc
-else:  # pragma: no cover - environment specific
-    FlyRigLoaderDataSet = None  # type: ignore[assignment]
-    _KEDRO_IMPORT_ERROR = ModuleNotFoundError(
-        "kedro is not installed; FlyRigLoader Kedro integration is unavailable."
-    )
 
 # Re-export helpers for convenience
 read_pickle_any_format = _read_pickle_any_format
 make_dataframe_from_config = _make_dataframe_from_config
 get_config_from_source = _get_config_from_source
 
-__all__ = [
-    # New decoupled architecture functions
-    "discover_experiment_manifest",
-    "load_data_file", 
-    "transform_to_dataframe",
-    # Configuration builders
-    "create_config",
-    # Enhanced refactoring functions per Section 0.2.1
-    "validate_manifest",
-    "create_kedro_dataset", 
-    "get_registered_loaders",
-    "get_loader_capabilities",
-    # Existing API functions (maintained for backward compatibility)
-    "load_experiment_files",
-    "load_dataset_files",
-    "process_experiment_data",
-    "get_experiment_parameters",
-    "get_dataset_parameters",
-    "_resolve_base_directory",
-    # Utility functions
-    "read_pickle_any_format",
-    "make_dataframe_from_config",
-    "get_config_from_source",
-    # Exception
-    "FlyRigLoaderError",
-]
 from flyrigloader import logger
 
-
-def _ensure_kedro_available() -> None:
-    """Ensure optional Kedro integration is available before use."""
-
-    if FlyRigLoaderDataSet is None:
-        message = (
-            "Kedro integration requires the 'kedro' package. "
-            "Install flyrigloader with the 'kedro' extra or add kedro to your environment."
-        )
-        if _KEDRO_IMPORT_ERROR is not None:
-            logger.error(f"Kedro integration unavailable: {_KEDRO_IMPORT_ERROR}")
-        raise FlyRigLoaderError(message) from _KEDRO_IMPORT_ERROR
+from .dependencies import (
+    ConfigProvider,
+    DefaultDependencyProvider,
+    DiscoveryProvider,
+    IOProvider,
+    UtilsProvider,
+    get_dependency_provider,
+    reset_dependency_provider,
+    set_dependency_provider,
+)
 
 
-if FlyRigLoaderDataSet is None:
-    logger.warning(
-        "FlyRigLoader Kedro integration disabled because 'kedro' could not be imported."
-    )
+def _get_api_override(name: str, fallback: Callable[..., Any] | Any) -> Callable[..., Any] | Any:
+    """Return patched attribute from :mod:`flyrigloader.api` when available."""
+
+    try:
+        api_module = importlib.import_module("flyrigloader.api")
+    except Exception:
+        return fallback
+    override = getattr(api_module, name, fallback)
+    globals()[name] = override
+    return override
 
 
 MISSING_DATA_DIR_ERROR = (
     "No data directory specified. Either provide base_directory parameter "
     "or ensure 'major_data_directory' is set in config."
 )
-
-
-class ConfigProvider(Protocol):
-    """
-    Protocol for configuration providers supporting dependency injection.
-    
-    Updated to support both dictionary and Pydantic model configurations
-    through LegacyConfigAdapter for backward compatibility during the
-    configuration system transition.
-    """
-    
-    def load_config(self, config_path: Union[str, Path]) -> Union[Dict[str, Any], LegacyConfigAdapter]:
-        """
-        Load configuration from path.
-        
-        Returns either a dictionary (legacy mode) or LegacyConfigAdapter (new mode)
-        that wraps validated Pydantic models while providing dict-like access.
-        """
-        ...
-    
-    def get_ignore_patterns(self, config: Union[Dict[str, Any], LegacyConfigAdapter], experiment: Optional[str] = None) -> List[str]:
-        """Get ignore patterns from configuration (supports both dict and LegacyConfigAdapter)."""
-        ...
-    
-    def get_mandatory_substrings(self, config: Union[Dict[str, Any], LegacyConfigAdapter], experiment: Optional[str] = None) -> List[str]:
-        """Get mandatory substrings from configuration (supports both dict and LegacyConfigAdapter)."""
-        ...
-    
-    def get_dataset_info(self, config: Union[Dict[str, Any], LegacyConfigAdapter], dataset_name: str) -> Dict[str, Any]:
-        """Get dataset information (supports both dict and LegacyConfigAdapter)."""
-        ...
-    
-    def get_experiment_info(self, config: Union[Dict[str, Any], LegacyConfigAdapter], experiment_name: str) -> Dict[str, Any]:
-        """Get experiment information (supports both dict and LegacyConfigAdapter)."""
-        ...
-
-
-class DiscoveryProvider(Protocol):
-    """
-    Protocol for file discovery providers supporting dependency injection.
-    
-    Updated to support both dictionary and Pydantic model configurations
-    through LegacyConfigAdapter for enhanced validation and type safety.
-    """
-    
-    def discover_files_with_config(
-        self,
-        config: Union[Dict[str, Any], LegacyConfigAdapter],
-        directory: Union[str, List[str]],
-        pattern: str,
-        recursive: bool = False,
-        extensions: Optional[List[str]] = None,
-        experiment: Optional[str] = None,
-        extract_metadata: bool = False,
-        parse_dates: bool = False
-    ) -> Union[List[str], Dict[str, Dict[str, Any]]]:
-        """Discover files using configuration-aware filtering (supports both dict and LegacyConfigAdapter)."""
-        ...
-    
-    def discover_experiment_files(
-        self,
-        config: Union[Dict[str, Any], LegacyConfigAdapter],
-        experiment_name: str,
-        base_directory: Union[str, Path],
-        pattern: str = "*.*",
-        recursive: bool = True,
-        extensions: Optional[List[str]] = None,
-        extract_metadata: bool = False,
-        parse_dates: bool = False
-    ) -> Union[List[str], Dict[str, Dict[str, Any]]]:
-        """Discover files related to a specific experiment (supports both dict and LegacyConfigAdapter)."""
-        ...
-    
-    def discover_dataset_files(
-        self,
-        config: Union[Dict[str, Any], LegacyConfigAdapter],
-        dataset_name: str,
-        base_directory: Union[str, Path],
-        pattern: str = "*.*",
-        recursive: bool = True,
-        extensions: Optional[List[str]] = None,
-        extract_metadata: bool = False,
-        parse_dates: bool = False
-    ) -> Union[List[str], Dict[str, Dict[str, Any]]]:
-        """Discover files related to a specific dataset (supports both dict and LegacyConfigAdapter)."""
-        ...
-
-
-class IOProvider(Protocol):
-    """Protocol for I/O providers supporting dependency injection."""
-    
-    def read_pickle_any_format(self, path: Union[str, Path]) -> Any:
-        """Read pickle files in any format."""
-        ...
-    
-    def make_dataframe_from_config(
-        self,
-        exp_matrix: Dict[str, Any],
-        config_source: Optional[Union[str, Path, Dict[str, Any]]] = None,
-        metadata: Optional[Dict[str, Any]] = None
-    ) -> Any:
-        """Create DataFrame from experimental matrix using configuration."""
-        ...
-    
-    def get_config_from_source(self, config_source: Optional[Union[str, Path, Dict[str, Any]]] = None) -> Any:
-        """Get configuration from various sources."""
-        ...
-
-
-class UtilsProvider(Protocol):
-    """Protocol for utility providers supporting dependency injection."""
-    
-    def get_file_stats(self, path: Union[str, Path]) -> Dict[str, Any]:
-        """Get file statistics."""
-        ...
-    
-    def get_relative_path(self, path: Union[str, Path], base_dir: Union[str, Path]) -> Path:
-        """Get relative path."""
-        ...
-    
-    def get_absolute_path(self, path: Union[str, Path], base_dir: Union[str, Path]) -> Path:
-        """Get absolute path."""
-        ...
-    
-    def check_file_exists(self, path: Union[str, Path]) -> bool:
-        """Check if file exists."""
-        ...
-    
-    def ensure_directory_exists(self, path: Union[str, Path]) -> Path:
-        """Ensure directory exists."""
-        ...
-    
-    def find_common_base_directory(self, paths: List[Union[str, Path]]) -> Optional[Path]:
-        """Find common base directory."""
-        ...
-
-
-class DefaultDependencyProvider:
-    """Default implementation of dependency providers using actual modules."""
-    
-    def __init__(self):
-        """Initialize with lazy imports to avoid circular dependencies."""
-        self._config_module = None
-        self._discovery_module = None
-        self._io_module = None
-        self._utils_module = None
-        logger.debug("Initialized DefaultDependencyProvider with lazy loading")
-    
-    @property
-    def config(self) -> ConfigProvider:
-        """Get configuration provider with lazy loading."""
-        if self._config_module is None:
-            logger.debug("Loading configuration module dependencies")
-            from flyrigloader.config import yaml_config as _yaml_config
-
-            _load_config = _yaml_config.load_config
-            _get_ignore_patterns = _yaml_config.get_ignore_patterns
-            _get_mandatory_substrings = _yaml_config.get_mandatory_substrings
-            _get_dataset_info = _yaml_config.get_dataset_info
-            _get_experiment_info = _yaml_config.get_experiment_info
-            
-            class ConfigModule:
-                load_config = staticmethod(_load_config)
-                get_ignore_patterns = staticmethod(_get_ignore_patterns)
-                get_mandatory_substrings = staticmethod(_get_mandatory_substrings)
-                get_dataset_info = staticmethod(_get_dataset_info)
-                get_experiment_info = staticmethod(_get_experiment_info)
-            
-            self._config_module = ConfigModule()
-        return self._config_module
-    
-    @property
-    def discovery(self) -> DiscoveryProvider:
-        """Get discovery provider with lazy loading."""
-        if self._discovery_module is None:
-            logger.debug("Loading discovery module dependencies")
-            import importlib
-            discovery_mod = importlib.import_module("flyrigloader.config.discovery")
-
-            class DiscoveryModule:
-                discover_files_with_config = staticmethod(discovery_mod.discover_files_with_config)
-                discover_experiment_files = staticmethod(discovery_mod.discover_experiment_files)
-                discover_dataset_files = staticmethod(discovery_mod.discover_dataset_files)
-            
-            self._discovery_module = DiscoveryModule()
-        return self._discovery_module
-    
-    @property
-    def io(self) -> IOProvider:
-        """Get I/O provider with lazy loading."""
-        if self._io_module is None:
-            logger.debug("Loading I/O module dependencies")
-            from flyrigloader.io.pickle import read_pickle_any_format
-            from flyrigloader.io.transformers import make_dataframe_from_config
-            # get_config_from_source already imported at module level
-            
-            class IOModule:
-                read_pickle_any_format = staticmethod(read_pickle_any_format)
-                make_dataframe_from_config = staticmethod(make_dataframe_from_config)
-                get_config_from_source = staticmethod(get_config_from_source)
-            
-            self._io_module = IOModule()
-        return self._io_module
-    
-    @property
-    def utils(self) -> UtilsProvider:
-        """Get utilities provider with lazy loading."""
-        if self._utils_module is None:
-            logger.debug("Loading utilities module dependencies")
-            from flyrigloader.discovery.stats import get_file_stats as _get_file_stats
-            from flyrigloader.utils.paths import (
-                get_relative_path as _get_relative_path,
-                get_absolute_path as _get_absolute_path,
-                check_file_exists as _check_file_exists,
-                ensure_directory_exists as _ensure_directory_exists,
-                find_common_base_directory as _find_common_base_directory
-            )
-            
-            class UtilsModule:
-                get_file_stats = staticmethod(_get_file_stats)
-                get_relative_path = staticmethod(_get_relative_path)
-                get_absolute_path = staticmethod(_get_absolute_path)
-                check_file_exists = staticmethod(_check_file_exists)
-                ensure_directory_exists = staticmethod(_ensure_directory_exists)
-                find_common_base_directory = staticmethod(_find_common_base_directory)
-            
-            self._utils_module = UtilsModule()
-        return self._utils_module
-
-
-# Global dependency provider instance with test override capability
-_dependency_provider: DefaultDependencyProvider = DefaultDependencyProvider()
-
-
-def set_dependency_provider(provider: DefaultDependencyProvider) -> None:
-    """
-    Set the global dependency provider for testing purposes.
-    
-    This function enables pytest.monkeypatch scenarios for comprehensive unit testing
-    by allowing test code to inject mock dependencies.
-    
-    Args:
-        provider: Dependency provider instance to use globally
-        
-    Examples:
-        >>> # In tests, mock the entire provider
-        >>> mock_provider = Mock(spec=DefaultDependencyProvider)
-        >>> set_dependency_provider(mock_provider)
-        >>> 
-        >>> # Or patch specific methods using monkeypatch
-        >>> def test_with_mocked_config(monkeypatch):
-        ...     mock_config = Mock(spec=ConfigProvider)
-        ...     mock_provider = DefaultDependencyProvider()
-        ...     monkeypatch.setattr(mock_provider, 'config', mock_config)
-        ...     set_dependency_provider(mock_provider)
-    """
-    global _dependency_provider
-    logger.debug(f"Setting dependency provider to {type(provider).__name__}")
-    _dependency_provider = provider
-
-
-def get_dependency_provider() -> DefaultDependencyProvider:
-    """
-    Get the current global dependency provider.
-    
-    Returns:
-        Current dependency provider instance
-    """
-    return _dependency_provider
-
-
-def reset_dependency_provider() -> None:
-    """Reset dependency provider to default implementation for test cleanup."""
-    global _dependency_provider
-    logger.debug("Resetting dependency provider to default")
-    _dependency_provider = DefaultDependencyProvider()
 
 
 CONFIG_SOURCE_ERROR_MESSAGE = "Exactly one of 'config_path' or 'config' must be provided"
@@ -832,9 +514,12 @@ def discover_experiment_manifest(
     # Use the new decoupled discovery function
     try:
         logger.debug(f"Starting decoupled file discovery for experiment '{experiment_name}'")
-        
-        # Call the new discovery function from discovery/files.py
-        file_manifest = _discover_experiment_manifest(
+
+        discover_manifest = _get_api_override(
+            "_discover_experiment_manifest", _discover_experiment_manifest
+        )
+
+        file_manifest = discover_manifest(
             config=config_dict,
             experiment_name=experiment_name,
             patterns=None,  # Use config patterns
@@ -939,7 +624,8 @@ def load_data_file(
     # Use the new decoupled loading function
     try:
         logger.debug(f"Loading raw data using decoupled loader: {file_path}")
-        raw_data = _load_data_file(file_path, loader)
+        load_data_impl = _get_api_override("_load_data_file", _load_data_file)
+        raw_data = load_data_impl(file_path, loader)
         
         # Validate format if requested
         if validate_format:
@@ -1058,7 +744,8 @@ def transform_to_dataframe(
     # Use the new decoupled transformation function
     try:
         logger.debug("Calling DataFrame transformation utility from decoupled architecture")
-        df = _transform_to_dataframe(
+        transformer = _get_api_override("_transform_to_dataframe", _transform_to_dataframe)
+        df = transformer(
             exp_matrix=raw_data,
             config_source=column_config_path,
             metadata=metadata
@@ -1311,164 +998,6 @@ def validate_manifest(
         error_msg = (
             f"Manifest validation failed for {operation_name}: {e}. "
             "Please check the manifest structure and validation parameters."
-        )
-        logger.error(error_msg)
-        raise FlyRigLoaderError(error_msg) from e
-
-
-def create_kedro_dataset(
-    config_path: Union[str, Path],
-    experiment_name: str,
-    *,
-    recursive: bool = True,
-    extract_metadata: bool = True,
-    parse_dates: bool = True,
-    dataset_options: Optional[Dict[str, Any]] = None,
-    _deps: Optional[DefaultDependencyProvider] = None
-) -> "FlyRigLoaderDataSet":
-    """
-    Factory function for creating Kedro dataset instances with proper lifecycle management.
-    
-    This function enables seamless Kedro catalog integration by providing a standardized
-    factory method for FlyRigLoaderDataSet creation. It handles configuration validation,
-    parameter normalization, and proper dataset initialization following Kedro best practices.
-    
-    Args:
-        config_path: Path to the FlyRigLoader configuration file
-        experiment_name: Name of the experiment to load data for
-        recursive: Whether to search recursively in directories (default: True)
-        extract_metadata: Whether to extract metadata from filenames (default: True)
-        parse_dates: Whether to parse dates from filenames (default: True)
-        dataset_options: Additional options to pass to the dataset constructor
-        _deps: Optional dependency provider for testing injection (internal parameter)
-        
-    Returns:
-        FlyRigLoaderDataSet: Configured Kedro dataset instance ready for catalog use
-        
-    Raises:
-        ValueError: If parameters are invalid or configuration is missing
-        FileNotFoundError: If configuration file doesn't exist
-        FlyRigLoaderError: For configuration validation or dataset creation failures
-        
-    Example:
-        >>> # For direct usage
-        >>> dataset = create_kedro_dataset(
-        ...     config_path="experiment_config.yaml",
-        ...     experiment_name="baseline_study",
-        ...     recursive=True,
-        ...     extract_metadata=True
-        ... )
-        >>> 
-        >>> # For Kedro catalog.yml integration
-        >>> # my_experiment_data:
-        >>> #   type: flyrigloader.api.create_kedro_dataset
-        >>> #   config_path: "${base_dir}/config/experiment_config.yaml"
-        >>> #   experiment_name: "baseline_study"
-        >>> #   recursive: true
-        >>> #   extract_metadata: true
-    """
-    _ensure_kedro_available()
-
-    operation_name = "create_kedro_dataset"
-    
-    # Initialize dependency provider for testability
-    if _deps is None:
-        _deps = get_dependency_provider()
-    
-    logger.info(f"🏗️ Creating Kedro dataset for experiment '{experiment_name}'")
-    logger.debug(f"Dataset parameters: config_path={config_path}, recursive={recursive}, "
-                f"extract_metadata={extract_metadata}, parse_dates={parse_dates}")
-    
-    # Validate parameters
-    if not config_path:
-        error_msg = (
-            f"Invalid config_path for {operation_name}: '{config_path}'. "
-            "config_path must be a non-empty string or Path object pointing to the configuration file."
-        )
-        logger.error(error_msg)
-        raise FlyRigLoaderError(error_msg)
-    
-    if not experiment_name or not isinstance(experiment_name, str):
-        error_msg = (
-            f"Invalid experiment_name for {operation_name}: '{experiment_name}'. "
-            "experiment_name must be a non-empty string representing the experiment identifier."
-        )
-        logger.error(error_msg)
-        raise FlyRigLoaderError(error_msg)
-    
-    # Validate configuration file exists
-    config_path_obj = Path(config_path)
-    if not config_path_obj.exists():
-        error_msg = (
-            f"Configuration file not found for {operation_name}: {config_path}. "
-            "Please ensure the configuration file exists and the path is correct."
-        )
-        logger.error(error_msg)
-        raise FileNotFoundError(error_msg)
-    
-    try:
-        # Pre-validate configuration by loading it
-        logger.debug("Pre-validating configuration for dataset creation")
-        config_dict = _load_and_validate_config(str(config_path), None, operation_name, _deps)
-        
-        # Validate experiment exists in configuration
-        if 'experiments' not in config_dict or not config_dict['experiments']:
-            error_msg = (
-                f"No experiments found in configuration for {operation_name}. "
-                "Configuration must contain an 'experiments' section."
-            )
-            logger.error(error_msg)
-            raise FlyRigLoaderError(error_msg)
-        
-        if experiment_name not in config_dict['experiments']:
-            available_experiments = list(config_dict['experiments'].keys())
-            error_msg = (
-                f"Experiment '{experiment_name}' not found in configuration. "
-                f"Available experiments: {available_experiments}. "
-                "Please check the experiment name and ensure it's defined in your configuration."
-            )
-            logger.error(error_msg)
-            raise FlyRigLoaderError(error_msg)
-        
-        # Prepare dataset options
-        dataset_kwargs = {
-            'config_path': str(config_path_obj.resolve()),
-            'experiment_name': experiment_name,
-            'recursive': recursive,
-            'extract_metadata': extract_metadata,
-            'parse_dates': parse_dates
-        }
-        
-        # Add additional options if provided
-        if dataset_options:
-            logger.debug(f"Adding custom dataset options: {list(dataset_options.keys())}")
-            dataset_kwargs.update(dataset_options)
-        
-        # Create the Kedro dataset instance
-        logger.debug("Creating FlyRigLoaderDataSet instance")
-        dataset = FlyRigLoaderDataSet(
-            filepath=dataset_kwargs['config_path'],
-            experiment_name=dataset_kwargs['experiment_name'],
-            recursive=dataset_kwargs['recursive'],
-            extract_metadata=dataset_kwargs['extract_metadata'],
-            parse_dates=dataset_kwargs['parse_dates']
-        )
-        
-        logger.info(f"✓ Successfully created Kedro dataset for experiment '{experiment_name}'")
-        logger.debug(f"  Dataset configuration: {config_path}")
-        logger.debug(f"  Dataset options: {list(dataset_kwargs.keys())}")
-        
-        return dataset
-        
-    except Exception as e:
-        # Re-raise known exceptions as-is
-        if isinstance(e, (ValueError, FileNotFoundError, FlyRigLoaderError)):
-            raise
-        
-        # Wrap unexpected exceptions
-        error_msg = (
-            f"Failed to create Kedro dataset for {operation_name}: {e}. "
-            "Please check the configuration file and experiment parameters."
         )
         logger.error(error_msg)
         raise FlyRigLoaderError(error_msg) from e
