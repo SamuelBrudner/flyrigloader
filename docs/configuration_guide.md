@@ -45,7 +45,14 @@ The `ProjectConfig` model defines project-level settings that apply globally acr
 from pydantic import BaseModel, Field
 from typing import Dict, List, Optional, Any
 
+from flyrigloader.config.validators import PathSecurityPolicy
+
+
 class ProjectConfig(BaseModel):
+    path_security: Optional[PathSecurityPolicy] = Field(
+        default=None,
+        description="Allow/deny policy applied during directory path validation",
+    )
     directories: Dict[str, Any] = Field(
         default_factory=dict,
         description="Dictionary of directory paths including major_data_directory"
@@ -65,7 +72,7 @@ class ProjectConfig(BaseModel):
 ```
 
 **Key Features:**
-- **Directory validation**: Automatically checks path existence and security
+- **Directory validation**: Automatically checks path existence and security with configurable sensitive roots
 - **Pattern compilation**: Validates regex patterns at load time to prevent runtime errors
 - **Flexible structure**: Supports additional fields for future extensibility
 
@@ -448,6 +455,29 @@ for path in dangerous_paths:
     except (ValueError, PermissionError) as e:
         print(f"Security validation blocked: {path} - {e}")
 ```
+
+#### Configuring Sensitive Root Policies
+
+Legitimate deployments sometimes store data under system directories such as `/var`.
+Use the `path_security` section of the project configuration to allow those locations
+explicitly or to extend the deny list:
+
+```yaml
+project:
+  path_security:
+    allow_roots:
+      - /var/lib/flyrigloader
+    deny_roots:
+      - /srv/secret_backups
+    inherit_defaults: true
+  directories:
+    major_data_directory: /var/lib/flyrigloader
+```
+
+The validator logs each decision at DEBUG level. When a path is allowed by a configured
+root you will see a message similar to `Path '/var/lib/flyrigloader' allowed by configured
+allow root '/var/lib/flyrigloader'`. Setting `inherit_defaults: false` opts out of the
+built-in deny list entirely.
 
 #### Test Environment Behavior
 

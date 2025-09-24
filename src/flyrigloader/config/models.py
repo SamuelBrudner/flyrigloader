@@ -18,10 +18,21 @@ import re
 import warnings
 from collections.abc import MutableMapping
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    ValidationInfo,
+    field_validator,
+    model_validator,
+)
 from pydantic.types import DirectoryPath
 
-from .validators import path_existence_validator, validate_config_version
+from .validators import (
+    PathSecurityPolicy,
+    path_existence_validator,
+    validate_config_version,
+)
 from .versioning import CURRENT_SCHEMA_VERSION
 from flyrigloader import logger
 
@@ -30,14 +41,16 @@ class ProjectConfig(BaseModel):
     Project-level configuration model with validation for directories and patterns.
     
     This model defines the top-level project configuration including data directories,
-    ignore patterns, mandatory experiment strings, and extraction patterns. It provides
-    comprehensive validation for path existence and pattern compilation.
+    ignore patterns, mandatory experiment strings, extraction patterns, and path security
+    policies. It provides comprehensive validation for path existence and pattern
+    compilation.
     
     Attributes:
         directories: Dictionary containing directory paths (major_data_directory, etc.)
         ignore_substrings: List of substring patterns to ignore during file discovery
         mandatory_experiment_strings: List of strings that must be present in experiment files
         extraction_patterns: List of regex patterns for extracting metadata from filenames
+        path_security: Optional allow/deny lists for sensitive root validation
     """
     
     model_config = ConfigDict(
@@ -56,6 +69,18 @@ class ProjectConfig(BaseModel):
         }
     )
     
+    path_security: Optional[PathSecurityPolicy] = Field(
+        default=None,
+        description="Allow/deny policy applied during directory path validation",
+        json_schema_extra={
+            "example": {
+                "allow_roots": ["/var/lib/flyrigloader"],
+                "deny_roots": ["/tmp/secrets"],
+                "inherit_defaults": True,
+            }
+        },
+    )
+
     directories: Optional[Dict[str, Any]] = Field(
         default_factory=dict,
         description="Dictionary of directory paths including major_data_directory",
@@ -117,25 +142,34 @@ class ProjectConfig(BaseModel):
     
     @field_validator('directories')
     @classmethod
-    def validate_directories(cls, v: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    def validate_directories(
+        cls,
+        v: Optional[Dict[str, Any]],
+        info: ValidationInfo,
+    ) -> Dict[str, Any]:
         """Validate directory paths with security checks and existence validation."""
         if v is None:
             return {}
         if not isinstance(v, dict):
             raise ValueError("directories must be a dictionary")
-        
+
         validated_dirs = {}
+        policy = info.data.get('path_security') if info.data else None
         for key, value in v.items():
             if value is None:
                 continue
-                
+
             # Convert to string for validation
             path_str = str(value)
-            
+
             # Use path_existence_validator for security and existence checks
             # This validator is test-environment aware and will skip existence checks during testing
             try:
-                path_existence_validator(path_str, require_file=False)
+                path_existence_validator(
+                    path_str,
+                    require_file=False,
+                    security_policy=policy,
+                )
                 validated_dirs[key] = path_str
                 logger.debug(f"Directory validated: {key} = {path_str}")
             except Exception as e:
