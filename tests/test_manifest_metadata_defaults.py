@@ -24,9 +24,14 @@ def test_manifest_metadata_defaults_to_empty_dict(monkeypatch):
 
     manifest = discover_experiment_manifest(config=config, experiment_name='exp')
 
-    assert manifest['/data/file.pkl']['metadata'] == {}
-    assert manifest['/data/file.pkl']['size'] == 0
-    assert manifest['/data/file.pkl']['parsed_dates'] == {}
+    entry = manifest['/data/file.pkl']
+
+    assert entry['metadata'] == {}
+    assert entry['size'] == 0
+    assert entry['parsed_dates'] == {}
+    assert 'mtime' not in entry
+    assert 'ctime' not in entry
+    assert 'creation_time' not in entry
     assert captured_calls['parse_dates'] is True
     assert captured_calls['include_stats'] is True
 
@@ -58,3 +63,6 @@ def test_manifest_stats_payload_sets_size(monkeypatch):
     entry = manifest['/data/file.pkl']
     assert entry['size'] == 1234
     assert entry['metadata'] == {'custom': 'value'}
+    assert entry['mtime'] == 456.0
+    assert entry['ctime'] == 789.0
+    assert entry['creation_time'] == 321.0
