@@ -8,12 +8,22 @@ from flyrigloader.config.validators import (
 )
 
 
-def test_path_existence_validator_rejects_sensitive_root() -> None:
+@pytest.mark.parametrize(
+    ("path", "expected_root"),
+    [
+        ("/etc/passwd", "/etc"),
+        ("/bin/ls", "/bin"),
+        ("/sbin/init", "/sbin"),
+    ],
+)
+def test_path_existence_validator_rejects_sensitive_root(
+    path: str, expected_root: str
+) -> None:
     """Sensitive system roots should be rejected with a clear message."""
     with pytest.raises(PermissionError) as exc_info:
-        path_existence_validator("/etc/passwd")
+        path_existence_validator(path)
 
-    assert "sensitive system root '/etc'" in str(exc_info.value)
+    assert f"sensitive system root '{expected_root}'" in str(exc_info.value)
 
 
 def test_path_existence_validator_allows_usr_local_subdirectory() -> None:
@@ -21,11 +31,14 @@ def test_path_existence_validator_allows_usr_local_subdirectory() -> None:
     assert path_existence_validator("/usr/local/testdata") is True
 
 
-def test_path_existence_validator_allows_var_directories_by_default() -> None:
-    """Legitimate usage under /var should not be blocked by default validation."""
-    assert path_existence_validator("/var/lib/flyrigloader") is True
+def test_path_existence_validator_blocks_var_directories_by_default() -> None:
+    """Sensitive directories under /var should be denied without explicit opt-in."""
+    with pytest.raises(PermissionError) as exc_info:
+        path_existence_validator("/var/lib/flyrigloader")
 
+    assert "sensitive system root '/var'" in str(exc_info.value)
 
+    
 def test_path_existence_validator_respects_allow_roots(caplog: pytest.LogCaptureFixture) -> None:
     """Allow roots should explicitly permit otherwise blocked directories."""
     policy = PathSecurityPolicy(allow_roots=["/custom/data"])
