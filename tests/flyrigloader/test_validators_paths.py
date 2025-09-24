@@ -38,7 +38,7 @@ def test_path_existence_validator_blocks_var_directories_by_default() -> None:
 
     assert "sensitive system root '/var'" in str(exc_info.value)
 
-
+    
 def test_path_existence_validator_respects_allow_roots(caplog: pytest.LogCaptureFixture) -> None:
     """Allow roots should explicitly permit otherwise blocked directories."""
     policy = PathSecurityPolicy(allow_roots=["/custom/data"])
