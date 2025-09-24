@@ -51,10 +51,15 @@ def validate_config_dict(config: Union[Dict[str, Any], LegacyConfigAdapter]) -> 
                 logger.debug("Pydantic-based configuration validation successful")
                 return config
             else:
-                raise ValueError("Configuration validation failed - see logs for details")
+                raise ConfigError(
+                    "Pydantic configuration validation failed", error_code="CONFIG_003"
+                )
         except Exception as e:
             logger.error(f"Pydantic configuration validation error: {e}")
-            raise ValueError(f"Configuration validation failed: {e}") from e
+            raise ConfigError(
+                f"Configuration validation failed: {e}",
+                error_code="CONFIG_003",
+            ) from e
     
     # Perform basic structure validation for dictionary input
     if not isinstance(config, dict):
@@ -74,11 +79,12 @@ def validate_config_dict(config: Union[Dict[str, Any], LegacyConfigAdapter]) -> 
         # Perform comprehensive validation
         if adapter.validate_all():
             logger.debug("Enhanced validation with Pydantic models successful")
-            # Return original dict for backward compatibility
             return config
         else:
-            logger.warning("Pydantic validation failed, falling back to basic validation")
-            
+            message = "Pydantic validation failed for configuration dictionary"
+            logger.error(message)
+            raise ConfigError(message, error_code="CONFIG_003")
+
     except ValidationError as e:
         # Extract detailed error information
         error_details = []
@@ -96,34 +102,11 @@ def validate_config_dict(config: Union[Dict[str, Any], LegacyConfigAdapter]) -> 
         ) from e
         
     except Exception as e:
-        logger.warning(f"Advanced validation failed ({e}), falling back to basic validation")
-
-    # Fallback to legacy validation for datasets structure
-    if "datasets" in config:
-        datasets = config["datasets"]
-        if not isinstance(datasets, dict):
-            raise ValueError("'datasets' must be a dictionary")
-        for name, ds in datasets.items():
-            if not isinstance(ds, dict):
-                continue
-            if "dates_vials" in ds:
-                dates_vials = ds["dates_vials"]
-                if not isinstance(dates_vials, dict):
-                    raise ValueError(
-                        f"Dataset '{name}' dates_vials must be a dictionary"
-                    )
-                for key, value in dates_vials.items():
-                    if not isinstance(key, str):
-                        raise ValueError(
-                            f"Dataset '{name}' dates_vials key '{key}' must be a string"
-                        )
-                    if not isinstance(value, list):
-                        raise ValueError(
-                            f"Dataset '{name}' dates_vials value for '{key}' must be a list"
-                        )
-
-    logger.debug("Basic configuration validation successful")
-    return config
+        logger.error(f"Advanced validation failed: {e}")
+        raise ConfigError(
+            f"Configuration validation failed: {e}",
+            error_code="CONFIG_003",
+        ) from e
 
 
 def load_config(
@@ -339,7 +322,7 @@ def _process_config(raw_config: Dict[str, Any]) -> Dict[str, Any]:
             raise ValueError(error_msg)
 
         _, detected_version, message = validate_config_version(raw_config)
-        logger.info("Configuration version confirmed: %s", detected_version)
+        logger.info(f"Configuration version confirmed: {detected_version}")
         logger.debug(message)
 
         validated_config = validate_config_dict(raw_config)

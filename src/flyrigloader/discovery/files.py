@@ -1482,10 +1482,7 @@ def discover_experiment_manifest(
             for directory in target['directories']:
                 for pattern in target['patterns']:
                     logger.debug(
-                        "Discovering files for dataset '%s' in '%s' with pattern '%s'",
-                        dataset_name,
-                        directory,
-                        pattern,
+                        f"Discovering files for dataset '{dataset_name}' in '{directory}' with pattern '{pattern}'"
                     )
 
                     discovered = discoverer.discover(

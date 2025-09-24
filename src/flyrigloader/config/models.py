@@ -109,7 +109,7 @@ class ProjectConfig(BaseModel):
             if not is_valid:
                 raise ValueError(message)
 
-            logger.debug("Schema version validated: %s", detected_version)
+            logger.debug(f"Schema version validated: {detected_version}")
             return detected_version
         except Exception as e:
             logger.error(f"Schema version validation failed: {e}")
@@ -139,10 +139,15 @@ class ProjectConfig(BaseModel):
                 validated_dirs[key] = path_str
                 logger.debug(f"Directory validated: {key} = {path_str}")
             except Exception as e:
-                logger.warning(f"Directory validation failed for {key}: {path_str} - {e}")
-                # During testing or if path doesn't exist, still allow the configuration
-                validated_dirs[key] = path_str
-        
+                logger.error(
+                    f"Directory validation failed for {key}: {path_str} - {e}"
+                )
+                if isinstance(e, FileNotFoundError):
+                    message = f"Path not found: {path_str}"
+                else:
+                    message = f"Directory '{key}' validation failed: {e}"
+                raise ValueError(message) from e
+
         return validated_dirs
     
     @field_validator('ignore_substrings')
@@ -316,7 +321,7 @@ class DatasetConfig(BaseModel):
             if not is_valid:
                 raise ValueError(message)
 
-            logger.debug("Schema version validated: %s", detected_version)
+            logger.debug(f"Schema version validated: {detected_version}")
             return detected_version
         except Exception as e:
             logger.error(f"Schema version validation failed: {e}")
@@ -533,7 +538,7 @@ class ExperimentConfig(BaseModel):
             if not is_valid:
                 raise ValueError(message)
 
-            logger.debug("Schema version validated: %s", detected_version)
+            logger.debug(f"Schema version validated: {detected_version}")
             return detected_version
         except Exception as e:
             logger.error(f"Schema version validation failed: {e}")
