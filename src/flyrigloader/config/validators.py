@@ -25,12 +25,14 @@ from flyrigloader import logger
 
 
 DEFAULT_SENSITIVE_ROOTS: Tuple[str, ...] = (
+    '/bin',
     '/etc',
     '/dev',
     '/proc',
     '/sys',
     '/root',
     '/boot',
+    '/sbin',
 )
 
 
