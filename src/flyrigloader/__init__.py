@@ -97,10 +97,16 @@ class InterceptHandler(logging.Handler):
         loguru_logger.log(level, message)
 
 
-def _install_loguru_logging_bridge(level: int = logging.NOTSET) -> None:
+def _install_loguru_logging_bridge(level: Optional[int] = logging.NOTSET) -> None:
     """Install Loguru intercept handler for the standard logging framework."""
 
-    logging.basicConfig(handlers=[InterceptHandler()], level=level, force=True)
+    root_logger = logging.getLogger()
+    if not any(isinstance(handler, InterceptHandler) for handler in root_logger.handlers):
+        root_logger.addHandler(InterceptHandler())
+
+    if level is not None:
+        root_logger.setLevel(level)
+
     logging.captureWarnings(True)
 
 
