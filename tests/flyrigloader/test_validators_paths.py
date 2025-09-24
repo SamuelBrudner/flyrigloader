@@ -8,12 +8,22 @@ from flyrigloader.config.validators import (
 )
 
 
-def test_path_existence_validator_rejects_sensitive_root() -> None:
+@pytest.mark.parametrize(
+    ("path", "expected_root"),
+    [
+        ("/etc/passwd", "/etc"),
+        ("/bin/ls", "/bin"),
+        ("/sbin/init", "/sbin"),
+    ],
+)
+def test_path_existence_validator_rejects_sensitive_root(
+    path: str, expected_root: str
+) -> None:
     """Sensitive system roots should be rejected with a clear message."""
     with pytest.raises(PermissionError) as exc_info:
-        path_existence_validator("/etc/passwd")
+        path_existence_validator(path)
 
-    assert "sensitive system root '/etc'" in str(exc_info.value)
+    assert f"sensitive system root '{expected_root}'" in str(exc_info.value)
 
 
 def test_path_existence_validator_allows_usr_local_subdirectory() -> None:
