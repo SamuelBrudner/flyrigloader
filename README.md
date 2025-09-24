@@ -23,7 +23,7 @@ flyrigloader/
 │   ├── architecture.md     # Technical architecture guide
 │   ├── extension_guide.md  # Plugin development guide
 │   ├── kedro_integration.md # Kedro integration guide
-├── logs/                    # Log files (auto-created)
+├── logs/                    # Log files (created when initialize_logger() runs)
 ├── config/                  # Configuration files
 └── pyproject.toml           # Project metadata and dependencies
 ```
@@ -49,8 +49,16 @@ The latest version includes a comprehensive refactoring that enhances modularity
 
 - **Console logging**: INFO-level logs with colored output for better readability
 - **File logging**: DEBUG-level logs with automatic file rotation
-- **Automatic setup**: Log directory is created automatically on import
+- **Opt-in setup**: Call `initialize_logger()` to configure sinks and create the log directory
 - **Structured output**: Includes timestamps, log levels, file/function info
+
+Before logging, opt-in to the managed configuration:
+
+```python
+from flyrigloader.logger import initialize_logger
+
+initialize_logger()
+```
 
 Example usage:
 
