@@ -16,14 +16,9 @@ from flyrigloader.discovery import patterns
 from flyrigloader.io import column_models, pickle
 
 
-@pytest.fixture(autouse=True)
-def _set_debug_capture(caplog):
-    """Capture loguru output through the standard logging bridge."""
-    caplog.set_level(logging.DEBUG)
-
-
 def test_logger_basic_output(caplog):
     """Loguru should emit messages at expected levels."""
+    caplog.set_level(logging.DEBUG)
     logger.info("info message")
     logger.debug("debug message")
 
@@ -34,8 +29,8 @@ def test_logger_basic_output(caplog):
     assert any("debug message" in record.message for record in debug_records)
 
 
-def test_logger_file_creation(monkeypatch, tmp_path):
-    """Importing the package should create the user-scoped logs directory."""
+def test_logger_file_creation_requires_explicit_initialization(monkeypatch, tmp_path):
+    """Logger initialization should only create directories when requested."""
 
     tmp_home = tmp_path / "home"
     monkeypatch.setattr(Path, "home", staticmethod(lambda: tmp_home))
@@ -44,7 +39,12 @@ def test_logger_file_creation(monkeypatch, tmp_path):
 
     expected_log_dir = tmp_home / ".flyrigloader" / "logs"
 
-    assert expected_log_dir.is_dir(), "Logger initialization should create the user log directory"
+    assert not expected_log_dir.exists(), "Package import should not create log directories"
+
+    flyrigloader.reset_logger()
+    flyrigloader.initialize_logger()
+
+    assert expected_log_dir.is_dir(), "Explicit initialization should create the log directory"
     assert expected_log_dir.samefile(expected_log_dir.resolve())
 
 
@@ -137,6 +137,7 @@ def test_column_models_default_logger_delegates_to_package_logger(monkeypatch):
 
 def test_log_message_structure_validation(caplog):
     """Structured messages should remain intact through the bridge."""
+    caplog.set_level(logging.DEBUG)
     logger.warning("structured message payload")
 
     warning_records = [record for record in caplog.records if record.levelno == logging.WARNING]

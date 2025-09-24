@@ -93,9 +93,7 @@ def path_traversal_protection(path_input: Any) -> str:
         )
         if path_str == normalized_root or path_str.startswith(root_prefix):
             logger.error(
-                "Sensitive root '%s' access blocked for path: %s",
-                normalized_root,
-                path_str,
+                f"Sensitive root '{normalized_root}' access blocked for path: {path_str}"
             )
             raise PermissionError(
                 f"Access to sensitive system root '{normalized_root}' is not allowed: {path_str}"
@@ -448,9 +446,7 @@ def validate_version_compatibility(
         TypeError: If version inputs are not strings
     """
     logger.debug(
-        "Validating compatibility without upgrade pathways: config v%s vs system v%s",
-        config_version,
-        system_version,
+        f"Validating compatibility without upgrade pathways: config v{config_version} vs system v{system_version}"
     )
 
     if not isinstance(config_version, str):
@@ -465,8 +461,9 @@ def validate_version_compatibility(
     system_ver = Version(system_version)
 
     if config_ver == system_ver:
-        logger.info("Configuration version %s is supported", config_version)
-        return True, f"Configuration version {config_version} is supported", None
+        message = f"Configuration version {config_version} is supported"
+        logger.info(message)
+        return True, message, None
 
     if config_ver > system_ver:
         message = (
@@ -520,7 +517,7 @@ def validate_config_version(config_data: Union[Dict[str, Any], str]) -> Tuple[bo
     
     try:
         detected_version = _extract_version_from_config(config_data)
-        logger.info("Detected configuration version: %s", detected_version)
+        logger.info(f"Detected configuration version: {detected_version}")
 
         validate_version_format(detected_version)
 
@@ -688,9 +685,9 @@ def validate_config_with_version(
         overall_valid = is_version_valid and structure_valid and is_compatible
 
         if overall_valid:
-            logger.info("Configuration validation passed for version %s", detected_version)
+            logger.info(f"Configuration validation passed for version {detected_version}")
         else:
-            logger.warning("Configuration validation failed for version %s", detected_version)
+            logger.warning(f"Configuration validation failed for version {detected_version}")
 
         return overall_valid, validation_result
     

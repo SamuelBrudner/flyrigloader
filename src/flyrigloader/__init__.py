@@ -295,10 +295,7 @@ def initialize_logger(config: Optional[LoggerConfig] = None) -> None:
                         log_dir = candidate
                         if candidate != primary_dir:
                             logger.warning(
-                                "Falling back to user log directory '{}' after failure with '{}': {}",
-                                candidate,
-                                primary_dir,
-                                last_error,
+                                f"Falling back to user log directory '{candidate}' after failure with '{primary_dir}': {last_error}"
                             )
                         break
 
@@ -377,21 +374,5 @@ def reset_logger() -> None:
     except Exception as e:
         raise RuntimeError(f"Logger reset failed: {e}") from e
 
-
-# Initialize logger with default configuration on module import
-# This maintains backward compatibility while allowing test overrides
-try:
-    initialize_logger()
-except Exception as init_error:
-    fallback_config = LoggerConfig()
-    logger.remove()
-    logger.add(
-        sys.stderr,
-        level=fallback_config.console_level.upper(),
-        format=fallback_config.console_format,
-        colorize=fallback_config.colorize,
-    )
-    _install_loguru_logging_bridge()
-    logger.warning("Logger initialization failed: %s", init_error)
 
 # --- End Logger Configuration ---

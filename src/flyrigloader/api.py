@@ -45,7 +45,12 @@ import warnings
 import functools
 
 _KEDRO_IMPORT_ERROR: Optional[ModuleNotFoundError] = None
-if importlib.util.find_spec("kedro") is not None:
+try:
+    _KEDRO_SPEC = importlib.util.find_spec("kedro")
+except (ValueError, ModuleNotFoundError):
+    _KEDRO_SPEC = None
+
+if _KEDRO_SPEC is not None:
     try:  # pragma: no branch - executed once at import
         from flyrigloader.kedro.datasets import FlyRigLoaderDataSet
     except ModuleNotFoundError as exc:  # pragma: no cover - environment specific
@@ -100,7 +105,7 @@ def _ensure_kedro_available() -> None:
             "Install flyrigloader with the 'kedro' extra or add kedro to your environment."
         )
         if _KEDRO_IMPORT_ERROR is not None:
-            logger.error("Kedro integration unavailable: %s", _KEDRO_IMPORT_ERROR)
+            logger.error(f"Kedro integration unavailable: {_KEDRO_IMPORT_ERROR}")
         raise FlyRigLoaderError(message) from _KEDRO_IMPORT_ERROR
 
 
@@ -409,13 +414,11 @@ def _validate_config_parameters(
     if both_missing or both_provided:
         if both_missing:
             logger.error(
-                "Configuration source validation failed for %s: neither config nor config_path was provided",
-                operation_name,
+                f"Configuration source validation failed for {operation_name}: neither config nor config_path was provided"
             )
         else:
             logger.error(
-                "Configuration source validation failed for %s: both config and config_path were provided",
-                operation_name,
+                f"Configuration source validation failed for {operation_name}: both config and config_path were provided"
             )
         raise ValueError(CONFIG_SOURCE_ERROR_MESSAGE)
 
@@ -433,14 +436,14 @@ def _resolve_config_source(
 
     if config is not None:
         logger.debug(
-            "Using provided configuration object for %s", operation_name
+            f"Using provided configuration object for {operation_name}"
         )
         return config  # type: ignore[return-value]
 
     # At this point validation guarantees config_path is not None.
     assert config_path is not None
     logger.debug(
-        "Loading configuration from file source %s for %s", config_path, operation_name
+        f"Loading configuration from file source {config_path} for {operation_name}"
     )
     return _load_and_validate_config(config_path, None, operation_name, deps)
 
@@ -540,8 +543,7 @@ def _coerce_config_for_version_validation(config_obj: Any) -> Union[Dict[str, An
 
     if isinstance(config_obj, MutableMapping):
         logger.debug(
-            "Converted MutableMapping configuration of type %s for version validation",
-            type(config_obj).__name__,
+            f"Converted MutableMapping configuration of type {type(config_obj).__name__} for version validation"
         )
         return dict(config_obj)
 
@@ -550,15 +552,12 @@ def _coerce_config_for_version_validation(config_obj: Any) -> Union[Dict[str, An
         try:
             dumped_config = model_dump()
             logger.debug(
-                "Converted Pydantic model %s to dictionary via model_dump for version validation",
-                type(config_obj).__name__,
+                f"Converted Pydantic model {type(config_obj).__name__} to dictionary via model_dump for version validation"
             )
             return dumped_config
         except Exception as exc:
             logger.debug(
-                "Failed to convert configuration %s using model_dump(): %s",
-                type(config_obj).__name__,
-                exc,
+                f"Failed to convert configuration {type(config_obj).__name__} using model_dump(): {exc}"
             )
 
     to_dict = getattr(config_obj, "to_dict", None)
@@ -566,15 +565,12 @@ def _coerce_config_for_version_validation(config_obj: Any) -> Union[Dict[str, An
         try:
             dict_config = to_dict()
             logger.debug(
-                "Converted configuration %s using to_dict() for version validation",
-                type(config_obj).__name__,
+                f"Converted configuration {type(config_obj).__name__} using to_dict() for version validation"
             )
             return dict_config
         except Exception as exc:
             logger.debug(
-                "Failed to convert configuration %s using to_dict(): %s",
-                type(config_obj).__name__,
-                exc,
+                f"Failed to convert configuration {type(config_obj).__name__} using to_dict(): {exc}"
             )
 
     raise TypeError(
@@ -1275,7 +1271,7 @@ def validate_manifest(
                 normalized_config = _coerce_config_for_version_validation(config_dict)
                 is_valid, detected_version, message = validate_config_version(normalized_config)
                 validation_report['metadata']['config_version'] = str(detected_version)
-                logger.debug("Detected configuration version: %s", detected_version)
+                logger.debug(f"Detected configuration version: {detected_version}")
 
                 current_version = Version(CURRENT_SCHEMA_VERSION)
                 config_version = Version(str(detected_version))
