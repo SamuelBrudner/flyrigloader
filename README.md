@@ -49,13 +49,17 @@ The latest version includes a comprehensive refactoring that enhances modularity
 
 - **Console logging**: INFO-level logs with colored output for better readability
 - **File logging**: DEBUG-level logs with automatic file rotation
-- **Automatic setup**: Log directory is created automatically on import
+- **Explicit initialization**: Call `initialize_logger()` to configure sinks and create directories
 - **Structured output**: Includes timestamps, log levels, file/function info
 
 Example usage:
 
 ```python
+from flyrigloader import initialize_logger
 from loguru import logger
+
+# Initialize logging explicitly (creates directories if needed)
+initialize_logger()
 
 # These will go to both console and log file
 logger.info("Processing experiment data")
