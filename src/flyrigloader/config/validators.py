@@ -14,16 +14,130 @@ version-aware configuration management.
 from pathlib import Path
 import re
 import os
-from typing import Any, Dict, Union, Tuple, Optional, List
+from typing import Any, Dict, Union, Tuple, Optional, List, Sequence
 from datetime import datetime
 
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from semantic_version import Version
 
 from .versioning import CURRENT_SCHEMA_VERSION
 from flyrigloader import logger
 
 
-def path_traversal_protection(path_input: Any) -> str:
+DEFAULT_SENSITIVE_ROOTS: Tuple[str, ...] = (
+    '/etc',
+    '/dev',
+    '/proc',
+    '/sys',
+    '/root',
+    '/boot',
+)
+
+
+class PathSecurityPolicy(BaseModel):
+    """Configuration-driven allow/deny lists for path validation."""
+
+    model_config = ConfigDict(frozen=True)
+
+    allow_roots: Tuple[str, ...] = Field(default_factory=tuple)
+    deny_roots: Tuple[str, ...] = Field(default_factory=tuple)
+    inherit_defaults: bool = Field(
+        default=True,
+        description="Include DEFAULT_SENSITIVE_ROOTS in deny list when True.",
+    )
+
+    @field_validator('allow_roots', 'deny_roots', mode='before')
+    @classmethod
+    def _coerce_roots(cls, value: Optional[Sequence[str]]) -> Tuple[str, ...]:
+        """Ensure sequences are provided for allow/deny roots."""
+        if value is None:
+            return ()
+        if isinstance(value, (str, bytes)):
+            raise TypeError('Root lists must be provided as a sequence of strings')
+        return tuple(value)
+
+    @field_validator('allow_roots', 'deny_roots')
+    @classmethod
+    def _validate_roots(cls, value: Tuple[str, ...]) -> Tuple[str, ...]:
+        """Validate and normalize root prefixes."""
+        normalized: List[str] = []
+        seen = set()
+        for root in value:
+            if not isinstance(root, str):
+                raise TypeError('Root entries must be strings')
+            candidate = root.strip()
+            if not candidate:
+                raise ValueError('Root entries cannot be empty')
+            if not candidate.startswith('/'):
+                raise ValueError(f"Root '{candidate}' must be absolute")
+            normalized_root = os.path.normpath(candidate)
+            if not normalized_root.startswith('/'):
+                raise ValueError(f"Root '{candidate}' must resolve to an absolute path")
+            normalized_root = normalized_root.rstrip('/') or '/'
+            if normalized_root in seen:
+                raise ValueError(f"Duplicate root entry detected: '{normalized_root}'")
+            seen.add(normalized_root)
+            normalized.append(normalized_root)
+        return tuple(normalized)
+
+    @model_validator(mode='after')
+    def _ensure_disjoint_sets(self) -> 'PathSecurityPolicy':
+        allow = set(self.allow_roots)
+        deny = set(self.deny_roots)
+        overlap = allow & deny
+        if overlap:
+            overlap_display = ', '.join(sorted(overlap))
+            raise ValueError(
+                f"Allow and deny roots must be disjoint; overlapping entries: {overlap_display}"
+            )
+        return self
+
+    def effective_deny_roots(self) -> Tuple[str, ...]:
+        """Return the deny roots with defaults applied."""
+        if self.inherit_defaults:
+            combined = DEFAULT_SENSITIVE_ROOTS + self.deny_roots
+        else:
+            combined = self.deny_roots
+        # Preserve order while removing duplicates
+        seen = set()
+        ordered: List[str] = []
+        for root in combined:
+            if root in seen:
+                continue
+            seen.add(root)
+            ordered.append(root)
+        return tuple(ordered)
+
+    def match_allow_root(self, path_str: str) -> Optional[str]:
+        """Return the allow root that matches the provided path, if any."""
+        for root in self.allow_roots:
+            if _path_matches_root(path_str, root):
+                return root
+        return None
+
+
+def _normalize_path_for_matching(path_str: str) -> str:
+    """Normalize path for root prefix matching without touching filesystem."""
+    normalized = os.path.normpath(path_str)
+    if path_str.endswith('/') and normalized != '/':
+        normalized = normalized.rstrip('/')
+    return normalized
+
+
+def _path_matches_root(path_str: str, root: str) -> bool:
+    """Return True when the path is at or under the provided root."""
+    normalized_path = _normalize_path_for_matching(path_str)
+    if normalized_path == root:
+        return True
+    if root == '/':
+        return normalized_path.startswith('/')
+    return normalized_path.startswith(f"{root}/")
+
+
+def path_traversal_protection(
+    path_input: Any,
+    security_policy: Optional[PathSecurityPolicy] = None,
+) -> str:
     """
     Validate and sanitize path input to prevent directory traversal attacks.
     
@@ -46,7 +160,7 @@ def path_traversal_protection(path_input: Any) -> str:
     Security Checks:
     - Path traversal prevention (../, /.., ~, //)
     - Remote URL blocking (file://, http://, https://, ftp://)
-    - Sensitive root access restriction (/etc, /var, /bin, etc.)
+    - Sensitive root access restriction configurable via PathSecurityPolicy
     - Null byte injection prevention
     - Excessive path length protection
     """
@@ -73,30 +187,29 @@ def path_traversal_protection(path_input: Any) -> str:
         logger.error(f"Remote URL blocked for security: {path_str}")
         raise ValueError(f"Remote or file:// URLs are not allowed: {path_str}")
     
-    # Check for system path access (security violation)
-    sensitive_roots: Tuple[str, ...] = (
-        '/etc',
-        '/var',
-        '/bin',
-        '/sbin',
-        '/dev',
-        '/proc',
-        '/sys',
-        '/root',
-    )
-    for root in sensitive_roots:
-        normalized_root = root.rstrip('/') or '/'
-        root_prefix = (
-            normalized_root
-            if normalized_root == '/'
-            else f"{normalized_root}/"
+    policy = security_policy or PathSecurityPolicy()
+    allow_root = policy.match_allow_root(path_str)
+    if allow_root:
+        logger.debug(
+            f"Path '{path_str}' allowed by configured allow root '{allow_root}'"
         )
-        if path_str == normalized_root or path_str.startswith(root_prefix):
+
+    deny_roots = policy.effective_deny_roots()
+    logger.debug(
+        f"Evaluating path '{path_str}' against deny roots: {list(deny_roots)}"
+    )
+    for root in deny_roots:
+        if allow_root and _path_matches_root(allow_root, root):
+            logger.debug(
+                f"Allow root '{allow_root}' takes precedence over deny root '{root}' for path '{path_str}'"
+            )
+            continue
+        if _path_matches_root(path_str, root):
             logger.error(
-                f"Sensitive root '{normalized_root}' access blocked for path: {path_str}"
+                f"Sensitive root '{root}' access blocked for path: {path_str}"
             )
             raise PermissionError(
-                f"Access to sensitive system root '{normalized_root}' is not allowed: {path_str}"
+                f"Access to sensitive system root '{root}' is not allowed: {path_str}"
             )
     
     # Check for path traversal attempts (security violation)
@@ -204,7 +317,11 @@ def pattern_validation(pattern: Any) -> re.Pattern:
         raise ValueError(error_msg) from e
 
 
-def path_existence_validator(path_input: Any, require_file: bool = False) -> bool:
+def path_existence_validator(
+    path_input: Any,
+    require_file: bool = False,
+    security_policy: Optional[PathSecurityPolicy] = None,
+) -> bool:
     """
     Validate path existence with test environment awareness.
     
@@ -215,6 +332,7 @@ def path_existence_validator(path_input: Any, require_file: bool = False) -> boo
     Args:
         path_input: Path to validate (string, Path object, or other)
         require_file: If True, require path to be a file (not directory)
+        security_policy: Optional allow/deny configuration for sensitive roots
         
     Returns:
         bool: True if path exists and meets requirements, False otherwise
@@ -234,7 +352,7 @@ def path_existence_validator(path_input: Any, require_file: bool = False) -> boo
         raise TypeError(f"Path input must be string or Path, got {type(path_input)}")
     
     # Security validation first
-    path_str = path_traversal_protection(path_input)
+    path_str = path_traversal_protection(path_input, security_policy=security_policy)
     
     # Check if we're in a test environment
     is_test_env = os.environ.get('PYTEST_CURRENT_TEST') is not None
