@@ -10,6 +10,7 @@ import pandas as pd
 from flyrigloader import logger
 from flyrigloader.config.models import LegacyConfigAdapter
 from flyrigloader.exceptions import FlyRigLoaderError
+from flyrigloader.io.column_models import get_config_from_source as _get_config_from_source
 from flyrigloader.io.loaders import load_data_file as _load_data_file
 from flyrigloader.io.transformers import transform_to_dataframe as _transform_to_dataframe
 
