@@ -21,9 +21,12 @@ def test_path_existence_validator_allows_usr_local_subdirectory() -> None:
     assert path_existence_validator("/usr/local/testdata") is True
 
 
-def test_path_existence_validator_allows_var_directories_by_default() -> None:
-    """Legitimate usage under /var should not be blocked by default validation."""
-    assert path_existence_validator("/var/lib/flyrigloader") is True
+def test_path_existence_validator_blocks_var_directories_by_default() -> None:
+    """Sensitive directories under /var should be denied without explicit opt-in."""
+    with pytest.raises(PermissionError) as exc_info:
+        path_existence_validator("/var/lib/flyrigloader")
+
+    assert "sensitive system root '/var'" in str(exc_info.value)
 
 
 def test_path_existence_validator_respects_allow_roots(caplog: pytest.LogCaptureFixture) -> None:

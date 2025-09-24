@@ -32,6 +32,7 @@ DEFAULT_SENSITIVE_ROOTS: Tuple[str, ...] = (
     '/sys',
     '/root',
     '/boot',
+    '/var',
     '/sbin',
 )
 
