@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Protocol, Union
+from typing import Any, Dict, Iterator, List, Optional, Protocol, Union
 
 from flyrigloader import logger
 from flyrigloader.config.models import LegacyConfigAdapter
@@ -261,8 +262,11 @@ _dependency_provider: DefaultDependencyProvider = DefaultDependencyProvider()
 def set_dependency_provider(provider: DefaultDependencyProvider) -> None:
     """Set the global dependency provider for testing purposes."""
 
+    if not isinstance(provider, DefaultDependencyProvider):  # pragma: no cover - defensive branch
+        raise TypeError("provider must be an instance of DefaultDependencyProvider")
+
     global _dependency_provider
-    logger.debug(f"Setting dependency provider to {type(provider).__name__}")
+    logger.debug("Setting dependency provider to %s", type(provider).__name__)
     _dependency_provider = provider
 
 
@@ -280,6 +284,46 @@ def reset_dependency_provider() -> None:
     _dependency_provider = DefaultDependencyProvider()
 
 
+@contextmanager
+def use_dependency_provider(
+    provider: DefaultDependencyProvider,
+) -> Iterator[DefaultDependencyProvider]:
+    """Temporarily override the active dependency provider.
+
+    Parameters
+    ----------
+    provider:
+        The provider instance to activate within the context block.
+
+    Yields
+    ------
+    DefaultDependencyProvider
+        The provider that was supplied, allowing callers to inspect or
+        configure it further while the override is active.
+    """
+
+    if provider is None:
+        raise ValueError("provider must not be None")
+    if not isinstance(provider, DefaultDependencyProvider):
+        raise TypeError("provider must be an instance of DefaultDependencyProvider")
+
+    previous_provider = get_dependency_provider()
+    logger.debug(
+        "Entering dependency provider override: %s -> %s",
+        type(previous_provider).__name__,
+        type(provider).__name__,
+    )
+    set_dependency_provider(provider)
+
+    try:
+        yield provider
+    finally:
+        logger.debug(
+            "Restoring dependency provider to %s", type(previous_provider).__name__
+        )
+        set_dependency_provider(previous_provider)
+
+
 __all__ = [
     "AbstractDependencyProvider",
     "ConfigProvider",
@@ -291,4 +335,5 @@ __all__ = [
     "get_dependency_provider",
     "reset_dependency_provider",
     "set_dependency_provider",
+    "use_dependency_provider",
 ]

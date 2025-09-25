@@ -115,6 +115,27 @@ except ModuleNotFoundError:  # pragma: no cover
     logger = _DummyLogger()
 
 
+@pytest.fixture(autouse=True)
+def dependency_provider_state_guard():
+    """Ensure dependency provider overrides never leak between tests."""
+
+    from flyrigloader.api import get_dependency_provider, reset_dependency_provider
+
+    reset_dependency_provider()
+    logger.debug(
+        "Dependency provider reset before test to %s",
+        type(get_dependency_provider()).__name__,
+    )
+    try:
+        yield
+    finally:
+        reset_dependency_provider()
+        logger.debug(
+            "Dependency provider reset after test to %s",
+            type(get_dependency_provider()).__name__,
+        )
+
+
 collect_ignore: List[str] = []
 
 if not HYPOTHESIS_AVAILABLE:

@@ -47,6 +47,7 @@ from .dependencies import (
     get_dependency_provider,
     reset_dependency_provider,
     set_dependency_provider,
+    use_dependency_provider,
 )
 from .kedro import FlyRigLoaderDataSet, check_kedro_available, create_kedro_dataset
 from .manifest import discover_experiment_manifest, validate_manifest
@@ -86,6 +87,7 @@ __all__ = sorted(
         "read_pickle_any_format",
         "reset_dependency_provider",
         "set_dependency_provider",
+        "use_dependency_provider",
         "validate_manifest",
         "_create_test_dependency_provider",
         "_discover_experiment_manifest",

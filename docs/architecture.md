@@ -91,9 +91,10 @@ providers:
 - **Loader & schema registries** – Register new loaders or validation schemas via
   `LoaderRegistry`/`SchemaRegistry`, including priority controls and capability
   queries for discovery-time diagnostics.【F:src/flyrigloader/registries/__init__.py†L1-L120】【F:src/flyrigloader/api/registry.py†L1-L98】
-- **Dependency provider overrides** – Use `set_dependency_provider()` during
-  testing or specialized deployments to swap discovery, IO, or utility
-  implementations without modifying the façade logic.【F:src/flyrigloader/api/dependencies.py†L1-L180】
+- **Dependency provider overrides** – Use `use_dependency_provider()` to scope
+  temporary overrides or `set_dependency_provider()` for longer-lived swaps
+  during specialized deployments. Both approaches reuse the same dependency
+  façade while keeping overrides explicit.【F:src/flyrigloader/api/dependencies.py†L300-L332】
 - **Configuration builders** – Compose validated configs programmatically through
   `create_config()` and helper functions, ensuring downstream modules always see
   typed models and consistent defaults.【F:src/flyrigloader/config/builder.py†L1-L120】
