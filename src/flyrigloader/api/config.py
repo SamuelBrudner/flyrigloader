@@ -207,6 +207,11 @@ def _attach_metadata_bucket(
         if isinstance(existing_metadata, dict):
             metadata_bucket.update(existing_metadata)
 
+        for key, value in flattened.items():
+            if key == "metadata":
+                continue
+            metadata_bucket.setdefault(key, value)
+
         flattened["metadata"] = metadata_bucket
         normalised[path_str] = flattened  # type: ignore[assignment]
 
