@@ -14,6 +14,14 @@ from semantic_version import Version
 from flyrigloader.config.versioning import CURRENT_SCHEMA_VERSION
 
 
+def _coerce_metadata_payload(metadata: Any) -> Dict[str, Any]:
+    """Return a dictionary copy of metadata when possible."""
+
+    if isinstance(metadata, dict):
+        return dict(metadata)
+    return {}
+
+
 @dataclass
 class FileInfo:
     """Metadata about a discovered file without loading its contents."""
@@ -52,6 +60,40 @@ class FileInfo:
             "version_compatibility": self.version_compatibility or {},
             "is_versioned": self.is_kedro_versioned(),
         }
+
+    def to_legacy_dict(self) -> Dict[str, Any]:
+        """Return the manifest entry expected by the historical API layer."""
+
+        entry: Dict[str, Any] = {
+            "path": self.path,
+            "size": self.size if self.size is not None else 0,
+            "metadata": _coerce_metadata_payload(self.extracted_metadata),
+            "parsed_dates": {},
+            "schema_version": self.schema_version,
+        }
+
+        if self.parsed_date is not None:
+            entry["parsed_dates"] = {"parsed_date": self.parsed_date}
+
+        for attribute in ("mtime", "ctime", "creation_time"):
+            value = getattr(self, attribute)
+            if value is not None:
+                entry[attribute] = value
+
+        if self.kedro_dataset_name:
+            entry["kedro_dataset_name"] = self.kedro_dataset_name
+        if self.kedro_namespace:
+            entry["kedro_namespace"] = self.kedro_namespace
+        if self.kedro_tags:
+            entry["kedro_tags"] = list(self.kedro_tags)
+        if self.catalog_metadata:
+            entry["catalog_metadata"] = dict(self.catalog_metadata)
+        if self.kedro_version:
+            entry["kedro_version"] = self.kedro_version
+        if self.version_compatibility:
+            entry["version_compatibility"] = dict(self.version_compatibility)
+
+        return entry
 
 
 @dataclass
@@ -183,6 +225,11 @@ class FileManifest:
             "versioned_files_count": len(self.get_versioned_files()),
             "discovery_metadata": self.discovery_metadata,
         }
+
+    def to_legacy_dict(self) -> Dict[str, Dict[str, Any]]:
+        """Return the dictionary structure expected by the public API."""
+
+        return {file_info.path: file_info.to_legacy_dict() for file_info in self.files}
 
     def _is_kedro_pattern(self, filepath: str) -> bool:
         path = Path(filepath)

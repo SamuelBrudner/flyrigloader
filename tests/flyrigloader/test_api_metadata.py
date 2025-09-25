@@ -17,6 +17,7 @@ from flyrigloader.api import (
     load_experiment_files,
     load_dataset_files
 )
+from flyrigloader.discovery.files import FileManifest
 
 
 # ============================================================================
@@ -881,11 +882,42 @@ def test_metadata_extraction_with_complex_patterns(enhanced_mock_dependencies, s
     for file_path, expected_metadata in sample_file_metadata.items():
         assert file_path in result
         file_metadata = result[file_path]
-        
+
         # Verify all expected fields are present
         for field, expected_value in expected_metadata.items():
             assert field in file_metadata
             assert file_metadata[field] == expected_value
+
+
+def test_discover_experiment_manifest_delegates_to_model(monkeypatch):
+    """Ensure API discovery uses :class:`FileManifest`'s conversion helper."""
+
+    sentinel = {"/tmp/data": {"path": "/tmp/data"}}
+
+    class DummyManifest(FileManifest):
+        def to_legacy_dict(self):  # type: ignore[override]
+            return sentinel
+
+    dummy_manifest = DummyManifest(files=[])
+
+    def fake_discover(**_kwargs):
+        return dummy_manifest
+
+    monkeypatch.setattr(
+        "flyrigloader.api.manifest._resolve_config_source",
+        lambda *args, **kwargs: {},
+    )
+    monkeypatch.setattr(
+        "flyrigloader.api.manifest._discover_experiment_manifest",
+        fake_discover,
+    )
+
+    result = api_manifest.discover_experiment_manifest(
+        config={},
+        experiment_name="demo",
+    )
+
+    assert result is sentinel
 
 
 # ============================================================================
