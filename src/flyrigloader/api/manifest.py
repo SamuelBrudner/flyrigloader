@@ -80,28 +80,7 @@ def discover_experiment_manifest(
             test_mode=False,
         )
 
-        manifest_dict: Dict[str, Dict[str, Any]] = {}
-        for file_info in file_manifest.files:
-            if isinstance(file_info.extracted_metadata, dict):
-                metadata_payload = dict(file_info.extracted_metadata)
-            else:
-                metadata_payload = {}
-
-            manifest_entry: Dict[str, Any] = {
-                "path": file_info.path,
-                "size": file_info.size if file_info.size is not None else 0,
-                "metadata": metadata_payload,
-                "parsed_dates": {"parsed_date": file_info.parsed_date} if file_info.parsed_date else {},
-            }
-
-            if file_info.mtime is not None:
-                manifest_entry["mtime"] = file_info.mtime
-            if file_info.ctime is not None:
-                manifest_entry["ctime"] = file_info.ctime
-            if file_info.creation_time is not None:
-                manifest_entry["creation_time"] = file_info.creation_time
-
-            manifest_dict[file_info.path] = manifest_entry
+        manifest_dict = file_manifest.to_legacy_dict()
 
         file_count = len(manifest_dict)
         total_size = sum(item.get("size", 0) for item in manifest_dict.values())
