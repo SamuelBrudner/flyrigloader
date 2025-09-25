@@ -452,7 +452,7 @@ class FileDiscoverer:
             "%Y%m%d_%H%M%S"
         ]
         
-        logger.info(f"FileDiscoverer initialized successfully with {len(self.date_formats)} date formats")
+        logger.debug(f"FileDiscoverer initialized successfully with {len(self.date_formats)} date formats")
     
     def _convert_to_named_patterns(self, patterns: List[str]) -> List[str]:
         """
@@ -568,7 +568,7 @@ class FileDiscoverer:
             if compatibility_fixes > 0:
                 logger.debug(f"Applied {compatibility_fixes} backward compatibility fixes")
             
-            logger.info(f"Metadata extraction completed for {len(result)} files")
+            logger.debug(f"Metadata extraction completed for {len(result)} files")
             return result
             
         except Exception as e:
@@ -663,7 +663,7 @@ class FileDiscoverer:
             file paths to extracted metadata (NO data loading occurs).
             Otherwise: List of matched file paths.
         """
-        logger.info(f"Starting file discovery process with pattern: {pattern}")
+        logger.debug(f"Starting file discovery process with pattern: {pattern}")
         logger.debug(f"Discovery options - patterns: {bool(self.extract_patterns)}, dates: {self.parse_dates}, stats: {self.include_stats}")
         
         try:
@@ -679,7 +679,7 @@ class FileDiscoverer:
             
             # Check if we need to return files with metadata
             if not (self.extract_patterns or self.parse_dates or self.include_stats or self.enable_kedro_metadata):
-                logger.info(f"Returning simple file list with {len(found_files)} files")
+                logger.debug(f"Returning simple file list with {len(found_files)} files")
                 return found_files
             
             logger.debug("Extracting metadata and additional information")
@@ -710,7 +710,7 @@ class FileDiscoverer:
                     if not self.test_mode:
                         raise
             
-            logger.info(f"Discovery completed successfully with {len(result)} files")
+            logger.debug(f"Discovery completed successfully with {len(result)} files")
             return result
             
         except Exception as e:
@@ -758,7 +758,7 @@ class FileDiscoverer:
         logger.debug(f"Registering new pattern matcher: {type(pattern_matcher).__name__}")
         self.pattern_matcher = pattern_matcher
         self.named_extract_patterns = getattr(pattern_matcher, 'patterns', None)
-        logger.info(f"Pattern matcher registered successfully: {type(pattern_matcher).__name__}")
+        logger.debug(f"Pattern matcher registered successfully: {type(pattern_matcher).__name__}")
     
     def get_supported_patterns(self) -> List[str]:
         """
@@ -1085,7 +1085,7 @@ def discover_experiment_manifest(
     Returns:
         FileManifest containing discovered files metadata with Kedro integration support
     """
-    logger.info(f"Discovering experiment manifest for '{experiment_name}'")
+    logger.debug(f"Discovering experiment manifest for '{experiment_name}'")
 
     try:
         # Normalize configuration input
@@ -1296,7 +1296,7 @@ def discover_experiment_manifest(
             except Exception as e:
                 logger.warning(f"Error generating Kedro catalog entries: {e}")
         
-        logger.info(f"Created enhanced manifest with {len(all_files)} files for experiment '{experiment_name}'")
+        logger.debug(f"Created enhanced manifest with {len(all_files)} files for experiment '{experiment_name}'")
         
         # Log version and Kedro statistics
         version_summary = manifest.get_version_summary()
@@ -1380,7 +1380,7 @@ def discover_files(
         Dictionary mapping file paths to extracted metadata (NO data loading occurs).
         Otherwise: List of matched file paths.
     """
-    logger.info(f"discover_files called with pattern='{pattern}', test_mode={test_mode}")
+    logger.debug(f"discover_files called with pattern='{pattern}', test_mode={test_mode}")
     
     try:
         normalized_directory = _normalize_directory_argument(directory)
@@ -1411,7 +1411,7 @@ def discover_files(
             mandatory_substrings=mandatory_substrings
         )
         
-        logger.info(f"discover_files completed successfully, returned {len(result) if isinstance(result, (list, dict)) else 'unknown'} items")
+        logger.debug(f"discover_files completed successfully, returned {len(result) if isinstance(result, (list, dict)) else 'unknown'} items")
         return result
         
     except Exception as e:
@@ -1478,7 +1478,7 @@ def get_latest_file(
                 raise
         
         latest_file = max(files, key=get_mtime)
-        logger.info(f"Latest file determined: {latest_file}")
+        logger.debug(f"Latest file determined: {latest_file}")
         return str(latest_file)
         
     except Exception as e:
