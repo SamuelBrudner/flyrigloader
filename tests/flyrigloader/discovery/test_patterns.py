@@ -131,9 +131,9 @@ def sample_patterns():
         
         # Dataset patterns
         r"dataset_(?P<name>\w+)_(?P<version>\d+\.\d+)_(?P<date>\d{8})\.(?P<extension>pkl|csv)",
-        
-        # Legacy patterns for backward compatibility
-        r"legacy_(\w+)_(\d{8})_(\w+)_(\d+)\.csv",  # Positional groups
+
+        # Legacy patterns updated to require named groups
+        r"legacy_(?P<animal>\w+)_(?P<date>\d{8})_(?P<condition>\w+)_(?P<replicate>\d+)\.csv",
     ]
 
 
@@ -374,43 +374,45 @@ class TestPatternMatchingCore:
 
 
 class TestSpecialCaseProcessing:
-    """Test special case processing and metadata extraction logic."""
-    
-    def test_animal_condition_replicate_splitting(self, sample_patterns):
-        """Test splitting condition_replicate format in animal files."""
+    """Ensure explicit pattern definitions drive metadata extraction."""
+
+    def test_named_groups_capture_condition_and_replicate(self):
+        """Patterns must provide separate named groups for condition and replicate."""
+
+        patterns = [
+            r"(?P<animal>mouse|rat)_(?P<date>\d+)_(?P<condition>\w+)_(?P<replicate>\d+)\.csv"
+        ]
+        matcher = PatternMatcher(patterns)
+
+        result = matcher.match("mouse_20241215_control_2.csv")
+        assert result == {
+            "animal": "mouse",
+            "date": "20241215",
+            "condition": "control",
+            "replicate": "2",
+        }
+
+    def test_experiment_mouse_baseline_no_special_handling(self, sample_patterns):
+        """Baseline experiments retain their captured metadata unchanged."""
+
         matcher = PatternMatcher(sample_patterns)
-        
-        # This tests the _process_special_cases method
-        # Create a pattern that might capture condition_replicate together
-        patterns = [r"(?P<animal>mouse|rat)_(?P<date>\d+)_(?P<condition>\w+_\d+)\.csv"]
-        special_matcher = PatternMatcher(patterns)
-        
-        result = special_matcher.match("mouse_20241215_control_2.csv")
-        assert result is not None
-        # The special case processing should handle this
-    
-    def test_experiment_mouse_baseline_special_case(self, sample_patterns):
-        """Test special handling for experiment files with mouse baseline."""
-        matcher = PatternMatcher(sample_patterns)
-        
+
         result = matcher.match("exp001_mouse_baseline.csv")
-        assert result is not None
-        # Check for special processing in baseline experiments
-        if "animal" in result and result["animal"] == "mouse" and "baseline" in "exp001_mouse_baseline.csv":
-            # Special case handling should be applied
-            pass
-    
-    def test_positional_group_fallback(self):
-        """Test fallback to positional groups for legacy patterns."""
-        # Test patterns without named groups (legacy support)
+        assert result == {
+            "experiment_id": "exp001",
+            "animal": "mouse",
+            "condition": "baseline",
+            "extension": "csv",
+        }
+
+    def test_positional_group_patterns_raise(self):
+        """Positional-only patterns now trigger an explicit error."""
+
         patterns = [r"legacy_(\w+)_(\d{8})_(\w+)_(\d+)\.csv"]
         matcher = PatternMatcher(patterns)
-        
-        result = matcher.match("legacy_mouse_20241215_control_1.csv")
-        assert result is not None
-        # Should create field names based on pattern recognition
-        assert isinstance(result, dict)
-        assert len(result) > 0
+
+        with pytest.raises(ValueError):
+            matcher.match("legacy_mouse_20241215_control_1.csv")
 
 
 class TestFilterFiles:
@@ -1014,57 +1016,41 @@ class TestMetadataExtractionSystem:
 
 class TestBackwardCompatibility:
     """Test backward compatibility with legacy patterns and systems."""
-    
+
     def test_positional_group_patterns(self):
-        """Test legacy patterns using positional groups."""
-        # Legacy patterns without named groups
+        """Legacy positional patterns are rejected."""
+
         legacy_patterns = [
             r"legacy_(\w+)_(\d{8})_(\w+)_(\d+)\.csv",  # 4 positional groups
             r"old_format_(\w+)_(\d+)\.pkl",            # 2 positional groups
         ]
-        
+
         matcher = PatternMatcher(legacy_patterns)
-        
-        # Test that positional groups are handled
-        result = matcher.match("legacy_mouse_20241215_control_1.csv")
-        assert result is not None
-        assert isinstance(result, dict)
-        assert len(result) > 0
-        
-        result = matcher.match("old_format_experiment_123.pkl")
-        assert result is not None
-        assert isinstance(result, dict)
-    
+
+        with pytest.raises(ValueError):
+            matcher.match("legacy_mouse_20241215_control_1.csv")
+
+        with pytest.raises(ValueError):
+            matcher.match("old_format_experiment_123.pkl")
+
     def test_mixed_named_and_positional_patterns(self):
-        """Test mixing named and positional group patterns."""
+        """Mixed positional patterns still raise while named ones succeed."""
         mixed_patterns = [
             r"new_(?P<date>\d{8})_(?P<condition>\w+)\.csv",  # Named groups
             r"old_(\w+)_(\d{8})_(\w+)\.csv",                 # Positional groups
         ]
-        
+
         matcher = PatternMatcher(mixed_patterns)
-        
+
         # Test named group pattern
         result = matcher.match("new_20241215_control.csv")
         assert result is not None
         assert "date" in result
         assert "condition" in result
-        
-        # Test positional group pattern  
-        result = matcher.match("old_mouse_20241215_treatment.csv")
-        assert result is not None
-        assert isinstance(result, dict)
-    
-    def test_legacy_special_case_handling(self):
-        """Test legacy special case handling is preserved."""
-        # Test the special case processing mentioned in the original code
-        patterns = [r"(?P<animal>mouse|rat)_(?P<date>\d+)_(?P<condition>\w+)\.csv"]
-        matcher = PatternMatcher(patterns)
-        
-        # This should trigger special case processing
-        result = matcher.match("mouse_20241215_baseline.csv")
-        assert result is not None
-        # Special case processing should be applied appropriately
+
+        # Test positional group pattern
+        with pytest.raises(ValueError):
+            matcher.match("old_mouse_20241215_treatment.csv")
 
 
 if __name__ == "__main__":

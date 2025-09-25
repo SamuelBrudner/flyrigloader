@@ -116,17 +116,6 @@ class FileDiscoverer:
         )
         logger.debug(f"Using stats provider: {self.stats_provider.__name__ if hasattr(self.stats_provider, '__name__') else type(self.stats_provider).__name__}")
         
-        # Field names for pattern extraction (for backward compatibility)
-        # These are based on the test patterns and expectations
-        self.field_names = {
-            # For mouse pattern (standalone mouse files)
-            "mouse": ["animal", "date", "condition", "replicate"],
-            # For rat pattern (standalone rat files)
-            "rat": ["date", "animal", "condition", "replicate"],
-            # For experiment pattern (experiment files with animal types)
-            "exp": ["experiment_id", "animal", "condition"]
-        }
-        
         # Create or use provided pattern matcher (TST-REF-002)
         # Enhanced with registry-based extensibility for pluggable pattern matchers
         if pattern_matcher:
@@ -135,7 +124,7 @@ class FileDiscoverer:
             self.named_extract_patterns = getattr(pattern_matcher, 'patterns', None)
         elif extract_patterns:
             logger.debug(f"Creating pattern matcher with {len(extract_patterns)} patterns")
-            self.named_extract_patterns = self._convert_to_named_patterns(extract_patterns)
+            self.named_extract_patterns = extract_patterns
             self.pattern_matcher = PatternMatcher(self.named_extract_patterns)
         else:
             logger.debug("No pattern matcher configured - registry can be used for dynamic pattern registration")
@@ -149,40 +138,6 @@ class FileDiscoverer:
         )
 
         logger.debug("FileDiscoverer initialized with dedicated metadata extractor")
-    
-    def _convert_to_named_patterns(self, patterns: List[str]) -> List[str]:
-        """
-        Convert traditional regex patterns with positional groups to patterns with named groups.
-        
-        This handles backward compatibility with existing patterns that use positional groups
-        based on known patterns for mice, rats, and experiments.
-        
-        Args:
-            patterns: List of regex patterns with positional groups
-            
-        Returns:
-            List of regex patterns with named groups
-        """
-        named_patterns = []
-        
-        for pattern in patterns:
-            # Handle the specific patterns from the test directly
-            if pattern == r".*/(mouse)_(\d{8})_(\w+)_(\d+)\.csv":
-                # Mouse pattern
-                named_pattern = r".*/(?P<animal>mouse)_(?P<date>\d{8})_(?P<condition>\w+)_(?P<replicate>\d+)\.csv"
-            elif pattern == r".*/(\d{8})_(rat)_(\w+)_(\d+)\.csv":
-                # Rat pattern
-                named_pattern = r".*/(?P<date>\d{8})_(?P<animal>rat)_(?P<condition>\w+)_(?P<replicate>\d+)\.csv"
-            elif pattern == r".*/(exp\d+)_(\w+)_(\w+)\.csv":
-                # Experiment pattern
-                named_pattern = r".*/(?P<experiment_id>exp\d+)_(?P<animal>\w+)_(?P<condition>\w+)\.csv"
-            else:
-                # For other patterns, keep as is (could be improved for more general cases)
-                named_pattern = pattern
-            
-            named_patterns.append(named_pattern)
-        
-        return named_patterns
     
     def find_files(
         self,
