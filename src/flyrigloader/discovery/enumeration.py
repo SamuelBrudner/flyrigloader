@@ -64,7 +64,7 @@ class FileEnumerator:
         mandatory_substrings: Optional[List[str]] = None,
     ) -> List[str]:
         """Find files matching the supplied constraints."""
-        logger.info("Starting file discovery with pattern='%s', recursive=%s", pattern, recursive)
+        logger.debug("Starting file discovery with pattern='%s', recursive=%s", pattern, recursive)
         logger.debug("Search directories: %s", directory)
         logger.debug("Extensions filter: %s", extensions)
         logger.debug("Ignore patterns: %s", ignore_patterns)
@@ -92,14 +92,14 @@ class FileEnumerator:
                 if not self.test_mode:
                     raise
 
-        logger.info("Total files found before filtering: %d", len(all_matched_files))
+        logger.debug("Total files found before filtering: %d", len(all_matched_files))
         filtered_files = self._apply_filters(
             all_matched_files,
             extensions=extensions,
             ignore_patterns=ignore_patterns,
             mandatory_substrings=mandatory_substrings,
         )
-        logger.info("Final file count after filtering: %d", len(filtered_files))
+        logger.debug("Final file count after filtering: %d", len(filtered_files))
         return filtered_files
 
     def _glob(self, directory_path: Path, pattern: str, recursive: bool) -> List[Path]:
