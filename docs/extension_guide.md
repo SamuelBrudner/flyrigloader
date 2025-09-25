@@ -18,6 +18,8 @@ This guide provides comprehensive documentation for extending FlyRigLoader throu
 
 FlyRigLoader implements a registry-based extensibility pattern that aligns with the SOLID Open/Closed principle, allowing the system to be open for extension but closed for modification. This architecture enables:
 
+> **First time extending the loader?** Start with the [Architecture Overview](architecture.md) to understand how discovery, IO, and registries cooperate before wiring a new plugin.
+
 - **Plugin-style extensibility**: New file formats and validation schemas can be added without modifying core code
 - **Thread-safe singleton implementation**: All registries use thread-safe singleton patterns with O(1) lookup performance
 - **Automatic plugin discovery**: Extensions can be discovered automatically through setuptools entry points
