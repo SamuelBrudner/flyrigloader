@@ -2,11 +2,28 @@
 
 from __future__ import annotations
 
-from importlib import import_module
-from typing import Any, Dict
-
+from flyrigloader.config.models import create_config
 from flyrigloader.exceptions import FlyRigLoaderError
+from flyrigloader.io.column_models import get_config_from_source
+from flyrigloader.io.pickle import read_pickle_any_format
+from flyrigloader.io.transformers import make_dataframe_from_config
 
+from flyrigloader.discovery.files import (
+    discover_experiment_manifest as _discover_experiment_manifest,
+)
+from flyrigloader.io.loaders import load_data_file as _load_data_file
+from flyrigloader.io.transformers import transform_to_dataframe as _transform_to_dataframe
+
+from .loading import (
+    _create_test_dependency_provider,
+    deprecated,
+    get_dataset_parameters,
+    get_experiment_parameters,
+    load_data_file,
+    load_dataset_files,
+    load_experiment_files,
+    process_experiment_data,
+)
 from .config import (
     CONFIG_SOURCE_ERROR_MESSAGE,
     MISSING_DATA_DIR_ERROR,
@@ -34,25 +51,7 @@ from .dependencies import (
 from .kedro import FlyRigLoaderDataSet, check_kedro_available, create_kedro_dataset
 from .manifest import discover_experiment_manifest, validate_manifest
 from .registry import get_loader_capabilities, get_registered_loaders
-from flyrigloader.config.models import create_config
-from flyrigloader.io.column_models import get_config_from_source
-from flyrigloader.io.pickle import read_pickle_any_format
-from flyrigloader.io.transformers import make_dataframe_from_config
-
-_CORE_EXPORTS: Dict[str, str] = {
-    "_create_test_dependency_provider": "_create_test_dependency_provider",
-    "_discover_experiment_manifest": "_discover_experiment_manifest",
-    "_load_data_file": "_load_data_file",
-    "_transform_to_dataframe": "_transform_to_dataframe",
-    "deprecated": "deprecated",
-    "get_dataset_parameters": "get_dataset_parameters",
-    "get_experiment_parameters": "get_experiment_parameters",
-    "load_data_file": "load_data_file",
-    "load_dataset_files": "load_dataset_files",
-    "load_experiment_files": "load_experiment_files",
-    "process_experiment_data": "process_experiment_data",
-    "transform_to_dataframe": "transform_to_dataframe",
-}
+from .transformation import transform_to_dataframe
 
 __all__ = sorted(
     {
@@ -88,19 +87,17 @@ __all__ = sorted(
         "reset_dependency_provider",
         "set_dependency_provider",
         "validate_manifest",
-        *_CORE_EXPORTS.keys(),
+        "_create_test_dependency_provider",
+        "_discover_experiment_manifest",
+        "_load_data_file",
+        "_transform_to_dataframe",
+        "deprecated",
+        "get_dataset_parameters",
+        "get_experiment_parameters",
+        "load_data_file",
+        "load_dataset_files",
+        "load_experiment_files",
+        "process_experiment_data",
+        "transform_to_dataframe",
     }
 )
-
-
-def __getattr__(name: str) -> Any:
-    if name in _CORE_EXPORTS:
-        module = import_module("flyrigloader.api._core")
-        value = getattr(module, _CORE_EXPORTS[name])
-        globals()[name] = value
-        return value
-    raise AttributeError(f"module 'flyrigloader.api' has no attribute '{name}'")
-
-
-def __dir__() -> list[str]:
-    return sorted(list(globals().keys()) + list(_CORE_EXPORTS.keys()))
