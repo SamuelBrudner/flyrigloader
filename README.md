@@ -60,6 +60,17 @@ from flyrigloader.logger import initialize_logger
 initialize_logger()
 ```
 
+## Architecture & Maintenance Resources
+
+- 📐 **Architecture Overview** – [docs/architecture.md](docs/architecture.md)
+  captures module responsibilities, boot flow, and extension seams at a glance.
+- 🧭 **Configuration Guide** – [docs/configuration_guide.md](docs/configuration_guide.md)
+  documents schema models, path resolution, and validation patterns.
+- 🔌 **Extension Guide** – [docs/extension_guide.md](docs/extension_guide.md) explains how
+  to register loaders and schemas through the registry infrastructure.
+- 🛠️ **Contributing Checklist** – [CONTRIBUTING.md](CONTRIBUTING.md) outlines how to keep
+  documentation aligned with feature work and reinforces logging expectations.
+
 Example usage:
 
 ```python

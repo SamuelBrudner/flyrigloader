@@ -17,6 +17,8 @@
 
 FlyRigLoader has been completely modernized with a new Pydantic-based configuration system that provides:
 
+> **Need the bigger picture?** Review the [Architecture Overview](architecture.md) for module responsibilities and boot flow context before diving into configuration details.
+
 - **Type-safe configuration** with automatic validation
 - **Schema-driven approach** that prevents configuration errors at load time
 - **Hierarchical inheritance** from project → dataset → experiment levels
