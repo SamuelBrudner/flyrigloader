@@ -11,7 +11,7 @@ metadata extraction for seamless pipeline integration.
 """
 import os
 from collections.abc import Iterable as IterableABC, Mapping
-from typing import List, Optional, Iterable, Union, Dict, Any, Tuple, Set, Callable, Protocol
+from typing import Any, Callable, Dict, List, Optional, Set, Tuple, Union
 from pathlib import Path
 import re
 from datetime import datetime
@@ -21,7 +21,17 @@ from dataclasses import dataclass, field
 
 from semantic_version import Version
 from flyrigloader import logger
+from flyrigloader.discovery.enumeration import (
+    FileEnumerator,
+    _normalize_directory_argument,
+)
 from flyrigloader.discovery.patterns import PatternMatcher, match_files_to_patterns
+from flyrigloader.discovery.providers import (
+    DateTimeProvider,
+    FilesystemProvider,
+    StandardDateTimeProvider,
+    StandardFilesystemProvider,
+)
 from flyrigloader.discovery.stats import get_file_stats, attach_file_stats
 from flyrigloader.config.versioning import CURRENT_SCHEMA_VERSION
 from flyrigloader.config.yaml_config import (
@@ -48,29 +58,6 @@ def _convert_substring_to_glob(pattern: str) -> str:
         return f"{pattern}*"
 
     return f"*{pattern}*"
-
-
-def _normalize_directory_argument(directory: Union[str, os.PathLike, Iterable[Union[str, os.PathLike]]]) -> List[str]:
-    """Normalize directory inputs to a list of filesystem paths."""
-    logger.debug(f"Normalizing directory argument: {directory}")
-
-    if isinstance(directory, (str, os.PathLike, bytes)):
-        directories = [directory]
-    elif isinstance(directory, IterableABC):
-        directories = list(directory)
-    else:
-        raise TypeError("Directory must be a path-like object or an iterable of path-like objects.")
-
-    normalized_directories: List[str] = []
-    for entry in directories:
-        try:
-            normalized_directories.append(os.fspath(entry))
-        except TypeError as exc:
-            logger.error(f"Invalid path-like entry encountered during normalization: {entry}")
-            raise TypeError("Directory iterable must contain only path-like objects.") from exc
-
-    logger.debug(f"Normalized directories: {normalized_directories}")
-    return normalized_directories
 
 
 @dataclass
@@ -338,99 +325,6 @@ class FileManifest:
         return bool(re.match(pattern, name))
 
 
-class FilesystemProvider(Protocol):
-    """Protocol for filesystem operations to enable dependency injection."""
-    
-    def glob(self, path: Path, pattern: str) -> List[Path]:
-        """Execute glob operation on the given path."""
-        ...
-    
-    def rglob(self, path: Path, pattern: str) -> List[Path]:
-        """Execute recursive glob operation on the given path."""
-        ...
-    
-    def stat(self, path: Path) -> Any:
-        """Get file statistics for the given path."""
-        ...
-    
-    def exists(self, path: Path) -> bool:
-        """Check if path exists."""
-        ...
-
-
-class StandardFilesystemProvider:
-    """Standard filesystem provider using pathlib operations."""
-    
-    def glob(self, path: Path, pattern: str) -> List[Path]:
-        """Execute glob operation using pathlib."""
-        try:
-            logger.debug(f"Performing glob search: {path} with pattern: {pattern}")
-            result = list(path.glob(pattern))
-            logger.debug(f"Glob search found {len(result)} files")
-            return result
-        except Exception as e:
-            logger.error(f"Error during glob operation: {e}")
-            raise
-    
-    def rglob(self, path: Path, pattern: str) -> List[Path]:
-        """Execute recursive glob operation using pathlib."""
-        try:
-            logger.debug(f"Performing recursive glob search: {path} with pattern: {pattern}")
-            result = list(path.rglob(pattern))
-            logger.debug(f"Recursive glob search found {len(result)} files")
-            return result
-        except Exception as e:
-            logger.error(f"Error during recursive glob operation: {e}")
-            raise
-    
-    def stat(self, path: Path) -> Any:
-        """Get file statistics using pathlib."""
-        try:
-            return path.stat()
-        except Exception as e:
-            logger.error(f"Error getting file stats for {path}: {e}")
-            raise
-    
-    def exists(self, path: Path) -> bool:
-        """Check if path exists using pathlib."""
-        try:
-            return path.exists()
-        except Exception as e:
-            logger.error(f"Error checking path existence for {path}: {e}")
-            raise
-
-
-class DateTimeProvider(Protocol):
-    """Protocol for datetime operations to enable dependency injection."""
-    
-    def strptime(self, date_string: str, format_string: str) -> datetime:
-        """Parse date string using the specified format."""
-        ...
-    
-    def now(self) -> datetime:
-        """Get current datetime."""
-        ...
-
-
-class StandardDateTimeProvider:
-    """Standard datetime provider using datetime module."""
-    
-    def strptime(self, date_string: str, format_string: str) -> datetime:
-        """Parse date string using datetime.strptime."""
-        try:
-            logger.debug(f"Parsing date '{date_string}' with format '{format_string}'")
-            result = datetime.strptime(date_string, format_string)
-            logger.debug(f"Successfully parsed date: {result}")
-            return result
-        except ValueError as e:
-            logger.debug(f"Failed to parse date '{date_string}' with format '{format_string}': {e}")
-            raise
-    
-    def now(self) -> datetime:
-        """Get current datetime."""
-        return datetime.now()
-
-
 class FileDiscoverer:
     """
     Class for discovering files and extracting metadata from file paths.
@@ -507,9 +401,17 @@ class FileDiscoverer:
         self.filesystem_provider = filesystem_provider or StandardFilesystemProvider()
         self.datetime_provider = datetime_provider or StandardDateTimeProvider()
         self.stats_provider = stats_provider or get_file_stats
-        
+        self.file_enumerator = FileEnumerator(
+            filesystem_provider=self.filesystem_provider,
+            test_mode=self.test_mode,
+        )
+
         logger.debug(f"Using filesystem provider: {type(self.filesystem_provider).__name__}")
         logger.debug(f"Using datetime provider: {type(self.datetime_provider).__name__}")
+        logger.debug(
+            "Using file enumerator: %s",
+            type(self.file_enumerator).__name__,
+        )
         logger.debug(f"Using stats provider: {self.stats_provider.__name__ if hasattr(self.stats_provider, '__name__') else type(self.stats_provider).__name__}")
         
         # Field names for pattern extraction (for backward compatibility)
@@ -595,164 +497,16 @@ class FileDiscoverer:
         ignore_patterns: Optional[List[str]] = None,
         mandatory_substrings: Optional[List[str]] = None
     ) -> List[str]:
-        """
-        Find files matching the criteria using configurable filesystem provider.
-        
-        Enhanced with structured logging and dependency injection support for F-016 requirements.
-        
-        Args:
-            directory: The directory or list of directories to search in
-            pattern: File pattern to match (glob format)
-            recursive: If True, search recursively through subdirectories
-            extensions: Optional list of file extensions to filter by (without the dot)
-            ignore_patterns: Optional list of glob patterns to ignore. Examples include "*temp*", "backup_*", 
-                             or any other pattern that matches files to be excluded.
-            mandatory_substrings: Optional list of substrings that must be present in files
-            
-        Returns:
-            List of file paths matching the criteria
-        """
-        # Enhanced logging for Section 2.2.8 requirements
-        logger.info(f"Starting file discovery with pattern='{pattern}', recursive={recursive}")
-        logger.debug(f"Search directories: {directory}")
-        logger.debug(f"Extensions filter: {extensions}")
-        logger.debug(f"Ignore patterns: {ignore_patterns}")
-        logger.debug(f"Mandatory substrings: {mandatory_substrings}")
+        """Find files matching the criteria using the configured enumerator."""
+        return self.file_enumerator.find_files(
+            directory=directory,
+            pattern=pattern,
+            recursive=recursive,
+            extensions=extensions,
+            ignore_patterns=ignore_patterns,
+            mandatory_substrings=mandatory_substrings,
+        )
 
-        try:
-            # Normalize directory inputs to handle str, Path, and iterables of path-like values
-            directories = _normalize_directory_argument(directory)
-            logger.debug(f"Processing {len(directories)} directories after normalization")
-
-            # Collect all matching files
-            all_matched_files = []
-
-            for dir_path in directories:
-                directory_path = Path(dir_path)
-                logger.debug(f"Searching in directory: {directory_path}")
-                
-                # Check if directory exists before searching
-                if not self.filesystem_provider.exists(directory_path):
-                    logger.warning(f"Directory does not exist: {directory_path}")
-                    continue
-                
-                try:
-                    # Handle file discovery based on recursion needs using configurable provider
-                    if recursive and "**" not in pattern:
-                        # Convert simple pattern to recursive search
-                        clean_pattern = pattern.lstrip("./")
-                        logger.debug(f"Using recursive glob with pattern: {clean_pattern}")
-                        matched_files = self.filesystem_provider.rglob(directory_path, clean_pattern)
-                    else:
-                        # Use glob for non-recursive or patterns already containing **
-                        logger.debug(f"Using standard glob with pattern: {pattern}")
-                        matched_files = self.filesystem_provider.glob(directory_path, pattern)
-                    
-                    # Add matched files to the result list
-                    found_count = len(matched_files)
-                    logger.debug(f"Found {found_count} files in {directory_path}")
-                    all_matched_files.extend([str(file) for file in matched_files])
-                    
-                except Exception as e:
-                    logger.error(f"Error searching directory {directory_path}: {e}")
-                    if not self.test_mode:
-                        raise
-                    # In test mode, continue with other directories
-                    continue
-            
-            logger.info(f"Total files found before filtering: {len(all_matched_files)}")
-            
-            # Apply filters and return results directly
-            filtered_files = self._apply_filters(
-                all_matched_files, 
-                extensions=extensions,
-                ignore_patterns=ignore_patterns,
-                mandatory_substrings=mandatory_substrings
-            )
-            
-            logger.info(f"Final file count after filtering: {len(filtered_files)}")
-            return filtered_files
-            
-        except Exception as e:
-            logger.error(f"Critical error in find_files: {e}")
-            raise
-    
-    def _apply_filters(
-        self,
-        files: List[str],
-        extensions: Optional[List[str]] = None,
-        ignore_patterns: Optional[List[str]] = None,
-        mandatory_substrings: Optional[List[str]] = None
-    ) -> List[str]:
-        """
-        Apply various filters to a list of file paths with enhanced logging.
-        
-        Enhanced with structured logging for Section 2.2.8 requirements.
-        
-        Args:
-            files: List of file paths to filter
-            extensions: Optional list of file extensions to filter by (without the dot)
-            ignore_patterns: Optional list of glob patterns to ignore. Examples include "*temp*", "backup_*", 
-                             or any other pattern that matches files to be excluded.
-            mandatory_substrings: Optional list of substrings that must be present in files
-            
-        Returns:
-            Filtered list of file paths
-        """
-        logger.debug(f"Applying filters to {len(files)} files")
-        filtered_files = files
-        initial_count = len(files)
-
-        # Filter by extensions if specified
-        if extensions is not None:
-            logger.debug(f"Applying extension filter: {extensions}")
-            if not extensions:
-                # Empty extension list should return no files
-                logger.debug("Empty extension list provided - returning no files")
-                filtered_files = []
-            else:
-                # Normalize extensions for case-insensitive comparison and ensure dot prefix
-                ext_filters = [
-                    (ext if ext.startswith(".") else f".{ext}").lower()
-                    for ext in extensions
-                ]
-                logger.debug(f"Normalized extension filters: {ext_filters}")
-                
-                # Filter files by extensions, ignoring case
-                filtered_files = [
-                    f
-                    for f in filtered_files
-                    if any(f.lower().endswith(ext) for ext in ext_filters)
-                ]
-            logger.debug(f"After extension filtering: {len(filtered_files)} files (removed {initial_count - len(filtered_files)})")
-            initial_count = len(filtered_files)
-
-        # Apply ignore patterns if specified
-        if ignore_patterns:
-            logger.debug(f"Applying ignore patterns: {ignore_patterns}")
-            # Filter out files matching any ignore pattern using glob pattern matching
-            filtered_files = [
-                f
-                for f in filtered_files
-                # Check if file path does NOT match any of the ignore patterns
-                if all(not fnmatch.fnmatch(Path(f).name, pattern) for pattern in ignore_patterns)
-            ]
-            logger.debug(f"After ignore pattern filtering: {len(filtered_files)} files (removed {initial_count - len(filtered_files)})")
-            initial_count = len(filtered_files)
-
-        # Apply mandatory substrings if specified
-        if mandatory_substrings:
-            logger.debug(f"Applying mandatory substring filter: {mandatory_substrings}")
-            # Keep only files containing at least one of the mandatory substrings (OR logic)
-            filtered_files = [
-                f for f in filtered_files
-                if any(pattern in f for pattern in mandatory_substrings)
-            ]
-            logger.debug(f"After mandatory substring filtering: {len(filtered_files)} files (removed {initial_count - len(filtered_files)})")
-
-        logger.debug(f"Filtering complete: {len(filtered_files)} files remaining")
-        return filtered_files
-    
     def extract_metadata(self, files: List[str]) -> Dict[str, Dict[str, Any]]:
         """
         Extract metadata from file paths using configurable regex patterns.
