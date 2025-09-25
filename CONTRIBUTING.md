@@ -17,6 +17,10 @@ overview, and topical guides aligned with the evolving feature set.
 - **Embrace verbose logging** – call `initialize_logger()` during manual testing
   and ensure new code paths emit contextual `logger.info`/`logger.debug` messages
   rather than muting diagnostics.【F:src/flyrigloader/__init__.py†L122-L248】【F:src/flyrigloader/api/_core.py†L176-L213】
+- **Scope dependency overrides** – the dependency provider is a module-level
+  singleton. Use `use_dependency_provider()` when overriding in application code
+  and rely on the `dependency_provider_state_guard` pytest fixture to reset state
+  in tests so concurrent workflows remain isolated.【F:src/flyrigloader/api/dependencies.py†L300-L332】【F:tests/conftest.py†L120-L140】
 
 ## Documentation Alignment Checklist
 
