@@ -17,6 +17,7 @@ from pydantic import ValidationError
 from ..exceptions import ConfigError
 from .models import LegacyConfigAdapter
 from .validators import (
+    ConfigValidationError,
     pattern_validation,
     validate_config_with_version,
     validate_config_version,
@@ -611,8 +612,20 @@ def get_extraction_patterns(
                 pattern_validation(pattern)
                 validated_patterns.append(pattern)
                 logger.debug(f"Extraction pattern validated: {pattern}")
-            except Exception as e:
-                logger.warning(f"Invalid extraction pattern '{pattern}' ignored: {e}")
+            except ConfigValidationError as exc:
+                logger.warning(
+                    "Invalid extraction pattern '%s' ignored by %s: %s",
+                    pattern,
+                    exc.validator,
+                    exc,
+                )
+                continue
+            except Exception as exc:  # pragma: no cover - defensive
+                logger.warning(
+                    "Invalid extraction pattern '%s' ignored: %s",
+                    pattern,
+                    exc,
+                )
                 # Continue with other patterns rather than failing entirely
                 continue
         

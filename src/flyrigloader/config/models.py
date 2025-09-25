@@ -29,6 +29,7 @@ from pydantic import (
 from pydantic.types import DirectoryPath
 
 from .validators import (
+    ConfigValidationError,
     PathSecurityPolicy,
     path_existence_validator,
     validate_config_version,
@@ -159,11 +160,8 @@ class ProjectConfig(BaseModel):
             if value is None:
                 continue
 
-            # Convert to string for validation
             path_str = str(value)
 
-            # Use path_existence_validator for security and existence checks
-            # This validator is test-environment aware and will skip existence checks during testing
             try:
                 path_existence_validator(
                     path_str,
@@ -172,15 +170,27 @@ class ProjectConfig(BaseModel):
                 )
                 validated_dirs[key] = path_str
                 logger.debug(f"Directory validated: {key} = {path_str}")
-            except Exception as e:
+            except ConfigValidationError as exc:
                 logger.error(
-                    f"Directory validation failed for {key}: {path_str} - {e}"
+                    "Directory validation failed for %s: %s", key, exc
                 )
-                if isinstance(e, FileNotFoundError):
-                    message = f"Path not found: {path_str}"
-                else:
-                    message = f"Directory '{key}' validation failed: {e}"
-                raise ValueError(message) from e
+                context = dict(exc.context)
+                context.update({"field": key, "path": path_str})
+                raise ConfigValidationError(
+                    validator=exc.validator,
+                    message=f"Directory '{key}' validation failed: {exc}",
+                    error_code=exc.error_code,
+                    context=context,
+                ) from exc
+            except Exception as exc:  # pragma: no cover - defensive
+                logger.error(
+                    "Unexpected directory validation error for %s: %s", key, exc
+                )
+                raise ConfigValidationError(
+                    validator="storage.path_existence_validator",
+                    message=f"Directory '{key}' validation failed: {exc}",
+                    context={"field": key, "path": path_str},
+                ) from exc
 
         return validated_dirs
     
