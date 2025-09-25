@@ -14,7 +14,6 @@ and scientific reproducibility through comprehensive audit logging.
 from pathlib import Path
 import copy
 import os
-import importlib
 from typing import Dict, List, Any, Optional, Union, Callable
 from collections.abc import MutableMapping
 import pandas as pd
@@ -49,6 +48,26 @@ get_config_from_source = _get_config_from_source
 
 from flyrigloader import logger
 
+from .config import (
+    CONFIG_SOURCE_ERROR_MESSAGE,
+    MISSING_DATA_DIR_ERROR,
+    _attach_metadata_bucket,
+    _coerce_config_for_version_validation,
+    _load_and_validate_config,
+    _raise_path_validation_error,
+    _resolve_base_directory,
+    _resolve_config_source,
+    _validate_config_parameters,
+    check_if_file_exists,
+    ensure_dir_exists,
+    get_common_base_dir,
+    get_default_column_config,
+    get_file_statistics,
+    get_path_absolute,
+    get_path_relative_to,
+)
+from .manifest import discover_experiment_manifest, validate_manifest
+from .registry import get_loader_capabilities, get_registered_loaders
 from .dependencies import (
     ConfigProvider,
     DefaultDependencyProvider,
@@ -59,355 +78,25 @@ from .dependencies import (
     reset_dependency_provider,
     set_dependency_provider,
 )
+from ._shared import resolve_api_override
 
 
 def _get_api_override(name: str, fallback: Callable[..., Any] | Any) -> Callable[..., Any] | Any:
     """Return patched attribute from :mod:`flyrigloader.api` when available."""
 
-    try:
-        api_module = importlib.import_module("flyrigloader.api")
-    except Exception:
-        return fallback
-    override = getattr(api_module, name, fallback)
-    globals()[name] = override
-    return override
+    return resolve_api_override(globals(), name, fallback)
 
 
-MISSING_DATA_DIR_ERROR = (
-    "No data directory specified. Either provide base_directory parameter "
-    "or ensure 'major_data_directory' is set in config."
-)
+ 
 
 
-CONFIG_SOURCE_ERROR_MESSAGE = "Exactly one of 'config_path' or 'config' must be provided"
+ 
 
 
-def _validate_config_parameters(
-    config_path: Optional[Union[str, Path]],
-    config: Optional[Dict[str, Any]],
-    operation_name: str
-) -> None:
-    """Ensure callers provide exactly one configuration source."""
-    logger.debug(f"Validating config parameters for {operation_name}")
-
-    both_missing = config_path is None and config is None
-    both_provided = config_path is not None and config is not None
-
-    if both_missing or both_provided:
-        if both_missing:
-            logger.error(
-                f"Configuration source validation failed for {operation_name}: neither config nor config_path was provided"
-            )
-        else:
-            logger.error(
-                f"Configuration source validation failed for {operation_name}: both config and config_path were provided"
-            )
-        raise ValueError(CONFIG_SOURCE_ERROR_MESSAGE)
-
-    logger.debug(f"Config parameter validation successful for {operation_name}")
+ 
 
 
-def _resolve_config_source(
-    config: Optional[Union[Dict[str, Any], Any]],
-    config_path: Optional[Union[str, Path]],
-    operation_name: str,
-    deps: Optional[DefaultDependencyProvider]
-) -> Dict[str, Any]:
-    """Return the concrete configuration dictionary for the requested operation."""
-    _validate_config_parameters(config_path, config, operation_name)
-
-    if config is not None:
-        logger.debug(
-            f"Using provided configuration object for {operation_name}"
-        )
-        return config  # type: ignore[return-value]
-
-    # At this point validation guarantees config_path is not None.
-    assert config_path is not None
-    logger.debug(
-        f"Loading configuration from file source {config_path} for {operation_name}"
-    )
-    return _load_and_validate_config(config_path, None, operation_name, deps)
-
-
-def _load_and_validate_config(
-    config_path: Optional[Union[str, Path]],
-    config: Optional[Union[Dict[str, Any], Any]],
-    operation_name: str,
-    deps: Optional[DefaultDependencyProvider] = None
-) -> Dict[str, Any]:
-    """
-    Load and validate configuration with enhanced error handling.
-    
-    Supports both dictionary configurations and LegacyConfigAdapter objects
-    for backward compatibility with enhanced Pydantic-based configurations.
-    
-    Args:
-        config_path: Path to configuration file
-        config: Pre-loaded configuration dictionary or LegacyConfigAdapter
-        operation_name: Name of the operation for error context
-        deps: Dependency provider for testing injection
-        
-    Returns:
-        Validated configuration dictionary
-        
-    Raises:
-        ValueError: If configuration is invalid
-        FileNotFoundError: If config file doesn't exist
-    """
-    if deps is None:
-        deps = get_dependency_provider()
-    
-    logger.debug(f"Loading and validating config for {operation_name}")
-    
-    if config_path is not None:
-        try:
-            logger.info(f"Loading configuration from file: {config_path}")
-            config_dict = deps.config.load_config(config_path)
-            logger.debug(f"Successfully loaded config from {config_path}")
-        except FileNotFoundError as e:
-            error_msg = (
-                f"Configuration file not found for {operation_name}: {config_path}. "
-                "Please ensure the file exists and the path is correct."
-            )
-            logger.error(error_msg)
-            raise FlyRigLoaderError(error_msg) from e
-        except Exception as e:
-            error_msg = (
-                f"Failed to load configuration for {operation_name} from {config_path}: {e}. "
-                "Please check the file format and syntax."
-            )
-            logger.error(error_msg)
-            raise FlyRigLoaderError(error_msg) from e
-    else:
-        logger.debug(f"Using pre-loaded configuration for {operation_name}")
-        config_dict = copy.deepcopy(config)
-    
-    # Check if config is a LegacyConfigAdapter (duck typing approach)
-    if hasattr(config_dict, 'keys') and hasattr(config_dict, '__getitem__') and hasattr(config_dict, 'get'):
-        # This supports both dict and LegacyConfigAdapter (which implements MutableMapping)
-        logger.debug(f"Configuration is dict-like for {operation_name}")
-        
-        # For LegacyConfigAdapter, we need to convert to dict for backward compatibility
-        if not isinstance(config_dict, dict):
-            try:
-                # Convert LegacyConfigAdapter to dictionary for internal use
-                dict_config = {}
-                for key in config_dict.keys():
-                    dict_config[key] = config_dict[key]
-                config_dict = dict_config
-                logger.debug(f"Converted LegacyConfigAdapter to dictionary for {operation_name}")
-            except Exception as e:
-                error_msg = (
-                    f"Failed to convert configuration to dictionary for {operation_name}: {e}. "
-                    "Configuration must be convertible to dictionary structure."
-                )
-                logger.error(error_msg)
-                raise FlyRigLoaderError(error_msg) from e
-    elif not isinstance(config_dict, dict):
-        error_msg = (
-            f"Invalid configuration format for {operation_name}: "
-            f"Expected dictionary or dict-like object, got {type(config_dict).__name__}. "
-            "Configuration must be a valid dictionary structure or LegacyConfigAdapter."
-        )
-        logger.error(error_msg)
-        raise FlyRigLoaderError(error_msg)
-    
-    logger.debug(f"Configuration validation successful for {operation_name}")
-    return config_dict
-
-
-def _coerce_config_for_version_validation(config_obj: Any) -> Union[Dict[str, Any], str]:
-    """Normalize configuration objects before schema version validation."""
-
-    if isinstance(config_obj, (dict, str)):
-        return config_obj
-
-    if isinstance(config_obj, MutableMapping):
-        logger.debug(
-            f"Converted MutableMapping configuration of type {type(config_obj).__name__} for version validation"
-        )
-        return dict(config_obj)
-
-    model_dump = getattr(config_obj, "model_dump", None)
-    if callable(model_dump):
-        try:
-            dumped_config = model_dump()
-            logger.debug(
-                f"Converted Pydantic model {type(config_obj).__name__} to dictionary via model_dump for version validation"
-            )
-            return dumped_config
-        except Exception as exc:
-            logger.debug(
-                f"Failed to convert configuration {type(config_obj).__name__} using model_dump(): {exc}"
-            )
-
-    to_dict = getattr(config_obj, "to_dict", None)
-    if callable(to_dict):
-        try:
-            dict_config = to_dict()
-            logger.debug(
-                f"Converted configuration {type(config_obj).__name__} using to_dict() for version validation"
-            )
-            return dict_config
-        except Exception as exc:
-            logger.debug(
-                f"Failed to convert configuration {type(config_obj).__name__} using to_dict(): {exc}"
-            )
-
-    raise TypeError(
-        f"Configuration data must be dict-like or convertible, got {type(config_obj)}"
-    )
-
-
-def _attach_metadata_bucket(
-    discovery_result: Union[List[str], Dict[str, Any]]
-) -> Union[List[str], Dict[str, Dict[str, Any]]]:
-    """Ensure discovery results provide a nested ``metadata`` dictionary."""
-
-    if not isinstance(discovery_result, dict):
-        return discovery_result
-
-    normalised: Dict[str, Dict[str, Any]] = {}
-
-    for path, payload in discovery_result.items():
-        path_str = str(path)
-
-        if not isinstance(payload, dict):
-            normalised[path_str] = {"path": path_str, "metadata": {}}
-            continue
-
-        flattened = dict(payload)
-        flattened.setdefault("path", path_str)
-
-        existing_metadata = flattened.get("metadata")
-        metadata_bucket: Dict[str, Any] = {}
-        if isinstance(existing_metadata, dict):
-            metadata_bucket.update(existing_metadata)
-
-        for key, value in flattened.items():
-            if key in {"metadata", "path"}:
-                continue
-            metadata_bucket.setdefault(key, value)
-
-        flattened["metadata"] = metadata_bucket
-        normalised[path_str] = flattened
-
-    return normalised
-
-
-def _resolve_base_directory(
-    config: Union[Dict[str, Any], LegacyConfigAdapter],
-    base_directory: Optional[Union[str, Path]],
-    operation_name: str
-) -> Union[str, Path]:
-    """
-    Resolve base directory following documented precedence order with comprehensive audit logging.
-    
-    Precedence order (first match wins):
-    1. Explicit base_directory parameter (function argument)
-    2. Configuration-defined major_data_directory 
-    3. Environment variable FLYRIGLOADER_DATA_DIR (for CI/CD scenarios)
-    
-    Each resolution step is logged at appropriate levels for scientific reproducibility
-    and debugging workflows. This ensures transparent data path resolution with
-    clear audit trails.
-    
-    Args:
-        config: Configuration dictionary or LegacyConfigAdapter
-        base_directory: Optional explicit override for base directory (highest precedence)
-        operation_name: Name of operation for error context and logging
-        
-    Returns:
-        Resolved base directory path
-        
-    Raises:
-        FlyRigLoaderError: If no valid base directory can be resolved
-    """
-    logger.debug(f"Starting base directory resolution for {operation_name}")
-    logger.debug(f"Resolution precedence: 1) explicit parameter, 2) config major_data_directory, 3) FLYRIGLOADER_DATA_DIR env var")
-    
-    resolved_directory = None
-    resolution_source = None
-    
-    # Precedence 1: Explicit base_directory parameter (highest priority)
-    if base_directory is not None:
-        resolved_directory = base_directory
-        resolution_source = "explicit function parameter"
-        logger.info(f"Using explicit base_directory parameter: {base_directory}")
-        logger.debug(f"Resolution source: {resolution_source} (precedence 1)")
-    
-    # Precedence 2: Configuration-defined major_data_directory
-    if resolved_directory is None:
-        logger.debug("No explicit base_directory provided, checking config for major_data_directory")
-        
-        # Support both dict and LegacyConfigAdapter
-        if hasattr(config, 'get'):
-            # Dict-like access (works for both dict and LegacyConfigAdapter)
-            config_directory = (
-                config.get("project", {})
-                .get("directories", {})
-                .get("major_data_directory")
-            )
-        else:
-            logger.warning(f"Unexpected config type for {operation_name}: {type(config)}")
-            config_directory = None
-        
-        if config_directory:
-            resolved_directory = config_directory
-            resolution_source = "configuration major_data_directory"
-            logger.info(f"Using major_data_directory from config: {config_directory}")
-            logger.debug(f"Resolution source: {resolution_source} (precedence 2)")
-        else:
-            logger.debug("No major_data_directory found in config")
-    
-    # Precedence 3: Environment variable FLYRIGLOADER_DATA_DIR (lowest priority)
-    if resolved_directory is None:
-        logger.debug("No config major_data_directory found, checking FLYRIGLOADER_DATA_DIR environment variable")
-        env_directory = os.environ.get("FLYRIGLOADER_DATA_DIR")
-        
-        if env_directory:
-            resolved_directory = env_directory
-            resolution_source = "FLYRIGLOADER_DATA_DIR environment variable"
-            logger.info(f"Using FLYRIGLOADER_DATA_DIR environment variable: {env_directory}")
-            logger.debug(f"Resolution source: {resolution_source} (precedence 3)")
-        else:
-            logger.debug("No FLYRIGLOADER_DATA_DIR environment variable found")
-
-    # Validation: Ensure we have a resolved directory
-    if not resolved_directory:
-        error_msg = (
-            f"No data directory specified for {operation_name}. "
-            "Tried all resolution methods in precedence order:\n"
-            "1. Explicit 'base_directory' parameter (not provided)\n"
-            "2. Configuration 'project.directories.major_data_directory' (not found)\n"
-            "3. Environment variable 'FLYRIGLOADER_DATA_DIR' (not set)\n\n"
-            "Please provide a data directory using one of these methods:\n"
-            "- Pass base_directory parameter to the function\n"
-            "- Set 'major_data_directory' in your config:\n"
-            "  project:\n    directories:\n      major_data_directory: /path/to/data\n"
-            "- Set environment variable: export FLYRIGLOADER_DATA_DIR=/path/to/data"
-        )
-        logger.error(error_msg)
-        raise FlyRigLoaderError(error_msg)
-    
-    # Convert to Path for validation and final logging
-    resolved_path = Path(resolved_directory)
-    
-    # Existence check with appropriate logging level
-    if resolved_path.exists():
-        logger.debug(f"Resolved directory exists: {resolved_path}")
-    else:
-        logger.warning(f"Resolved directory does not exist: {resolved_path}")
-        logger.warning(f"This may cause file discovery failures in {operation_name}")
-    
-    # Final audit log entry
-    logger.info(f"✓ Base directory resolution complete for {operation_name}")
-    logger.info(f"  Resolved path: {resolved_directory}")
-    logger.info(f"  Resolution source: {resolution_source}")
-    logger.debug(f"  Absolute path: {resolved_path.resolve()}")
-    
-    return resolved_directory
+ 
 
 
 # Import types for backward compatibility and direct usage when needed
