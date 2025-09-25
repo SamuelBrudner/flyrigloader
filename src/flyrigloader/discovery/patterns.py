@@ -303,28 +303,6 @@ class PatternMatcher(PatternMatchingInterface):
 
         return compiled_patterns
     
-    def _get_field_names_for_pattern(self, pattern_idx: int) -> Optional[List[str]]:
-        """
-        Determine the field names to use for a pattern with positional groups.
-        
-        Args:
-            pattern_idx: Index of the pattern in the patterns list
-            
-        Returns:
-            List of field names or None if pattern type is unknown
-        """
-        pattern = self.patterns[pattern_idx]
-        
-        # Determine pattern type based on content
-        if "mouse" in pattern and "_mouse_" not in pattern:
-            return ["animal", "date", "condition", "replicate"]
-        elif "rat" in pattern and "_rat_" not in pattern:
-            return ["date", "animal", "condition", "replicate"]
-        elif "exp" in pattern:
-            return ["experiment_id", "animal", "condition"]
-        
-        return None
-
     def match_all(self, filename: str) -> Optional[Dict[str, str]]:
         """Match *all* patterns against *filename* and merge metadata.
 
@@ -377,7 +355,6 @@ class PatternMatcher(PatternMatchingInterface):
                 self._logger.debug(f"Match found with pattern {i}")
                 result = self._extract_groups_from_match(match, i)
                 self._logger.debug(f"Extracted groups: {result}")
-                result = self._process_special_cases(result, filename)
                 combined.update(result)
 
         if combined:
@@ -397,44 +374,23 @@ class PatternMatcher(PatternMatchingInterface):
         Returns:
             Dictionary of extracted field values
         """
-        # If pattern uses named groups, use them directly
-        if match.groupdict():
-            return match.groupdict()
-        
-        # For backward compatibility with positional groups
-        if fields := self._get_field_names_for_pattern(pattern_idx):
-            return dict(zip(fields, match.groups()))
-        
-        # Generic handling for unknown patterns
-        return {f"group{j}": group for j, group in enumerate(match.groups())}
-    
-    def _process_special_cases(self, result: Dict[str, str], filename: str) -> Dict[str, str]:
-        """
-        Apply special case processing to the extracted metadata.
-        
-        Args:
-            result: The extracted metadata
-            filename: The filename that was matched
-            
-        Returns:
-            Updated metadata with special cases handled
-        """
-        # Handle animal files with condition_replicate format
-        if ("animal" in result and result["animal"] in ["mouse", "rat"] and 
-                "condition" in result and "replicate" in result):
-            if (condition_match := self._regex.match(r"(.+)_(\d+)$", result["condition"])):
-                # Split into condition and replicate
-                result["condition"], extra_replicate = condition_match.groups()
-                # Only use the extra replicate if none was provided
-                if not result.get("replicate"):
-                    result["replicate"] = extra_replicate
-        
-        # Special case for experiment files with animal=mouse
-        if ("experiment_id" in result and result.get("animal") == "mouse" and 
-                "baseline" in filename):
-            result["animal"] = "exp_mouse"  # Mark specially to not count as a mouse file
-        
-        return result
+        named_groups = match.groupdict()
+
+        if named_groups:
+            return named_groups
+
+        positional_groups = match.groups()
+
+        if not positional_groups:
+            return {}
+
+        pattern_text = self.patterns[pattern_idx]
+        message = (
+            "PatternMatcher requires named capture groups for metadata extraction; "
+            f"pattern '{pattern_text}' matched '{match.string}' without any named groups."
+        )
+        self._logger.error(message)
+        raise ValueError(message)
     
     def match(self, filename: str) -> Optional[Dict[str, str]]:
         """
@@ -480,14 +436,11 @@ class PatternMatcher(PatternMatchingInterface):
             # Search for the pattern in the selected component
             if (match := self._regex.search(pattern, candidate)):
                 self._logger.debug(f"Match found with pattern {i}")
-                
+
                 # Extract fields from the match
                 result = self._extract_groups_from_match(match, i)
                 self._logger.debug(f"Extracted groups: {result}")
-                
-                # Handle special cases
-                result = self._process_special_cases(result, filename)
-                
+
                 return result
         
         self._logger.debug(f"No match found for {filename}")

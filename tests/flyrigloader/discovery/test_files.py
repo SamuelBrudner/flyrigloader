@@ -264,9 +264,12 @@ class TestFileDiscoveryCore:
     # =========================================================================
 
     @pytest.mark.parametrize("extract_patterns,expected_metadata_keys", [
-        ([r".*/(mouse)_(\d{8})_(\w+)_(\d+)\.csv"], ["animal", "date", "condition", "replicate"]),
-        ([r".*/(\d{8})_(rat)_(\w+)_(\d+)\.csv"], ["date", "animal", "condition", "replicate"]),
-        ([r".*/(exp\d+)_(\w+)_(\w+)\.csv"], ["experiment_id", "animal", "condition"]),
+        ([r".*/(?P<animal>mouse)_(?P<date>\d{8})_(?P<condition>\w+)_(?P<replicate>\d+)\.csv"],
+         ["animal", "date", "condition", "replicate"]),
+        ([r".*/(?P<date>\d{8})_(?P<animal>rat)_(?P<condition>\w+)_(?P<replicate>\d+)\.csv"],
+         ["date", "animal", "condition", "replicate"]),
+        ([r".*/(?P<experiment_id>exp\d+)_(?P<animal>\w+)_(?P<condition>\w+)\.csv"],
+         ["experiment_id", "animal", "condition"]),
     ])
     def test_pattern_extraction_metadata(self, temp_filesystem, extract_patterns, expected_metadata_keys):
         """Test metadata extraction from filenames using regex patterns."""
@@ -673,7 +676,7 @@ class TestFileDiscoveryCore:
     def test_file_discoverer_class_integration(self, temp_filesystem, sample_files):
         """Test FileDiscoverer class with various configuration options."""
         # Test with extract patterns
-        patterns = [r".*/(mouse)_(\d{8})_(\w+)_(\d+)\.csv"]
+        patterns = [r".*/(?P<animal>mouse)_(?P<date>\d{8})_(?P<condition>\w+)_(?P<replicate>\d+)\.csv"]
         discoverer = FileDiscoverer(extract_patterns=patterns)
         
         # Create mouse file for pattern matching
@@ -709,7 +712,7 @@ class TestFileDiscoveryCore:
             
         # Configure discoverer with all options
         discoverer = FileDiscoverer(
-            extract_patterns=[r".*/(exp\d+)_(\w+)_(\d{8})\.csv"],
+            extract_patterns=[r".*/(?P<experiment_id>exp\d+)_(?P<animal>\w+)_(?P<date>\d{8})\.csv"],
             parse_dates=True,
             include_stats=True
         )
