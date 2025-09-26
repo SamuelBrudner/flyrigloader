@@ -6,6 +6,7 @@ from abc import ABC, abstractmethod
 from contextlib import contextmanager
 from contextvars import ContextVar
 import builtins
+import sys
 import types
 from pathlib import Path
 from typing import Any, Dict, Iterator, List, Optional, Protocol, Union
@@ -13,6 +14,22 @@ from typing import Any, Dict, Iterator, List, Optional, Protocol, Union
 from flyrigloader import logger
 from flyrigloader.config.models import LegacyConfigAdapter
 from flyrigloader.io.column_models import get_config_from_source
+
+
+_PROVIDER_BASES_ATTR = "_flyrigloader_dependency_provider_bases"
+_DEFAULT_PROVIDER_TYPES_ATTR = "_flyrigloader_default_provider_classes"
+
+_known_provider_bases: List[type] = getattr(
+    builtins, _PROVIDER_BASES_ATTR, []
+)
+if not hasattr(builtins, _PROVIDER_BASES_ATTR):
+    setattr(builtins, _PROVIDER_BASES_ATTR, _known_provider_bases)
+
+_known_default_provider_types: List[type] = getattr(
+    builtins, _DEFAULT_PROVIDER_TYPES_ATTR, []
+)
+if not hasattr(builtins, _DEFAULT_PROVIDER_TYPES_ATTR):
+    setattr(builtins, _DEFAULT_PROVIDER_TYPES_ATTR, _known_default_provider_types)
 
 
 class ConfigProvider(Protocol):
@@ -171,98 +188,107 @@ class AbstractDependencyProvider(ABC):
         ...
 
 
-if hasattr(builtins, "_flyrigloader_DefaultDependencyProvider"):
-    DefaultDependencyProvider = builtins._flyrigloader_DefaultDependencyProvider  # type: ignore[assignment]
-else:
+if AbstractDependencyProvider not in _known_provider_bases:
+    _known_provider_bases.append(AbstractDependencyProvider)
 
-    class DefaultDependencyProvider(AbstractDependencyProvider):
-        """Default implementation of dependency providers using actual modules."""
 
-        def __init__(self):
-            self._config_module: ConfigProvider | None = None
-            self._discovery_module: DiscoveryProvider | None = None
-            self._io_module: IOProvider | None = None
-            self._utils_module: UtilsProvider | None = None
-            logger.debug("Initialized DefaultDependencyProvider with lazy loading")
+class DefaultDependencyProvider(AbstractDependencyProvider):
+    """Default implementation of dependency providers using actual modules."""
 
-        @property
-        def config(self) -> ConfigProvider:
-            if self._config_module is None:
-                logger.debug("Loading configuration module dependencies")
-                from flyrigloader.config import yaml_config as _yaml_config
+    def __init__(self):
+        self._config_module: ConfigProvider | None = None
+        self._discovery_module: DiscoveryProvider | None = None
+        self._io_module: IOProvider | None = None
+        self._utils_module: UtilsProvider | None = None
+        logger.debug("Initialized DefaultDependencyProvider with lazy loading")
 
-                _load_config = _yaml_config.load_config
-                _get_ignore_patterns = _yaml_config.get_ignore_patterns
-                _get_mandatory_substrings = _yaml_config.get_mandatory_substrings
-                _get_dataset_info = _yaml_config.get_dataset_info
-                _get_experiment_info = _yaml_config.get_experiment_info
+    @property
+    def config(self) -> ConfigProvider:
+        if self._config_module is None:
+            logger.debug("Loading configuration module dependencies")
+            from flyrigloader.config import yaml_config as _yaml_config
 
-                class ConfigModule:
-                    load_config = staticmethod(_load_config)
-                    get_ignore_patterns = staticmethod(_get_ignore_patterns)
-                    get_mandatory_substrings = staticmethod(_get_mandatory_substrings)
-                    get_dataset_info = staticmethod(_get_dataset_info)
-                    get_experiment_info = staticmethod(_get_experiment_info)
+            _load_config = _yaml_config.load_config
+            _get_ignore_patterns = _yaml_config.get_ignore_patterns
+            _get_mandatory_substrings = _yaml_config.get_mandatory_substrings
+            _get_dataset_info = _yaml_config.get_dataset_info
+            _get_experiment_info = _yaml_config.get_experiment_info
 
-                self._config_module = ConfigModule()  # type: ignore[assignment]
-            return self._config_module
+            class ConfigModule:
+                load_config = staticmethod(_load_config)
+                get_ignore_patterns = staticmethod(_get_ignore_patterns)
+                get_mandatory_substrings = staticmethod(_get_mandatory_substrings)
+                get_dataset_info = staticmethod(_get_dataset_info)
+                get_experiment_info = staticmethod(_get_experiment_info)
 
-        @property
-        def discovery(self) -> DiscoveryProvider:
-            if self._discovery_module is None:
-                logger.debug("Loading discovery module dependencies")
-                import importlib
+            self._config_module = ConfigModule()  # type: ignore[assignment]
+        return self._config_module
 
-                discovery_mod = importlib.import_module("flyrigloader.config.discovery")
+    @property
+    def discovery(self) -> DiscoveryProvider:
+        if self._discovery_module is None:
+            logger.debug("Loading discovery module dependencies")
+            import importlib
 
-                class DiscoveryModule:
-                    discover_files_with_config = staticmethod(discovery_mod.discover_files_with_config)
-                    discover_experiment_files = staticmethod(discovery_mod.discover_experiment_files)
-                    discover_dataset_files = staticmethod(discovery_mod.discover_dataset_files)
+            discovery_mod = importlib.import_module("flyrigloader.config.discovery")
 
-                self._discovery_module = DiscoveryModule()  # type: ignore[assignment]
-            return self._discovery_module
+            class DiscoveryModule:
+                discover_files_with_config = staticmethod(discovery_mod.discover_files_with_config)
+                discover_experiment_files = staticmethod(discovery_mod.discover_experiment_files)
+                discover_dataset_files = staticmethod(discovery_mod.discover_dataset_files)
 
-        @property
-        def io(self) -> IOProvider:
-            if self._io_module is None:
-                logger.debug("Loading I/O module dependencies")
-                from flyrigloader.io.pickle import read_pickle_any_format
-                from flyrigloader.io.transformers import make_dataframe_from_config
-                from types import SimpleNamespace
+            self._discovery_module = DiscoveryModule()  # type: ignore[assignment]
+        return self._discovery_module
 
-                self._io_module = SimpleNamespace(
-                    read_pickle_any_format=read_pickle_any_format,
-                    make_dataframe_from_config=make_dataframe_from_config,
-                    get_config_from_source=get_config_from_source,
-                )
-            return self._io_module
+    @property
+    def io(self) -> IOProvider:
+        if self._io_module is None:
+            logger.debug("Loading I/O module dependencies")
+            from flyrigloader.io.pickle import read_pickle_any_format
+            from flyrigloader.io.transformers import make_dataframe_from_config
+            from types import SimpleNamespace
 
-        @property
-        def utils(self) -> UtilsProvider:
-            if self._utils_module is None:
-                logger.debug("Loading utilities module dependencies")
-                from flyrigloader.discovery.stats import get_file_stats as _get_file_stats
-                from flyrigloader.utils.paths import (
-                    check_file_exists as _check_file_exists,
-                    ensure_directory_exists as _ensure_directory_exists,
-                    find_common_base_directory as _find_common_base_directory,
-                    get_absolute_path as _get_absolute_path,
-                    get_relative_path as _get_relative_path,
-                )
+            self._io_module = SimpleNamespace(
+                read_pickle_any_format=read_pickle_any_format,
+                make_dataframe_from_config=make_dataframe_from_config,
+                get_config_from_source=get_config_from_source,
+            )
+        return self._io_module
 
-                class UtilsModule:
-                    get_file_stats = staticmethod(_get_file_stats)
-                    get_relative_path = staticmethod(_get_relative_path)
-                    get_absolute_path = staticmethod(_get_absolute_path)
-                    check_file_exists = staticmethod(_check_file_exists)
-                    ensure_directory_exists = staticmethod(_ensure_directory_exists)
-                    find_common_base_directory = staticmethod(_find_common_base_directory)
+    @property
+    def utils(self) -> UtilsProvider:
+        if self._utils_module is None:
+            logger.debug("Loading utilities module dependencies")
+            from flyrigloader.discovery.stats import get_file_stats as _get_file_stats
+            from flyrigloader.utils.paths import (
+                check_file_exists as _check_file_exists,
+                ensure_directory_exists as _ensure_directory_exists,
+                find_common_base_directory as _find_common_base_directory,
+                get_absolute_path as _get_absolute_path,
+                get_relative_path as _get_relative_path,
+            )
 
-                self._utils_module = UtilsModule()  # type: ignore[assignment]
-            return self._utils_module
+            class UtilsModule:
+                get_file_stats = staticmethod(_get_file_stats)
+                get_relative_path = staticmethod(_get_relative_path)
+                get_absolute_path = staticmethod(_get_absolute_path)
+                check_file_exists = staticmethod(_check_file_exists)
+                ensure_directory_exists = staticmethod(_ensure_directory_exists)
+                find_common_base_directory = staticmethod(_find_common_base_directory)
 
-    builtins._flyrigloader_DefaultDependencyProvider = DefaultDependencyProvider
+            self._utils_module = UtilsModule()  # type: ignore[assignment]
+        return self._utils_module
+
+
+for previous_default in _known_default_provider_types:
+    try:
+        previous_default.register(DefaultDependencyProvider)
+    except AttributeError:
+        # Not all historical implementations necessarily used ABCMeta.
+        pass
+
+if DefaultDependencyProvider not in _known_default_provider_types:
+    _known_default_provider_types.append(DefaultDependencyProvider)
 
 
 if not hasattr(builtins, "_flyrigloader_dependency_state"):
@@ -273,6 +299,16 @@ if not hasattr(builtins, "_flyrigloader_dependency_state"):
     )
 
 _state = builtins._flyrigloader_dependency_state
+current_default = getattr(_state, "default_provider", None)
+if (
+    type(current_default) in _known_default_provider_types
+    and type(current_default) is not DefaultDependencyProvider
+):
+    _state.default_provider = DefaultDependencyProvider()
+    logger.debug(
+        "Refreshed default dependency provider with {}",
+        type(_state.default_provider).__name__,
+    )
 
 
 def _override_stack() -> ContextVar[tuple[AbstractDependencyProvider, ...]]:
@@ -284,7 +320,7 @@ def _validate_provider(provider: AbstractDependencyProvider) -> AbstractDependen
 
     if provider is None:
         raise ValueError("provider must not be None")
-    if not isinstance(provider, AbstractDependencyProvider):
+    if not any(isinstance(provider, base) for base in _known_provider_bases):
         raise TypeError("provider must implement AbstractDependencyProvider")
     return provider
 
@@ -384,3 +420,23 @@ __all__ = [
     "set_dependency_provider",
     "use_dependency_provider",
 ]
+
+
+def _refresh_api_exports() -> None:
+    """Ensure :mod:`flyrigloader.api` re-exports track the latest definitions."""
+
+    api_module = sys.modules.get("flyrigloader.api")
+    if api_module is None:
+        return
+
+    for name in (
+        "DefaultDependencyProvider",
+        "get_dependency_provider",
+        "reset_dependency_provider",
+        "set_dependency_provider",
+        "use_dependency_provider",
+    ):
+        setattr(api_module, name, globals()[name])
+
+
+_refresh_api_exports()
