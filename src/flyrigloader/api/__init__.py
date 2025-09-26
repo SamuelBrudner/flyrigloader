@@ -43,6 +43,7 @@ from .config import (
     get_path_relative_to,
 )
 from .dependencies import (
+    AbstractDependencyProvider,
     DefaultDependencyProvider,
     get_dependency_provider,
     reset_dependency_provider,
@@ -58,6 +59,7 @@ __all__ = sorted(
     {
         "CONFIG_SOURCE_ERROR_MESSAGE",
         "MISSING_DATA_DIR_ERROR",
+        "AbstractDependencyProvider",
         "DefaultDependencyProvider",
         "FlyRigLoaderDataSet",
         "FlyRigLoaderError",

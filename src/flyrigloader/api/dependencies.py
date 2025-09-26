@@ -258,75 +258,104 @@ class DefaultDependencyProvider(AbstractDependencyProvider):
 
 
 class _DependencyProviderState:
-    """Thread-safe registry for the active dependency provider."""
+    """Thread-aware registry for the active dependency provider."""
 
     def __init__(self) -> None:
         self._lock = threading.RLock()
-        self._provider: DefaultDependencyProvider = DefaultDependencyProvider()
-        self._override_stack: list[DefaultDependencyProvider] = []
+        self._provider: AbstractDependencyProvider = DefaultDependencyProvider()
+        self._thread_state = threading.local()
 
-    def get(self) -> DefaultDependencyProvider:
+    def _get_thread_stack(self) -> list[AbstractDependencyProvider]:
+        stack: list[AbstractDependencyProvider] | None = getattr(
+            self._thread_state, "stack", None
+        )
+        if stack is None:
+            stack = []
+            self._thread_state.stack = stack
+        return stack
+
+    def _clear_thread_stack(self) -> None:
+        if hasattr(self._thread_state, "stack"):
+            self._thread_state.stack.clear()
+
+    def get(self) -> AbstractDependencyProvider:
+        stack = self._get_thread_stack()
+        if stack:
+            return stack[-1]
         with self._lock:
             return self._provider
 
-    def set(self, provider: DefaultDependencyProvider) -> None:
+    def set(self, provider: AbstractDependencyProvider) -> None:
         with self._lock:
             self._provider = provider
+        self._clear_thread_stack()
 
     def reset(self) -> None:
         with self._lock:
             self._provider = DefaultDependencyProvider()
-            self._override_stack.clear()
+        self._clear_thread_stack()
 
-    def push_override(self, provider: DefaultDependencyProvider) -> None:
-        with self._lock:
-            logger.debug("Setting dependency provider to %s", type(provider).__name__)
-            self._override_stack.append(self._provider)
-            self._provider = provider
+    def push_override(self, provider: AbstractDependencyProvider) -> None:
+        logger.debug("Setting dependency provider to %s", type(provider).__name__)
+        stack = self._get_thread_stack()
+        stack.append(provider)
 
-    def pop_override(self, expected: DefaultDependencyProvider) -> DefaultDependencyProvider:
-        with self._lock:
-            if not self._override_stack:
-                logger.debug(
-                    "Override stack empty; keeping provider %s", type(self._provider).__name__
-                )
-                return self._provider
+    def pop_override(
+        self, expected: AbstractDependencyProvider
+    ) -> AbstractDependencyProvider:
+        stack = self._get_thread_stack()
+        if not stack:
+            logger.debug(
+                "Override stack empty; keeping provider %s", type(self.get()).__name__
+            )
+            return self.get()
 
-            previous = self._override_stack.pop()
-            if self._provider is expected:
-                logger.debug(
-                    "Restoring dependency provider to %s", type(previous).__name__
-                )
-                self._provider = previous
-            else:
-                logger.debug(
-                    "Dependency provider changed while override active; keeping %s",
-                    type(self._provider).__name__,
-                )
-            return self._provider
+        current = stack[-1]
+        if current is expected:
+            stack.pop()
+            logger.debug(
+                "Restoring dependency provider to %s", type(self.get()).__name__
+            )
+        else:
+            logger.debug(
+                "Dependency provider changed while override active; keeping %s",
+                type(current).__name__,
+            )
+        return self.get()
 
 
 _dependency_state = _DependencyProviderState()
 
 
-def set_dependency_provider(provider: DefaultDependencyProvider) -> None:
-    """Set the global dependency provider for testing purposes."""
+def set_dependency_provider(provider: AbstractDependencyProvider) -> None:
+    """Set the global dependency provider for testing purposes.
 
-    if not isinstance(provider, DefaultDependencyProvider):  # pragma: no cover - defensive branch
-        raise TypeError("provider must be an instance of DefaultDependencyProvider")
+    The supplied provider becomes the default for all threads. Any active
+    thread-local overrides in the calling thread are cleared to avoid
+    accidentally retaining stale providers across test boundaries.
+    """
+
+    if not isinstance(
+        provider, AbstractDependencyProvider
+    ):  # pragma: no cover - defensive branch
+        raise TypeError("provider must implement AbstractDependencyProvider")
 
     logger.debug("Setting dependency provider to %s", type(provider).__name__)
     _dependency_state.set(provider)
 
 
-def get_dependency_provider() -> DefaultDependencyProvider:
+def get_dependency_provider() -> AbstractDependencyProvider:
     """Return the current dependency provider."""
 
     return _dependency_state.get()
 
 
 def reset_dependency_provider() -> None:
-    """Reset the dependency provider to the default implementation."""
+    """Reset the dependency provider to the default implementation.
+
+    This also clears any overrides active in the calling thread, ensuring
+    that subsequent calls observe the newly created default provider.
+    """
 
     logger.debug("Resetting dependency provider to default")
     _dependency_state.reset()
@@ -334,8 +363,8 @@ def reset_dependency_provider() -> None:
 
 @contextmanager
 def use_dependency_provider(
-    provider: DefaultDependencyProvider,
-) -> Iterator[DefaultDependencyProvider]:
+    provider: AbstractDependencyProvider,
+) -> Iterator[AbstractDependencyProvider]:
     """Temporarily override the active dependency provider.
 
     Parameters
@@ -345,15 +374,17 @@ def use_dependency_provider(
 
     Yields
     ------
-    DefaultDependencyProvider
+    AbstractDependencyProvider
         The provider that was supplied, allowing callers to inspect or
-        configure it further while the override is active.
+        configure it further while the override is active. Overrides apply to
+        the current thread only and are isolated from other concurrent
+        workflows.
     """
 
     if provider is None:
         raise ValueError("provider must not be None")
-    if not isinstance(provider, DefaultDependencyProvider):
-        raise TypeError("provider must be an instance of DefaultDependencyProvider")
+    if not isinstance(provider, AbstractDependencyProvider):
+        raise TypeError("provider must implement AbstractDependencyProvider")
 
     previous_provider = get_dependency_provider()
     logger.debug(
