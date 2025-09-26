@@ -5,7 +5,6 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from contextlib import contextmanager
 from contextvars import ContextVar
-import builtins
 import sys
 import types
 from pathlib import Path
@@ -16,20 +15,12 @@ from flyrigloader.config.models import LegacyConfigAdapter
 from flyrigloader.io.column_models import get_config_from_source
 
 
-_PROVIDER_BASES_ATTR = "_flyrigloader_dependency_provider_bases"
-_DEFAULT_PROVIDER_TYPES_ATTR = "_flyrigloader_default_provider_classes"
-
-_known_provider_bases: List[type] = getattr(
-    builtins, _PROVIDER_BASES_ATTR, []
-)
-if not hasattr(builtins, _PROVIDER_BASES_ATTR):
-    setattr(builtins, _PROVIDER_BASES_ATTR, _known_provider_bases)
-
-_known_default_provider_types: List[type] = getattr(
-    builtins, _DEFAULT_PROVIDER_TYPES_ATTR, []
-)
-if not hasattr(builtins, _DEFAULT_PROVIDER_TYPES_ATTR):
-    setattr(builtins, _DEFAULT_PROVIDER_TYPES_ATTR, _known_default_provider_types)
+_MODULE = sys.modules[__name__]
+_CACHE_MODULE_NAME = "_flyrigloader_dependency_cache"
+_cache_module = sys.modules.get(_CACHE_MODULE_NAME)
+if _cache_module is None:
+    _cache_module = types.ModuleType(_CACHE_MODULE_NAME)
+    sys.modules[_CACHE_MODULE_NAME] = _cache_module
 
 
 class ConfigProvider(Protocol):
@@ -188,11 +179,30 @@ class AbstractDependencyProvider(ABC):
         ...
 
 
-if AbstractDependencyProvider not in _known_provider_bases:
-    _known_provider_bases.append(AbstractDependencyProvider)
+_previous_provider_bases: tuple[type, ...] = getattr(
+    _cache_module, "known_provider_bases", ()
+)
+for _previous_base in _previous_provider_bases:
+    try:
+        AbstractDependencyProvider.register(_previous_base)
+    except AttributeError:
+        continue
+
+_cache_module.known_provider_bases = (
+    _previous_provider_bases + (AbstractDependencyProvider,)
+)
+
+_previous_default_provider_types: tuple[type, ...] = getattr(
+    _cache_module, "default_provider_classes", ()
+)
+_default_provider_base: type = (
+    _previous_default_provider_types[-1]
+    if _previous_default_provider_types
+    else AbstractDependencyProvider
+)
 
 
-class DefaultDependencyProvider(AbstractDependencyProvider):
+class DefaultDependencyProvider(_default_provider_base):
     """Default implementation of dependency providers using actual modules."""
 
     def __init__(self):
@@ -280,26 +290,35 @@ class DefaultDependencyProvider(AbstractDependencyProvider):
         return self._utils_module
 
 
-for previous_default in _known_default_provider_types:
+for _previous_default in _previous_default_provider_types:
     try:
-        previous_default.register(DefaultDependencyProvider)
+        _previous_default.register(DefaultDependencyProvider)
+        logger.debug(
+            "Registered DefaultDependencyProvider as subclass of %s",
+            _previous_default.__name__,
+        )
     except AttributeError:
-        # Not all historical implementations necessarily used ABCMeta.
-        pass
+        continue
 
-if DefaultDependencyProvider not in _known_default_provider_types:
-    _known_default_provider_types.append(DefaultDependencyProvider)
+_cache_module.default_provider_classes = (
+    _previous_default_provider_types + (DefaultDependencyProvider,)
+)
 
 
-if not hasattr(builtins, "_flyrigloader_dependency_state"):
-    builtins._flyrigloader_dependency_state = types.SimpleNamespace(
+_state = getattr(
+    _cache_module,
+    "dependency_state",
+    None,
+)
+if _state is None:
+    _state = types.SimpleNamespace(
         default_provider=DefaultDependencyProvider(),
         global_override=None,
         override_stack=ContextVar("_dependency_provider_stack", default=()),
     )
-
-_state = builtins._flyrigloader_dependency_state
-_state.default_provider = DefaultDependencyProvider()
+    _cache_module.dependency_state = _state
+else:
+    _state.default_provider = DefaultDependencyProvider()
 logger.debug(
     "Refreshed default dependency provider with %s",
     type(_state.default_provider).__name__,
@@ -315,7 +334,7 @@ def _validate_provider(provider: AbstractDependencyProvider) -> AbstractDependen
 
     if provider is None:
         raise ValueError("provider must not be None")
-    if not any(isinstance(provider, base) for base in _known_provider_bases):
+    if not isinstance(provider, AbstractDependencyProvider):
         raise TypeError("provider must implement AbstractDependencyProvider")
     return provider
 

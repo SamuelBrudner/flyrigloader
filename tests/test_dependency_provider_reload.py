@@ -62,3 +62,28 @@ def test_default_provider_class_refreshes_on_reload() -> None:
         assert reloaded.DefaultDependencyProvider is not original_class
     finally:
         importlib.reload(dependencies).reset_dependency_provider()
+
+
+def test_reload_does_not_pollute_builtins_namespace() -> None:
+    import builtins
+    import flyrigloader.api.dependencies as dependencies
+
+    provider_bases_attr = "_flyrigloader_dependency_provider_bases"
+    default_classes_attr = "_flyrigloader_default_provider_classes"
+
+    assert not hasattr(builtins, provider_bases_attr)
+    assert not hasattr(builtins, default_classes_attr)
+
+    try:
+        reloaded = importlib.reload(dependencies)
+        assert not hasattr(builtins, provider_bases_attr)
+        assert not hasattr(builtins, default_classes_attr)
+    finally:
+        importlib.reload(dependencies).reset_dependency_provider()
+
+
+def test_default_provider_identity_consistent_without_reload() -> None:
+    import flyrigloader.api as api
+    import flyrigloader.api.dependencies as dependencies
+
+    assert api.DefaultDependencyProvider is dependencies.DefaultDependencyProvider
