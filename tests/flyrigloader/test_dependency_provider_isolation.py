@@ -7,6 +7,7 @@ import pytest
 from flyrigloader.api import (
     DefaultDependencyProvider,
     get_dependency_provider,
+    reset_dependency_provider,
     set_dependency_provider,
     use_dependency_provider,
 )
@@ -42,3 +43,22 @@ def test_autouse_reset_fixture_runs_before_each_test() -> None:
     provider = get_dependency_provider()
     assert isinstance(provider, DefaultDependencyProvider)
     assert not isinstance(provider, _MarkerDependencyProvider)
+
+
+def test_reset_outside_override_wins_over_context_exit() -> None:
+    """Explicit resets should take precedence over context restoration."""
+
+    original = get_dependency_provider()
+    override = _MarkerDependencyProvider()
+
+    with use_dependency_provider(override):
+        reset_dependency_provider()
+        reset_provider = get_dependency_provider()
+        assert isinstance(reset_provider, DefaultDependencyProvider)
+        assert reset_provider is not override
+        assert reset_provider is not original
+
+    final_provider = get_dependency_provider()
+    assert isinstance(final_provider, DefaultDependencyProvider)
+    assert final_provider is not override
+    assert final_provider is not original
