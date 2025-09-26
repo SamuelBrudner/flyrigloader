@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from contextlib import contextmanager
+import threading
 from pathlib import Path
 from typing import Any, Dict, Iterator, List, Optional, Protocol, Union
 
@@ -256,7 +257,56 @@ class DefaultDependencyProvider(AbstractDependencyProvider):
         return self._utils_module
 
 
-_dependency_provider: DefaultDependencyProvider = DefaultDependencyProvider()
+class _DependencyProviderState:
+    """Thread-safe registry for the active dependency provider."""
+
+    def __init__(self) -> None:
+        self._lock = threading.RLock()
+        self._provider: DefaultDependencyProvider = DefaultDependencyProvider()
+        self._override_stack: list[DefaultDependencyProvider] = []
+
+    def get(self) -> DefaultDependencyProvider:
+        with self._lock:
+            return self._provider
+
+    def set(self, provider: DefaultDependencyProvider) -> None:
+        with self._lock:
+            self._provider = provider
+
+    def reset(self) -> None:
+        with self._lock:
+            self._provider = DefaultDependencyProvider()
+            self._override_stack.clear()
+
+    def push_override(self, provider: DefaultDependencyProvider) -> None:
+        with self._lock:
+            logger.debug("Setting dependency provider to %s", type(provider).__name__)
+            self._override_stack.append(self._provider)
+            self._provider = provider
+
+    def pop_override(self, expected: DefaultDependencyProvider) -> DefaultDependencyProvider:
+        with self._lock:
+            if not self._override_stack:
+                logger.debug(
+                    "Override stack empty; keeping provider %s", type(self._provider).__name__
+                )
+                return self._provider
+
+            previous = self._override_stack.pop()
+            if self._provider is expected:
+                logger.debug(
+                    "Restoring dependency provider to %s", type(previous).__name__
+                )
+                self._provider = previous
+            else:
+                logger.debug(
+                    "Dependency provider changed while override active; keeping %s",
+                    type(self._provider).__name__,
+                )
+            return self._provider
+
+
+_dependency_state = _DependencyProviderState()
 
 
 def set_dependency_provider(provider: DefaultDependencyProvider) -> None:
@@ -265,23 +315,21 @@ def set_dependency_provider(provider: DefaultDependencyProvider) -> None:
     if not isinstance(provider, DefaultDependencyProvider):  # pragma: no cover - defensive branch
         raise TypeError("provider must be an instance of DefaultDependencyProvider")
 
-    global _dependency_provider
     logger.debug("Setting dependency provider to %s", type(provider).__name__)
-    _dependency_provider = provider
+    _dependency_state.set(provider)
 
 
 def get_dependency_provider() -> DefaultDependencyProvider:
     """Return the current dependency provider."""
 
-    return _dependency_provider
+    return _dependency_state.get()
 
 
 def reset_dependency_provider() -> None:
     """Reset the dependency provider to the default implementation."""
 
-    global _dependency_provider
     logger.debug("Resetting dependency provider to default")
-    _dependency_provider = DefaultDependencyProvider()
+    _dependency_state.reset()
 
 
 @contextmanager
@@ -313,7 +361,7 @@ def use_dependency_provider(
         type(previous_provider).__name__,
         type(provider).__name__,
     )
-    set_dependency_provider(provider)
+    _dependency_state.push_override(provider)
 
     try:
         yield provider
@@ -321,7 +369,7 @@ def use_dependency_provider(
         logger.debug(
             "Restoring dependency provider to %s", type(previous_provider).__name__
         )
-        set_dependency_provider(previous_provider)
+        _dependency_state.pop_override(provider)
 
 
 __all__ = [
