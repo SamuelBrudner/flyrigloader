@@ -147,28 +147,36 @@ class ManifestProvider(Protocol):
         ...
 
 
-class AbstractDependencyProvider(ABC):
-    """Base class for dependency providers to support dependency injection."""
+if hasattr(builtins, "_flyrigloader_AbstractDependencyProvider"):
+    AbstractDependencyProvider = (
+        builtins._flyrigloader_AbstractDependencyProvider  # type: ignore[assignment]
+    )
+else:
 
-    @property
-    @abstractmethod
-    def config(self) -> ConfigProvider:  # pragma: no cover - interface definition
-        ...
+    class AbstractDependencyProvider(ABC):
+        """Base class for dependency providers to support dependency injection."""
 
-    @property
-    @abstractmethod
-    def discovery(self) -> DiscoveryProvider:  # pragma: no cover - interface definition
-        ...
+        @property
+        @abstractmethod
+        def config(self) -> ConfigProvider:  # pragma: no cover - interface definition
+            ...
 
-    @property
-    @abstractmethod
-    def io(self) -> IOProvider:  # pragma: no cover - interface definition
-        ...
+        @property
+        @abstractmethod
+        def discovery(self) -> DiscoveryProvider:  # pragma: no cover - interface definition
+            ...
 
-    @property
-    @abstractmethod
-    def utils(self) -> UtilsProvider:  # pragma: no cover - interface definition
-        ...
+        @property
+        @abstractmethod
+        def io(self) -> IOProvider:  # pragma: no cover - interface definition
+            ...
+
+        @property
+        @abstractmethod
+        def utils(self) -> UtilsProvider:  # pragma: no cover - interface definition
+            ...
+
+    builtins._flyrigloader_AbstractDependencyProvider = AbstractDependencyProvider
 
 
 if hasattr(builtins, "_flyrigloader_DefaultDependencyProvider"):
