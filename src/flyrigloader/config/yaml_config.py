@@ -51,20 +51,32 @@ def validate_config_dict(config: Union[Dict[str, Any], LegacyConfigAdapter]) -> 
                 logger.debug("Pydantic-based configuration validation successful")
                 return config
             else:
-                raise ValueError("Configuration validation failed - see logs for details")
+                raise ValueError(
+                    "Configuration validation failed - see logs for details",
+                    recovery_hint="Check logs for specific validation errors. Verify all required fields are present in config.yaml."
+                )
         except Exception as e:
             logger.error(f"Pydantic configuration validation error: {e}")
-            raise ValueError(f"Configuration validation failed: {e}") from e
+            raise ValueError(
+                f"Configuration validation failed: {e}",
+                recovery_hint="Fix configuration schema errors. Check field names, types, and required values in config.yaml."
+            ) from e
     
     # Perform basic structure validation for dictionary input
     if not isinstance(config, dict):
-        raise ValueError("Configuration must be a dictionary or LegacyConfigAdapter")
+        raise ValueError(
+            "Configuration must be a dictionary or LegacyConfigAdapter",
+            recovery_hint="Ensure config is loaded as a dictionary. Use load_config() to read from YAML file."
+        )
     
     # Check for required top-level keys (minimal validation)
     required_sections = []
     for section in required_sections:
         if section not in config:
-            raise ValueError(f"Missing required section in configuration: {section}")
+            raise ValueError(
+                f"Missing required section in configuration: {section}",
+                recovery_hint=f"Add '{section}' section to your config.yaml file. See documentation for required structure."
+            )
 
     # Enhanced validation with Pydantic integration
     try:
@@ -89,7 +101,10 @@ def validate_config_dict(config: Union[Dict[str, Any], LegacyConfigAdapter]) -> 
         
         detailed_error = f"Configuration validation failed:\n" + "\n".join(error_details)
         logger.error(detailed_error)
-        raise ValueError(detailed_error) from e
+        raise ValueError(
+            detailed_error,
+            recovery_hint="Fix the validation errors listed above. Check field types and required values in config.yaml."
+        ) from e
         
     except Exception as e:
         logger.warning(f"Advanced validation failed ({e}), falling back to basic validation")
@@ -98,7 +113,10 @@ def validate_config_dict(config: Union[Dict[str, Any], LegacyConfigAdapter]) -> 
     if "datasets" in config:
         datasets = config["datasets"]
         if not isinstance(datasets, dict):
-            raise ValueError("'datasets' must be a dictionary")
+            raise ValueError(
+                "'datasets' must be a dictionary",
+                recovery_hint="Ensure 'datasets' section in config.yaml is a dictionary of dataset configurations, not a list or string."
+            )
         for name, ds in datasets.items():
             if not isinstance(ds, dict):
                 continue
@@ -106,16 +124,19 @@ def validate_config_dict(config: Union[Dict[str, Any], LegacyConfigAdapter]) -> 
                 dates_vials = ds["dates_vials"]
                 if not isinstance(dates_vials, dict):
                     raise ValueError(
-                        f"Dataset '{name}' dates_vials must be a dictionary"
+                        f"Dataset '{name}' dates_vials must be a dictionary",
+                        recovery_hint=f"In dataset '{name}', format dates_vials as a dictionary mapping date strings to vial lists. Example: {{'2024-01-15': [1, 2, 3]}}"
                     )
                 for key, value in dates_vials.items():
                     if not isinstance(key, str):
                         raise ValueError(
-                            f"Dataset '{name}' dates_vials key '{key}' must be a string"
+                            f"Dataset '{name}' dates_vials key '{key}' must be a string",
+                            recovery_hint=f"In dataset '{name}', date keys in dates_vials must be strings (e.g., '2024-01-15'), not {type(key).__name__}."
                         )
                     if not isinstance(value, list):
                         raise ValueError(
-                            f"Dataset '{name}' dates_vials value for '{key}' must be a list"
+                            f"Dataset '{name}' dates_vials value for '{key}' must be a list",
+                            recovery_hint=f"In dataset '{name}', vial values in dates_vials must be lists of integers (e.g., [1, 2, 3]), not {type(value).__name__}."
                         )
 
     logger.debug("Basic configuration validation successful")
@@ -198,11 +219,17 @@ def load_config(
                 
                 detailed_error = f"Pydantic configuration validation failed:\n" + "\n".join(error_details)
                 logger.error(detailed_error)
-                raise ValidationError(detailed_error) from e
+                raise ValidationError(
+                    detailed_error,
+                    recovery_hint="Fix the Pydantic validation errors listed above. Check field types and required values in config.yaml."
+                ) from e
     
     # Check for invalid input types
     if not isinstance(config_path_or_dict, (str, Path)):
-        raise ValueError(f"Invalid input type: {type(config_path_or_dict)}. Expected a string, Path, or dictionary.")
+        raise ValueError(
+            f"Invalid input type: {type(config_path_or_dict).__name__}. Expected a string, Path, or dictionary.",
+            recovery_hint="Provide a file path (string or Path object) or a configuration dictionary. Example: load_config('config.yaml') or load_config(config_dict)"
+        )
     
     # Otherwise treat as a path
     config_path = Path(config_path_or_dict)
@@ -218,16 +245,25 @@ def load_config(
         
         # Check for potentially dangerous paths
         if any(path_str.startswith(prefix) for prefix in ('file://', 'http://', 'https://', 'ftp://')):
-            raise ValueError(f"Remote or file:// URLs are not allowed: {path_str}")
+            raise ValueError(
+                f"Remote or file:// URLs are not allowed: {path_str}",
+                recovery_hint="Use local filesystem paths only. Example: 'config.yaml' or '/path/to/config.yaml'"
+            )
         
         # Check for absolute paths in sensitive locations
         sensitive_paths = ('/etc/', '/var/', '/usr/', '/bin/', '/sbin/', '/dev/')
         if path_str.startswith(sensitive_paths):
-            raise PermissionError(f"Access to system paths is not allowed: {path_str}")
+            raise PermissionError(
+                f"Access to system paths is not allowed: {path_str}",
+                recovery_hint="Store configuration files in user directories (e.g., ~/configs/ or ./config.yaml), not system directories."
+            )
         
         # Check for path traversal attempts
         if any(seg in path_str for seg in ('../', '/..', '~', '//')):
-            raise ValueError(f"Path traversal is not allowed: {path_str}")
+            raise ValueError(
+                f"Path traversal is not allowed: {path_str}",
+                recovery_hint="Use absolute paths or simple relative paths. Remove '..' and '~' from the path."
+            )
     
     # Try to resolve the path
     try:
@@ -235,15 +271,24 @@ def load_config(
         if not config_path.exists() and not is_test_env:
             # Only enforce file existence in non-test environments
             # This allows tests to use mock files that don't actually exist
-            raise FileNotFoundError(f"Configuration file not found: {path_str}")
+            raise FileNotFoundError(
+                f"Configuration file not found: {path_str}",
+                recovery_hint=f"Create the configuration file at {path_str} or verify the path is correct. See documentation for config.yaml structure."
+            )
         if not config_path.is_file() and not is_test_env:
             # Only check if it's a file in non-test environments
-            raise ValueError(f"Path is not a file: {path_str}")
+            raise ValueError(
+                f"Path is not a file: {path_str}",
+                recovery_hint="Provide path to a config.yaml file, not a directory. Example: 'path/to/config.yaml'"
+            )
     except (RuntimeError, OSError) as e:
         # Handle symlink loops, permission errors, etc.
         if not is_test_env or not isinstance(e, (FileNotFoundError, PermissionError)):
             # Only raise if not in test environment or if it's a non-test error
-            raise OSError(f"Error accessing file {path_str}: {e}") from e
+            raise OSError(
+                f"Error accessing file {path_str}: {e}",
+                recovery_hint="Check file permissions and ensure the path is valid. Verify parent directories exist and are accessible."
+            ) from e
     
     # In test environment, return a mock config if the file doesn't exist
     if is_test_env and not config_path.exists():
@@ -302,11 +347,17 @@ def load_config(
                     
                     detailed_error = f"Pydantic configuration validation failed for {config_path}:\n" + "\n".join(error_details)
                     logger.error(detailed_error)
-                    raise ValidationError(detailed_error) from e
+                    raise ValidationError(
+                        detailed_error,
+                        recovery_hint="Fix the validation errors in config.yaml. Check field types and required values match the schema."
+                    ) from e
                 
         except yaml.YAMLError as e:
             # Re-raise with additional context while preserving the original exception
-            raise yaml.YAMLError(f"Error parsing YAML configuration: {e}") from e
+            raise yaml.YAMLError(
+                f"Error parsing YAML configuration: {e}",
+                recovery_hint="Fix YAML syntax errors in config.yaml. Common issues: incorrect indentation, missing colons, unquoted special characters."
+            ) from e
 
 
 def _process_config_with_migration(raw_config: Dict[str, Any]) -> Dict[str, Any]:
@@ -384,7 +435,10 @@ def _process_config_with_migration(raw_config: Dict[str, Any]) -> Dict[str, Any]
                     if migration_report.errors:
                         for error in migration_report.errors:
                             logger.error(f"Migration error: {error}")
-                        raise ValueError(f"Migration failed with {len(migration_report.errors)} errors")
+                        raise ValueError(
+                            f"Migration failed with {len(migration_report.errors)} errors",
+                            recovery_hint="Check migration errors above. Fix configuration issues or manually update to current schema version."
+                        )
                     
                     current_config = migrated_config
                     logger.info("Configuration migration successful")
@@ -392,7 +446,10 @@ def _process_config_with_migration(raw_config: Dict[str, Any]) -> Dict[str, Any]
                 except Exception as e:
                     error_msg = f"Configuration migration failed: {e}"
                     logger.error(error_msg)
-                    raise ValueError(error_msg) from e
+                    raise ValueError(
+                        error_msg,
+                        recovery_hint="Migration from old config version failed. Try manually updating config.yaml to current schema or check migration path."
+                    ) from e
             else:
                 logger.warning("Migration required but no migration path available")
         
@@ -404,11 +461,17 @@ def _process_config_with_migration(raw_config: Dict[str, Any]) -> Dict[str, Any]
             
         except Exception as e:
             logger.error(f"Final configuration validation failed: {e}")
-            raise ValueError(f"Configuration validation failed after migration: {e}") from e
+            raise ValueError(
+                f"Configuration validation failed after migration: {e}",
+                recovery_hint="Post-migration validation failed. Verify config.yaml structure matches current schema requirements."
+            ) from e
     
     except Exception as e:
         logger.error(f"Configuration processing failed: {e}")
-        raise ValueError(f"Failed to process configuration: {e}") from e
+        raise ValueError(
+            f"Failed to process configuration: {e}",
+            recovery_hint="Configuration processing failed. Check config.yaml syntax, structure, and field values."
+        ) from e
 
 
 def get_ignore_patterns(
@@ -438,7 +501,10 @@ def get_ignore_patterns(
     if "project" in config and "ignore_substrings" in config["project"] and config["project"]["ignore_substrings"] is not None:
         ignore_substrings = config["project"]["ignore_substrings"]
         if not isinstance(ignore_substrings, list):
-            raise ValueError(f"ignore_substrings must be a list, got {type(ignore_substrings).__name__}")
+            raise ValueError(
+                f"ignore_substrings must be a list, got {type(ignore_substrings).__name__}",
+                recovery_hint="In config.yaml, set project.ignore_substrings to a list of strings. Example: ignore_substrings: ['test', 'backup']"
+            )
         # Convert simple substrings to glob patterns
         patterns.extend(
             _convert_to_glob_pattern(pattern) 
@@ -453,7 +519,10 @@ def get_ignore_patterns(
             experiment_config["filters"]["ignore_substrings"] is not None):
             ignore_substrings = experiment_config["filters"]["ignore_substrings"]
             if not isinstance(ignore_substrings, list):
-                raise ValueError(f"experiment ignore_substrings must be a list, got {type(ignore_substrings).__name__}")
+                raise ValueError(
+                    f"experiment ignore_substrings must be a list, got {type(ignore_substrings).__name__}",
+                    recovery_hint=f"In experiment '{experiment}', set filters.ignore_substrings to a list of strings. Example: ignore_substrings: ['test']"
+                )
             # Convert experiment-specific substrings to glob patterns
             patterns.extend(
                 _convert_to_glob_pattern(pattern) 
@@ -511,7 +580,10 @@ def get_mandatory_substrings(
     if "project" in config and "mandatory_experiment_strings" in config["project"]:
         mandatory_strings = config["project"]["mandatory_experiment_strings"]
         if not isinstance(mandatory_strings, list):
-            raise ValueError(f"mandatory_experiment_strings must be a list, got {type(mandatory_strings).__name__}")
+            raise ValueError(
+                f"mandatory_experiment_strings must be a list, got {type(mandatory_strings).__name__}",
+                recovery_hint="In config.yaml, set project.mandatory_experiment_strings to a list of strings. Example: mandatory_experiment_strings: ['required_string']"
+            )
         substrings.extend(mandatory_strings)
     
     # Add experiment-specific mandatory substrings if specified
@@ -520,7 +592,10 @@ def get_mandatory_substrings(
         if "filters" in experiment_config and "mandatory_experiment_strings" in experiment_config["filters"]:
             mandatory_strings = experiment_config["filters"]["mandatory_experiment_strings"]
             if not isinstance(mandatory_strings, list):
-                raise ValueError(f"experiment mandatory_experiment_strings must be a list, got {type(mandatory_strings).__name__}")
+                raise ValueError(
+                    f"experiment mandatory_experiment_strings must be a list, got {type(mandatory_strings).__name__}",
+                    recovery_hint=f"In experiment '{experiment}', set filters.mandatory_experiment_strings to a list of strings."
+                )
             substrings.extend(mandatory_strings)
     
     return substrings

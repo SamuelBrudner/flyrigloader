@@ -527,9 +527,15 @@ def validate_version_compatibility(
     
     # Type validation
     if not isinstance(config_version, str):
-        raise TypeError(f"config_version must be string, got {type(config_version)}")
+        raise TypeError(
+            f"config_version must be string, got {type(config_version).__name__}",
+            recovery_hint="Convert config_version to string. Example: str(version) or use '1.0.0' format"
+        )
     if not isinstance(system_version, str):
-        raise TypeError(f"system_version must be string, got {type(system_version)}")
+        raise TypeError(
+            f"system_version must be string, got {type(system_version).__name__}",
+            recovery_hint="Convert system_version to string. Example: str(version) or use '1.0.0' format"
+        )
     
     # Format validation
     validate_version_format(config_version)
@@ -581,7 +587,10 @@ def validate_version_compatibility(
     
     except Exception as e:
         logger.error(f"Version compatibility validation failed: {e}")
-        raise ValueError(f"Version compatibility check failed: {e}") from e
+        raise ValueError(
+            f"Version compatibility check failed: {e}",
+            recovery_hint="Ensure both config_version and system_version are valid semantic versions (e.g., '1.0.0'). Check compatibility matrix."
+        ) from e
 
 
 def _find_version_migration_path(from_version: str, to_version: str) -> Optional[List[str]]:

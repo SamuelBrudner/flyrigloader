@@ -105,7 +105,10 @@ class ProjectConfig(BaseModel):
     def validate_schema_version(cls, v: str) -> str:
         """Validate schema version using version-aware validation rules."""
         if not isinstance(v, str):
-            raise ValueError("schema_version must be a string")
+            raise ValueError(
+                "schema_version must be a string",
+                recovery_hint="Set schema_version to a string in semantic version format. Example: schema_version: '1.0.0'"
+            )
         
         try:
             # Use the comprehensive version validation from validators
@@ -118,7 +121,10 @@ class ProjectConfig(BaseModel):
             return v
         except Exception as e:
             logger.error(f"Schema version validation failed: {e}")
-            raise ValueError(f"Invalid schema version '{v}': {e}")
+            raise ValueError(
+                f"Invalid schema version '{v}': {e}",
+                recovery_hint="Use semantic version format (e.g., '1.0.0'). Check for typos or invalid characters."
+            )
     
     @field_validator('directories')
     @classmethod
@@ -127,7 +133,10 @@ class ProjectConfig(BaseModel):
         if v is None:
             return {}
         if not isinstance(v, dict):
-            raise ValueError("directories must be a dictionary")
+            raise ValueError(
+                "directories must be a dictionary",
+                recovery_hint="Format directories as a dictionary of path names. Example: directories: {major_data_directory: '/path/to/data'}"
+            )
         
         validated_dirs = {}
         for key, value in v.items():
@@ -158,13 +167,19 @@ class ProjectConfig(BaseModel):
             return None
         
         if not isinstance(v, list):
-            raise ValueError("ignore_substrings must be a list")
+            raise ValueError(
+                "ignore_substrings must be a list",
+                recovery_hint="Format ignore_substrings as a list of strings. Example: ignore_substrings: ['test', 'backup']"
+            )
         
         # Validate each pattern
         validated_patterns = []
         for pattern in v:
             if not isinstance(pattern, str):
-                raise ValueError(f"ignore pattern must be string, got {type(pattern)}")
+                raise ValueError(
+                    f"ignore pattern must be string, got {type(pattern).__name__}",
+                    recovery_hint="Each ignore pattern must be a string. Check for non-string values in ignore_substrings list."
+                )
             
             # Check for empty or whitespace-only patterns
             if not pattern.strip():
@@ -184,12 +199,18 @@ class ProjectConfig(BaseModel):
             return None
         
         if not isinstance(v, list):
-            raise ValueError("mandatory_experiment_strings must be a list")
+            raise ValueError(
+                "mandatory_experiment_strings must be a list",
+                recovery_hint="Format mandatory_experiment_strings as a list of strings. Example: mandatory_experiment_strings: ['required']"
+            )
         
         validated_strings = []
         for string in v:
             if not isinstance(string, str):
-                raise ValueError(f"mandatory string must be string, got {type(string)}")
+                raise ValueError(
+                    f"mandatory string must be string, got {type(string).__name__}",
+                    recovery_hint="Each mandatory string must be a string. Check for non-string values in mandatory_experiment_strings list."
+                )
             
             # Check for empty or whitespace-only strings
             if not string.strip():
@@ -209,12 +230,18 @@ class ProjectConfig(BaseModel):
             return None
         
         if not isinstance(v, list):
-            raise ValueError("extraction_patterns must be a list")
+            raise ValueError(
+                "extraction_patterns must be a list",
+                recovery_hint="Format extraction_patterns as a list of regex strings. Example: extraction_patterns: [r'(?P<date>\\d{4}-\\d{2}-\\d{2})']"
+            )
         
         validated_patterns = []
         for pattern in v:
             if not isinstance(pattern, str):
-                raise ValueError(f"extraction pattern must be string, got {type(pattern)}")
+                raise ValueError(
+                    f"extraction pattern must be string, got {type(pattern).__name__}",
+                    recovery_hint="Each extraction pattern must be a regex string. Example: r'(?P<date>\\d{4}-\\d{2}-\\d{2})'"
+                )
             
             # Check for empty or whitespace-only patterns
             if not pattern.strip():
@@ -227,7 +254,10 @@ class ProjectConfig(BaseModel):
                 validated_patterns.append(pattern.strip())
                 logger.debug(f"Regex pattern validated: {pattern}")
             except re.error as e:
-                raise ValueError(f"Invalid regex pattern '{pattern}': {e}")
+                raise ValueError(
+                    f"Invalid regex pattern '{pattern}': {e}",
+                    recovery_hint="Fix regex syntax. Common issues: escape special characters (\\. \\* \\+), close all groups [(...)], use raw strings r'...'"
+                )
         
         logger.debug(f"Validated {len(validated_patterns)} extraction patterns")
         return validated_patterns if validated_patterns else None
@@ -372,7 +402,10 @@ class DatasetConfig(BaseModel):
     def validate_schema_version(cls, v: str) -> str:
         """Validate schema version using version-aware validation rules."""
         if not isinstance(v, str):
-            raise ValueError("schema_version must be a string")
+            raise ValueError(
+                "schema_version must be a string",
+                recovery_hint="Set schema_version to a string in semantic version format. Example: schema_version: '1.0.0'"
+            )
         
         try:
             # Use the comprehensive version validation from validators
@@ -385,7 +418,10 @@ class DatasetConfig(BaseModel):
             return v
         except Exception as e:
             logger.error(f"Schema version validation failed: {e}")
-            raise ValueError(f"Invalid schema version '{v}': {e}")
+            raise ValueError(
+                f"Invalid schema version '{v}': {e}",
+                recovery_hint="Use semantic version format (e.g., '1.0.0'). Check for typos or invalid characters."
+            )
     
     @field_validator('rig')
     @classmethod
@@ -645,7 +681,10 @@ class ExperimentConfig(BaseModel):
     def validate_schema_version(cls, v: str) -> str:
         """Validate schema version using version-aware validation rules."""
         if not isinstance(v, str):
-            raise ValueError("schema_version must be a string")
+            raise ValueError(
+                "schema_version must be a string",
+                recovery_hint="Set schema_version to a string in semantic version format. Example: schema_version: '1.0.0'"
+            )
         
         try:
             # Use the comprehensive version validation from validators
@@ -658,7 +697,10 @@ class ExperimentConfig(BaseModel):
             return v
         except Exception as e:
             logger.error(f"Schema version validation failed: {e}")
-            raise ValueError(f"Invalid schema version '{v}': {e}")
+            raise ValueError(
+                f"Invalid schema version '{v}': {e}",
+                recovery_hint="Use semantic version format (e.g., '1.0.0'). Check for typos or invalid characters."
+            )
     
     @field_validator('datasets')
     @classmethod
@@ -718,7 +760,10 @@ class ExperimentConfig(BaseModel):
             return None
         
         if not isinstance(v, dict):
-            raise ValueError("filters must be a dictionary")
+            raise ValueError(
+                "directories must be a dictionary",
+                recovery_hint="Format directories as a dictionary of path names. Example: directories: {major_data_directory: '/path/to/data'}"
+            )
         
         # Validate known filter types
         if 'ignore_substrings' in v:
