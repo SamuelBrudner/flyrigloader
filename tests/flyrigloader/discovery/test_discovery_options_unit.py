@@ -8,6 +8,7 @@ Following TDD: These tests are written BEFORE implementation.
 """
 
 import pytest
+from pathlib import Path
 from typing import List, Optional
 
 
@@ -68,7 +69,8 @@ class TestDiscoveryOptionsInstantiation:
         options = DiscoveryOptions(pattern=complex_pattern)
         
         assert options.pattern == complex_pattern
-        assert options.pattern is not complex_pattern.strip()  # No stripping
+        # Verify no stripping or transformation occurred
+        assert len(options.pattern) == len(complex_pattern)
 
 
 class TestDiscoveryOptionsPatternValidation:
