@@ -57,11 +57,13 @@ class FlyRigLoaderError(Exception):
     
     This exception provides the foundation for the domain-specific error hierarchy,
     including context preservation utilities, error codes for programmatic handling,
-    and integration with the logging system.
+    recovery hints, and integration with the logging system.
     
     Attributes:
         error_code (str): Unique identifier for programmatic error handling
         context (Dict[str, Any]): Additional context information for debugging
+        recovery_hint (str): Optional suggestion for fixing the error
+        caused_by (Exception): Original exception that caused this error
         
     Methods:
         with_context(context): Add additional context to the exception
@@ -77,27 +79,31 @@ class FlyRigLoaderError(Exception):
         self,
         message: str,
         error_code: str = "FLYRIG_001",
-        context: Optional[Dict[str, Any]] = None
+        context: Optional[Dict[str, Any]] = None,
+        recovery_hint: Optional[str] = None,
+        caused_by: Optional[Exception] = None
     ) -> None:
         """
-        Initialize the FlyRigLoaderError with message, error code, and context.
+        Initialize the FlyRigLoaderError with message, error code, context, and recovery hint.
         
         Args:
             message: Human-readable error description
             error_code: Unique identifier for programmatic error handling
             context: Additional context information for debugging
+            recovery_hint: Optional suggestion for fixing the error
+            caused_by: Original exception that caused this error (for chaining)
         """
         super().__init__(message)
         self.error_code = error_code
         self.context = context or {}
+        self.recovery_hint = recovery_hint
+        self.caused_by = caused_by
         
         # Preserve original exception information if this is a re-raise
-        if hasattr(sys, '_getframe'):
-            frame = sys._getframe(1)
-            if frame:
-                self.context.setdefault('source_file', frame.f_code.co_filename)
-                self.context.setdefault('source_line', frame.f_lineno)
-                self.context.setdefault('source_function', frame.f_code.co_name)
+        if hasattr(sys, '_getframe') and (frame := sys._getframe(1)):
+            self.context.setdefault('source_file', frame.f_code.co_filename)
+            self.context.setdefault('source_line', frame.f_lineno)
+            self.context.setdefault('source_function', frame.f_code.co_name)
     
     def with_context(self, context: Dict[str, Any]) -> 'FlyRigLoaderError':
         """
@@ -124,16 +130,26 @@ class FlyRigLoaderError(Exception):
     
     def __str__(self) -> str:
         """
-        Return a detailed string representation including context information.
+        Return a detailed string representation including context and recovery hint.
         
         Returns:
-            Formatted error message with context details
+            Formatted error message with context details and recovery suggestion
         """
-        message = super().__str__()
+        parts = [super().__str__()]
+        
         if self.context:
             context_str = ", ".join(f"{k}={v}" for k, v in self.context.items())
-            return f"{message} [Error Code: {self.error_code}, Context: {context_str}]"
-        return f"{message} [Error Code: {self.error_code}]"
+            parts.append(f"Context: {context_str}")
+        
+        parts.append(f"Error Code: {self.error_code}")
+        
+        if self.recovery_hint:
+            parts.append(f"Suggestion: {self.recovery_hint}")
+        
+        if self.caused_by:
+            parts.append(f"Caused by: {type(self.caused_by).__name__}: {self.caused_by}")
+        
+        return " | ".join(parts)
     
     def __repr__(self) -> str:
         """Return a detailed representation for debugging."""
@@ -141,7 +157,9 @@ class FlyRigLoaderError(Exception):
             f"{self.__class__.__name__}("
             f"message={super().__str__()!r}, "
             f"error_code={self.error_code!r}, "
-            f"context={self.context!r})"
+            f"context={self.context!r}, "
+            f"recovery_hint={self.recovery_hint!r}, "
+            f"caused_by={self.caused_by!r})"
         )
 
 

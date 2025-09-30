@@ -56,7 +56,10 @@ def path_traversal_protection(path_input: Any) -> str:
     """
     # Type validation
     if not isinstance(path_input, (str, Path)):
-        raise TypeError(f"Path input must be string or Path, got {type(path_input)}")
+        raise TypeError(
+            f"Path input must be string or Path, got {type(path_input).__name__}",
+            recovery_hint="Convert path to string using str() or pathlib.Path() before passing to this function"
+        )
     
     # Convert to string for validation
     path_str = str(path_input)
@@ -64,36 +67,54 @@ def path_traversal_protection(path_input: Any) -> str:
     # Check for null bytes (potential injection attack)
     if '\x00' in path_str:
         logger.warning(f"Null byte detected in path: {path_str!r}")
-        raise ValueError("Path contains null bytes - potential security risk")
+        raise ValueError(
+            "Path contains null bytes - potential security risk",
+            recovery_hint="Remove null bytes (\\x00) from the path string. Check for corrupted input or encoding issues."
+        )
     
     # Check for excessive path length (potential DoS attack)
     if len(path_str) > 4096:
         logger.warning(f"Excessive path length detected: {len(path_str)} characters")
-        raise ValueError("Path length exceeds maximum allowed limit")
+        raise ValueError(
+            f"Path length ({len(path_str)} chars) exceeds maximum allowed limit (4096 chars)",
+            recovery_hint="Use a shorter path or move data closer to the root directory. Consider using symbolic links."
+        )
     
     # Check for remote URLs (security violation)
     url_prefixes = ('file://', 'http://', 'https://', 'ftp://', 'ftps://', 'ssh://')
     if any(path_str.startswith(prefix) for prefix in url_prefixes):
         logger.error(f"Remote URL blocked for security: {path_str}")
-        raise ValueError(f"Remote or file:// URLs are not allowed: {path_str}")
+        raise ValueError(
+            f"Remote or file:// URLs are not allowed: {path_str}",
+            recovery_hint="Use local filesystem paths only. Mount remote resources locally or copy files to local storage."
+        )
     
     # Check for system path access (security violation)
     sensitive_paths = ('/etc/', '/var/', '/usr/', '/bin/', '/sbin/', '/dev/', '/proc/', '/sys/')
     if path_str.startswith(sensitive_paths):
         logger.error(f"System path access blocked: {path_str}")
-        raise PermissionError(f"Access to system paths is not allowed: {path_str}")
+        raise PermissionError(
+            f"Access to system paths is not allowed: {path_str}",
+            recovery_hint="Store data in user directories (e.g., /home/user/data or ~/data) rather than system directories."
+        )
     
     # Check for path traversal attempts (security violation)
     traversal_patterns = ('../', '/..', '..\\', '\\..', '~/', '~\\', '//', '\\\\')
     if any(pattern in path_str for pattern in traversal_patterns):
         logger.error(f"Path traversal attempt detected: {path_str}")
-        raise ValueError(f"Path traversal is not allowed: {path_str}")
+        raise ValueError(
+            f"Path traversal is not allowed: {path_str}",
+            recovery_hint="Use absolute paths or paths relative to major_data_directory. Remove '..' and '~' from paths."
+        )
     
     # Check for hidden or special characters that could be problematic
     suspicious_chars = set(path_str) & {'\n', '\r', '\t', '\f', '\v'}
     if suspicious_chars:
         logger.warning(f"Suspicious characters in path: {suspicious_chars}")
-        raise ValueError(f"Path contains suspicious characters: {suspicious_chars}")
+        raise ValueError(
+            f"Path contains suspicious characters: {suspicious_chars}",
+            recovery_hint="Remove control characters (newlines, tabs, etc.) from the path. Check for corrupted configuration files."
+        )
     
     # Additional Windows-specific checks
     if os.name == 'nt':
@@ -107,7 +128,10 @@ def path_traversal_protection(path_input: Any) -> str:
         for part in path_parts:
             if part.upper().split('.')[0] in reserved_names:
                 logger.error(f"Windows reserved name detected: {part}")
-                raise ValueError(f"Windows reserved name not allowed: {part}")
+                raise ValueError(
+                    f"Windows reserved name not allowed: {part}",
+                    recovery_hint=f"Rename file/directory '{part}' to avoid Windows reserved names (CON, PRN, AUX, NUL, COM1-9, LPT1-9)"
+                )
     
     # Log successful validation
     logger.debug(f"Path traversal protection passed for: {path_str}")
@@ -147,16 +171,25 @@ def pattern_validation(pattern: Any) -> re.Pattern:
     
     # Type validation
     if not isinstance(pattern, str):
-        raise TypeError(f"Pattern must be string or compiled Pattern, got {type(pattern)}")
+        raise TypeError(
+            f"Pattern must be string or compiled Pattern, got {type(pattern).__name__}",
+            recovery_hint="Provide pattern as a string (e.g., r'.*\\.pkl$') or pre-compiled re.Pattern object"
+        )
     
     # Check for empty pattern
     if not pattern.strip():
-        raise ValueError("Pattern cannot be empty or whitespace-only")
+        raise ValueError(
+            "Pattern cannot be empty or whitespace-only",
+            recovery_hint="Provide a valid regex pattern (e.g., '*.pkl' for glob or r'.*\\.pkl$' for regex)"
+        )
     
     # Check for excessive pattern length (potential DoS protection)
     if len(pattern) > 1000:
         logger.warning(f"Excessive pattern length: {len(pattern)} characters")
-        raise ValueError("Pattern length exceeds maximum allowed limit")
+        raise ValueError(
+            f"Pattern length ({len(pattern)} chars) exceeds maximum allowed limit (1000 chars)",
+            recovery_hint="Simplify your regex pattern or split into multiple simpler patterns"
+        )
     
     # Check for potentially dangerous patterns (ReDoS protection)
     # Look for nested quantifiers that could cause exponential backtracking
@@ -180,12 +213,18 @@ def pattern_validation(pattern: Any) -> re.Pattern:
     except re.error as e:
         error_msg = f"Invalid regex pattern '{pattern}': {str(e)}"
         logger.error(error_msg)
-        raise re.error(error_msg) from e
+        raise re.error(
+            error_msg,
+            recovery_hint="Check regex syntax: escape special chars (\\. \\* \\+ \\?), match groups [(...)], character classes [[a-z]]. See Python re module docs."
+        ) from e
     
     except Exception as e:
         error_msg = f"Unexpected error compiling pattern '{pattern}': {str(e)}"
         logger.error(error_msg)
-        raise ValueError(error_msg) from e
+        raise ValueError(
+            error_msg,
+            recovery_hint="Pattern compilation failed unexpectedly. Try simplifying the pattern or check for Unicode issues."
+        ) from e
 
 
 def path_existence_validator(path_input: Any, require_file: bool = False) -> bool:
@@ -215,7 +254,10 @@ def path_existence_validator(path_input: Any, require_file: bool = False) -> boo
     """
     # Type validation
     if not isinstance(path_input, (str, Path)):
-        raise TypeError(f"Path input must be string or Path, got {type(path_input)}")
+        raise TypeError(
+            f"Path input must be string or Path, got {type(path_input).__name__}",
+            recovery_hint="Convert path to string or pathlib.Path object before validation"
+        )
     
     # Security validation first
     path_str = path_traversal_protection(path_input)
@@ -233,22 +275,34 @@ def path_existence_validator(path_input: Any, require_file: bool = False) -> boo
     except (RuntimeError, OSError) as e:
         error_msg = f"Error resolving path {path_str}: {e}"
         logger.error(error_msg)
-        raise OSError(error_msg) from e
+        raise OSError(
+            error_msg,
+            recovery_hint="Check path syntax and permissions. Ensure parent directories exist and are accessible."
+        ) from e
     
     # Check if path exists
     if not path_obj.exists():
         logger.error(f"Path does not exist: {path_str}")
-        raise FileNotFoundError(f"Path not found: {path_str}")
+        raise FileNotFoundError(
+            f"Path not found: {path_str}",
+            recovery_hint=f"Create the path or verify the configuration points to the correct location. Expected: {path_obj}"
+        )
     
     # Check if it's a file when required
     if require_file and not path_obj.is_file():
         logger.error(f"Path is not a file: {path_str}")
-        raise ValueError(f"Path is not a file: {path_str}")
+        raise ValueError(
+            f"Path is not a file: {path_str}",
+            recovery_hint="Specify a file path, not a directory. Check that the file exists and has the correct extension."
+        )
     
     # Check if it's a directory when file is not required
     if not require_file and not path_obj.is_dir() and not path_obj.is_file():
         logger.error(f"Path is neither file nor directory: {path_str}")
-        raise ValueError(f"Path is neither file nor directory: {path_str}")
+        raise ValueError(
+            f"Path is neither file nor directory: {path_str}",
+            recovery_hint="Path may be a special file (socket, device, etc.). Verify it's a regular file or directory."
+        )
     
     logger.debug(f"Path existence validated: {path_str}")
     return True
@@ -282,15 +336,24 @@ def date_format_validator(date_input: Any, date_format: str = '%Y-%m-%d') -> boo
     """
     # Type validation
     if not isinstance(date_input, str):
-        raise TypeError(f"Date input must be string, got {type(date_input)}")
+        raise TypeError(
+            f"Date input must be string, got {type(date_input).__name__}",
+            recovery_hint="Convert date to string before validation. Example: str(date_value) or date_obj.isoformat()"
+        )
     
     # Check for empty date
     if not date_input.strip():
-        raise ValueError("Date cannot be empty or whitespace-only")
+        raise ValueError(
+            "Date cannot be empty or whitespace-only",
+            recovery_hint="Provide a valid date string in format YYYY-MM-DD (e.g., '2024-01-15') or YYYY_MM_DD (e.g., '2024_01_15')"
+        )
     
     # Security check - prevent excessively long date strings
     if len(date_input) > 50:
-        raise ValueError("Date string exceeds maximum allowed length")
+        raise ValueError(
+            f"Date string '{date_input[:20]}...' exceeds maximum allowed length (50 chars)",
+            recovery_hint="Use a standard date format (YYYY-MM-DD or YYYY_MM_DD). Check for accidentally concatenated values."
+        )
     
     # Try primary format first
     try:
@@ -340,7 +403,10 @@ def date_format_validator(date_input: Any, date_format: str = '%Y-%m-%d') -> boo
         f"Supported formats include: YYYY-MM-DD, YYYY_MM_DD, MM/DD/YYYY, DD/MM/YYYY, YYYYMMDD"
     )
     logger.error(error_msg)
-    raise ValueError(error_msg)
+    raise ValueError(
+        error_msg,
+        recovery_hint="Use YYYY-MM-DD format (e.g., '2024-01-15') or YYYY_MM_DD (e.g., '2024_01_15'). Check for typos or invalid day/month values."
+    )
 
 
 def validate_version_format(version_string: Any) -> bool:
@@ -375,17 +441,26 @@ def validate_version_format(version_string: Any) -> bool:
     # Type validation
     if not isinstance(version_string, str):
         logger.error(f"Version string must be str, got {type(version_string)}")
-        raise TypeError(f"Version string must be str, got {type(version_string)}")
+        raise TypeError(
+            f"Version string must be str, got {type(version_string).__name__}",
+            recovery_hint="Convert version to string. Example: str(version_number) or use '1.0.0' format directly"
+        )
     
     # Check for empty version
     if not version_string.strip():
         logger.error("Version string cannot be empty or whitespace-only")
-        raise ValueError("Version string cannot be empty or whitespace-only")
+        raise ValueError(
+            "Version string cannot be empty or whitespace-only",
+            recovery_hint="Provide a semantic version string in format MAJOR.MINOR.PATCH (e.g., '1.0.0' or '2.1.3')"
+        )
     
     # Security check - prevent excessively long version strings
     if len(version_string) > 100:
         logger.error(f"Version string exceeds maximum length: {len(version_string)} chars")
-        raise ValueError("Version string exceeds maximum allowed length")
+        raise ValueError(
+            f"Version string exceeds maximum allowed length (100 chars, got {len(version_string)})",
+            recovery_hint="Use standard semantic version format MAJOR.MINOR.PATCH (e.g., '1.0.0'). Remove extra characters."
+        )
     
     # Clean the version string
     clean_version = version_string.strip()
@@ -397,7 +472,10 @@ def validate_version_format(version_string: Any) -> bool:
         # Additional validation for our specific requirements
         if parsed_version.major < 0 or parsed_version.minor < 0 or parsed_version.patch < 0:
             logger.error(f"Version components must be non-negative: {clean_version}")
-            raise ValueError("Version components must be non-negative integers")
+            raise ValueError(
+                "Version components must be non-negative integers",
+                recovery_hint=f"Use non-negative version numbers. Example: '1.0.0' instead of '{clean_version}'"
+            )
         
         logger.debug(f"Version format validation passed: {clean_version}")
         return True
@@ -405,7 +483,10 @@ def validate_version_format(version_string: Any) -> bool:
     except Exception as e:
         error_msg = f"Invalid semantic version format '{clean_version}': {str(e)}"
         logger.error(error_msg)
-        raise ValueError(error_msg) from e
+        raise ValueError(
+            error_msg,
+            recovery_hint="Use semantic version format MAJOR.MINOR.PATCH (e.g., '1.0.0', '2.1.3'). Check for typos or invalid characters."
+        ) from e
 
 
 def validate_version_compatibility(

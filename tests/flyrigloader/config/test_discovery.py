@@ -692,21 +692,21 @@ def test_dataset_discovery_property_based(
     
     # Build dates_vials structure
     dates_vials = {}
-    files_created = []
+    files_created = set()  # Use set to track unique files (duplicates vials → same filename)
     
     for date in dates:
         dates_vials[date] = vial_numbers.copy()
         
-        # Create date directory
+        # Create date directory (exist_ok for property-based test with duplicate dates)
         date_dir = base_dir / date
-        date_dir.mkdir()
+        date_dir.mkdir(exist_ok=True)
         
         # Create files for each vial
         for vial in vial_numbers:
             filename = f"data_{date}_vial_{vial}.csv"
             file_path = date_dir / filename
             file_path.write_text(f"date,vial,data\n{date},{vial},test")
-            files_created.append(str(file_path))
+            files_created.add(str(file_path))  # Add to set (deduplicates automatically)
     
     # Build test configuration
     config = {
