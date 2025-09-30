@@ -36,6 +36,7 @@ from flyrigloader.io.column_models import (
     SpecialHandlerType,
     get_config_from_source
 )
+from flyrigloader.exceptions import TransformError
 
 
 # ===== MODERN PYTEST FIXTURES =====
@@ -285,7 +286,7 @@ class TestSchemaValidation:
             # Missing 'x' column
         }
         
-        with pytest.raises(ValueError, match="Missing required columns: x"):
+        with pytest.raises(TransformError, match="Missing required columns: x"):
             make_dataframe_from_config(incomplete_matrix, standard_column_config)
     
     @pytest.mark.parametrize("missing_columns,expected_error", [
@@ -305,7 +306,7 @@ class TestSchemaValidation:
         # Remove specified columns
         test_matrix = {k: v for k, v in base_matrix.items() if k not in missing_columns}
         
-        with pytest.raises(ValueError, match=expected_error):
+        with pytest.raises(TransformError, match=expected_error):
             make_dataframe_from_config(test_matrix, standard_column_config)
     
     def test_invalid_dimension_validation(self, basic_exp_matrix, tmp_path):
@@ -858,7 +859,7 @@ class TestEdgeCases:
     
     def test_empty_exp_matrix(self, standard_column_config):
         """Test behavior with empty experimental matrix."""
-        with pytest.raises(ValueError, match="Missing required columns"):
+        with pytest.raises(TransformError, match="exp_matrix cannot be empty"):
             make_dataframe_from_config({}, standard_column_config)
     
     def test_mismatched_array_lengths(self, standard_column_config):
@@ -1099,7 +1100,7 @@ class TestComprehensiveIntegration:
             yaml.dump(config, f)
         
         # Should fail due to missing required column
-        with pytest.raises(ValueError, match="Missing required columns: y"):
+        with pytest.raises(TransformError, match="Missing required columns: y"):
             make_dataframe_from_config(matrix, str(config_file))
         
         # Add the missing required column and test recovery
