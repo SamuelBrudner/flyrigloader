@@ -30,6 +30,7 @@ from flyrigloader.io.column_models import (
     get_default_config_path,
 )
 from flyrigloader.io.transformers import make_dataframe_from_config
+from flyrigloader.exceptions import TransformError
 
 
 # ============================================================================
@@ -247,7 +248,7 @@ class TestColumnConfig:
     ], ids=['zero', 'four', 'five', 'negative', 'float', 'string', 'list', 'dict'])
     def test_dimension_validation_invalid_cases(self, invalid_dimension):
         """Test dimension field validation for invalid inputs per TST-MOD-002."""
-        with pytest.raises(ValueError, match="Dimension must be 1, 2, or 3"):
+        with pytest.raises(ValidationError, match="(Input should be 1, 2 or 3|Dimension must be 1, 2, or 3)"):
             ColumnConfig(
                 type='numpy.ndarray',
                 dimension=invalid_dimension,
@@ -274,7 +275,7 @@ class TestColumnConfig:
     ], ids=['invalid_string', 'unknown_string', 'int', 'list', 'dict'])
     def test_special_handling_validation_invalid_cases(self, invalid_handler):
         """Test special_handling field validation for invalid inputs per TST-MOD-002."""
-        with pytest.raises(ValueError, match="Special handler must be one of"):
+        with pytest.raises(ValidationError, match="(Input should be|Special handler must be one of)"):
             ColumnConfig(
                 type='numpy.ndarray',
                 special_handling=invalid_handler,
@@ -714,7 +715,7 @@ class TestErrorHandlingAndEdgeCases:
         
         config = ColumnConfigDict.model_validate(config_data)
         
-        with pytest.raises(ValueError, match="Missing required columns"):
+        with pytest.raises(TransformError, match="Missing required columns"):
             make_dataframe_from_config(sample_exp_matrix_basic, config)
 
     def test_make_dataframe_with_aliases_missing_both(self):
@@ -744,7 +745,7 @@ class TestErrorHandlingAndEdgeCases:
         
         config = ColumnConfigDict.model_validate(config_data)
         
-        with pytest.raises(ValueError, match="Missing required columns"):
+        with pytest.raises(TransformError, match="Missing required columns"):
             make_dataframe_from_config(exp_matrix, config)
 
     def test_make_dataframe_with_default_values(self):

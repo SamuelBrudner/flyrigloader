@@ -334,7 +334,9 @@ class TransformError(FlyRigLoaderError):
         self,
         message: str,
         error_code: str = "TRANSFORM_001",
-        context: Optional[Dict[str, Any]] = None
+        context: Optional[Dict[str, Any]] = None,
+        recovery_hint: Optional[str] = None,
+        caused_by: Optional[Exception] = None
     ) -> None:
         """
         Initialize TransformError with transformation-specific context.
@@ -343,8 +345,10 @@ class TransformError(FlyRigLoaderError):
             message: Human-readable error description
             error_code: Transformation-specific error code
             context: Additional context including data shapes, schemas, columns
+            recovery_hint: Optional suggestion for fixing the error
+            caused_by: Original exception that caused this error
         """
-        super().__init__(message, error_code, context)
+        super().__init__(message, error_code, context, recovery_hint, caused_by)
         
         # Add transformation-specific context defaults
         if context:
