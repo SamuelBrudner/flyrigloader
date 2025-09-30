@@ -35,6 +35,7 @@ from datetime import datetime
 from flyrigloader import logger
 from flyrigloader.io.column_models import get_config_from_source, ColumnConfigDict, SpecialHandlerType
 from flyrigloader.migration.versions import detect_config_version
+from flyrigloader.exceptions import TransformError
 
 
 @runtime_checkable
@@ -115,8 +116,9 @@ class TransformationHandlerRegistry:
             ValueError: If handler doesn't implement required protocol
         """
         if not isinstance(handler, TransformationHandler):
-            raise ValueError(
+            raise TransformError(
                 f"Handler '{name}' must implement TransformationHandler protocol",
+                error_code="TRANSFORM_008",
                 recovery_hint="Ensure handler implements can_handle() and transform() methods from TransformationHandler protocol."
             )
         
@@ -325,24 +327,27 @@ class DataFrameTransformer:
             ValueError: If dictionary is empty or malformed
         """
         if exp_matrix is None:
-            raise ValueError(
+            raise TransformError(
                 "exp_matrix cannot be None. Expected a dictionary containing experimental data "
                 "with keys representing column names and values containing the data arrays.",
+                error_code="TRANSFORM_007",
                 recovery_hint="Provide a valid experimental data dictionary. Example: {'t': time_array, 'signal': signal_array}"
             )
         
         if not isinstance(exp_matrix, dict):
-            raise TypeError(
+            raise TransformError(
                 f"exp_matrix must be a dictionary, got {type(exp_matrix).__name__}. "
                 f"Expected format: Dict[str, Any] where keys are column names and values are data arrays. "
                 f"Received value: {repr(exp_matrix)}",
+                error_code="TRANSFORM_002",
                 recovery_hint="Load data as a dictionary. Check data loading function returns Dict[str, Any] format."
             )
         
         if not exp_matrix:
-            raise ValueError(
+            raise TransformError(
                 "exp_matrix cannot be empty. Expected a dictionary with at least one key-value pair "
                 "representing experimental data columns.",
+                error_code="TRANSFORM_007",
                 recovery_hint="Ensure experimental data contains at least one column. Check data loading and processing."
             )
         
@@ -364,25 +369,28 @@ class DataFrameTransformer:
         """
         if 't' not in exp_matrix:
             available_keys = list(exp_matrix.keys())
-            raise ValueError(
+            raise TransformError(
                 f"exp_matrix must contain a 't' key for time values. "
                 f"Available keys: {available_keys}. "
                 f"Please ensure your experimental data includes time information.",
+                error_code="TRANSFORM_006",
                 recovery_hint="Add a 't' key with time values to exp_matrix. Example: exp_matrix['t'] = np.arange(0, 10, 0.1)"
             )
         
         time_data = exp_matrix['t']
         if not hasattr(time_data, '__len__'):
-            raise ValueError(
+            raise TransformError(
                 f"Time data 't' must be array-like with length, got {type(time_data).__name__}. "
                 f"Expected numpy array, list, or pandas Series with time values.",
+                error_code="TRANSFORM_002",
                 recovery_hint="Convert time data to array-like format. Use numpy array, list, or pandas Series."
             )
         
         time_length = len(time_data)
         if time_length == 0:
-            raise ValueError(
+            raise TransformError(
                 "Time dimension 't' cannot be empty. Expected array of time values.",
+                error_code="TRANSFORM_007",
                 recovery_hint="Provide non-empty time array. Example: exp_matrix['t'] = np.linspace(0, 10, 100)"
             )
         
@@ -445,8 +453,9 @@ class DataFrameTransformer:
             missing_columns.append(col_name)
         
         if missing_columns:
-            raise ValueError(
+            raise TransformError(
                 f"Missing required columns: {', '.join(missing_columns)}",
+                error_code="TRANSFORM_006",
                 recovery_hint=f"Add missing columns to exp_matrix: {', '.join(missing_columns)}"
             )
         
@@ -664,14 +673,16 @@ def handle_signal_disp(exp_matrix: Dict[str, Any]) -> pd.Series:
     
     # Validate required keys
     if 'signal_disp' not in exp_matrix:
-        raise ValueError(
+        raise TransformError(
             "exp_matrix missing required 'signal_disp' key",
+            error_code="TRANSFORM_006",
             recovery_hint="Add 'signal_disp' array to exp_matrix. This should be a 2D array with signal displacement data."
         )
 
     if 't' not in exp_matrix:
-        raise ValueError(
+        raise TransformError(
             "exp_matrix missing required 't' key",
+            error_code="TRANSFORM_006",
             recovery_hint="Add 't' time array to exp_matrix. Example: exp_matrix['t'] = np.arange(0, duration, dt)"
         )
 
@@ -682,8 +693,9 @@ def handle_signal_disp(exp_matrix: Dict[str, Any]) -> pd.Series:
 
     # Validate array dimensions
     if sd.ndim != 2:
-        raise ValueError(
+        raise TransformError(
             f"signal_disp must be 2D array, got shape {sd.shape} ({sd.ndim}D)",
+            error_code="TRANSFORM_005",
             recovery_hint="Reshape signal_disp to 2D array. Example: signal_disp.reshape(time_length, num_signals)"
         )
 
@@ -699,8 +711,9 @@ def handle_signal_disp(exp_matrix: Dict[str, Any]) -> pd.Series:
         sd = sd.T
     else:
         # Neither dimension matches time dimension length
-        raise ValueError(
+        raise TransformError(
             f"No dimension of signal_disp {sd.shape} matches time dimension length T={T}",
+            error_code="TRANSFORM_005",
             recovery_hint=f"Reshape signal_disp so one dimension equals {T} (time length). Current shape: {sd.shape}"
         )
 
@@ -739,8 +752,9 @@ def extract_columns_from_matrix(
         ValueError: If column extraction fails
     """
     if not isinstance(exp_matrix, dict):
-        raise ValueError(
+        raise TransformError(
             f"exp_matrix must be a dictionary, got {type(exp_matrix).__name__}",
+            error_code="TRANSFORM_002",
             recovery_hint="Load data as a dictionary format. Check data loading returns Dict[str, Any]."
         )
     
@@ -790,16 +804,18 @@ def ensure_1d_array(array, name):
         ValueError: If array cannot be converted to 1D with detailed explanation
     """
     if array is None:
-        raise ValueError(
+        raise TransformError(
             f"Array '{name}' cannot be None. Expected a valid array-like input.",
+            error_code="TRANSFORM_007",
             recovery_hint=f"Provide valid data for column '{name}'. Check data loading and ensure column exists in source data."
         )
     
     try:
         arr = np.asarray(array)
     except Exception as e:
-        raise ValueError(
+        raise TransformError(
             f"Failed to convert '{name}' to numpy array: {e}",
+            error_code="TRANSFORM_002",
             recovery_hint=f"Ensure data in column '{name}' is array-like (list, numpy array, or pandas Series)."
         ) from e
     
@@ -820,12 +836,13 @@ def ensure_1d_array(array, name):
     
     # Multi-dimensional arrays that can't be converted
     else:
-        raise ValueError(
+        raise TransformError(
             f"Column '{name}' has shape {arr.shape}, which cannot be converted to 1D. "
             f"Only arrays with shape (N,), (N, 1), or (1, N) can be converted to 1D. "
-            f"If you need multi-dimensional data, consider storing each dimension separately ",
+            f"If you need multi-dimensional data, consider storing each dimension separately "
+            f"or flattening the data explicitly before processing.",
+            error_code="TRANSFORM_005",
             recovery_hint=f"Reshape column '{name}' to 1D or split into separate columns. Current shape: {arr.shape}"
-            f"or flattening the data explicitly before processing."
         )
 
 
