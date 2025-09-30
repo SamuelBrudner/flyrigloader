@@ -37,17 +37,21 @@ class TestAPISignatureContract:
         
         # Contract: Function accepts options parameter without error
         # (Will fail due to missing files, but signature should work)
-        with patch('flyrigloader.api.discover_experiment_files') as mock_discover:
-            mock_discover.return_value = []
-            
-            result = load_experiment_files(
-                config=config,
-                experiment_name="test_exp",
-                options=options
-            )
-            
-            # Contract: Function executed with options
-            mock_discover.assert_called_once()
+        with patch.object(config, 'get_experiment_info', return_value={'name': 'test_exp'}):
+            with patch('flyrigloader.api.get_dependency_provider') as mock_deps:
+                mock_discovery = Mock()
+                mock_discovery.discover_experiment_files.return_value = []
+                mock_deps.return_value.discovery = mock_discovery
+                mock_deps.return_value.config.get_experiment_info.return_value = {'name': 'test_exp'}
+                
+                result = load_experiment_files(
+                    config=config,
+                    experiment_name="test_exp",
+                    options=options
+                )
+                
+                # Contract: Function executed with options
+                mock_discovery.discover_experiment_files.assert_called_once()
     
     def test_load_dataset_files_accepts_discovery_options(self):
         """

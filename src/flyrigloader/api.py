@@ -26,6 +26,7 @@ from flyrigloader.io.transformers import (
     transform_to_dataframe,
 )
 from flyrigloader.io.column_models import get_config_from_source as _get_config_from_source
+from flyrigloader.discovery.options import DiscoveryOptions
 
 # New imports for refactored architecture
 from flyrigloader.config.models import LegacyConfigAdapter, create_config
@@ -1641,6 +1642,7 @@ def load_experiment_files(
     extensions: Optional[List[str]] = None,
     extract_metadata: bool = False,
     parse_dates: bool = False,
+    options: Optional['DiscoveryOptions'] = None,
     _deps: Optional[DefaultDependencyProvider] = None
 ) -> Union[List[str], Dict[str, Dict[str, Any]]]:
     """
@@ -1660,6 +1662,7 @@ def load_experiment_files(
         extensions: Optional list of file extensions to filter by
         extract_metadata: If True, extract metadata from filenames using config patterns
         parse_dates: If True, attempt to parse dates from filenames
+        options: DiscoveryOptions instance to configure file discovery (overrides individual params if provided)
         _deps: Optional dependency provider for testing injection (internal parameter)
         
     Returns:
@@ -1688,6 +1691,21 @@ def load_experiment_files(
     # Initialize dependency provider for testability
     if _deps is None:
         _deps = get_dependency_provider()
+    
+    # Use DiscoveryOptions if provided, otherwise use individual parameters
+    if options is not None:
+        if not isinstance(options, DiscoveryOptions):
+            raise TypeError(
+                f"options must be a DiscoveryOptions instance, got {type(options).__name__}. "
+                f"Use DiscoveryOptions.defaults() or DiscoveryOptions(...) to create options."
+            )
+        # Use values from DiscoveryOptions
+        pattern = options.pattern
+        recursive = options.recursive
+        extensions = options.extensions
+        extract_metadata = options.extract_metadata
+        parse_dates = options.parse_dates
+        logger.debug(f"Using DiscoveryOptions: {options}")
     
     logger.info(f"Loading experiment files for experiment '{experiment_name}'")
     logger.debug(f"Parameters: pattern={pattern}, recursive={recursive}, "
@@ -1776,6 +1794,7 @@ def load_dataset_files(
     extensions: Optional[List[str]] = None,
     extract_metadata: bool = False,
     parse_dates: bool = False,
+    options: Optional['DiscoveryOptions'] = None,
     _deps: Optional[DefaultDependencyProvider] = None
 ) -> Union[List[str], Dict[str, Dict[str, Any]]]:
     """
@@ -1795,6 +1814,7 @@ def load_dataset_files(
         extensions: Optional list of file extensions to filter by
         extract_metadata: If True, extract metadata from filenames using config patterns
         parse_dates: If True, attempt to parse dates from filenames
+        options: DiscoveryOptions instance to configure file discovery (overrides individual params if provided)
         _deps: Optional dependency provider for testing injection (internal parameter)
         
     Returns:
@@ -1823,6 +1843,21 @@ def load_dataset_files(
     # Initialize dependency provider for testability
     if _deps is None:
         _deps = get_dependency_provider()
+    
+    # Use DiscoveryOptions if provided, otherwise use individual parameters
+    if options is not None:
+        if not isinstance(options, DiscoveryOptions):
+            raise TypeError(
+                f"options must be a DiscoveryOptions instance, got {type(options).__name__}. "
+                f"Use DiscoveryOptions.defaults() or DiscoveryOptions(...) to create options."
+            )
+        # Use values from DiscoveryOptions
+        pattern = options.pattern
+        recursive = options.recursive
+        extensions = options.extensions
+        extract_metadata = options.extract_metadata
+        parse_dates = options.parse_dates
+        logger.debug(f"Using DiscoveryOptions: {options}")
     
     logger.info(f"Loading dataset files for dataset '{dataset_name}'")
     logger.debug(f"Parameters: pattern={pattern}, recursive={recursive}, "
