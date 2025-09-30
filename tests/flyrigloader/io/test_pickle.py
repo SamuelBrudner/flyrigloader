@@ -43,6 +43,7 @@ from flyrigloader.io.column_models import (
     get_default_config_path,
     load_column_config,
 )
+from flyrigloader.exceptions import TransformError
 
 
 # =============================================================================
@@ -838,22 +839,22 @@ def test_signal_disp_comprehensive_error_conditions():
     Validates robust error handling per F-006 requirements.
     """
     # Test missing signal_disp key
-    with pytest.raises(ValueError, match="missing required 'signal_disp' key"):
+    with pytest.raises(TransformError, match="missing required 'signal_disp' key"):
         handle_signal_disp({'t': np.arange(10)})
     
     # Test missing time key
-    with pytest.raises(ValueError, match="missing required 't' key"):
+    with pytest.raises(TransformError, match="missing required 't' key"):
         handle_signal_disp({'signal_disp': np.ones((10, 5))})
     
     # Test invalid dimensions
-    with pytest.raises(ValueError, match="signal_disp must be 2D"):
+    with pytest.raises(TransformError, match="signal_disp must be 2D"):
         handle_signal_disp({
             't': np.arange(10),
             'signal_disp': np.ones(10)  # 1D instead of 2D
         })
     
     # Test dimension mismatch
-    with pytest.raises(ValueError, match="No dimension of signal_disp .* matches time dimension"):
+    with pytest.raises(TransformError, match="No dimension of signal_disp .* matches time dimension"):
         handle_signal_disp({
             't': np.arange(10),
             'signal_disp': np.ones((15, 20))  # Neither dimension matches time length
@@ -867,7 +868,7 @@ def test_extract_columns_comprehensive_error_handling():
     Validates robust error handling and edge case coverage.
     """
     # Test invalid input type
-    with pytest.raises(ValueError, match="exp_matrix must be a dictionary"):
+    with pytest.raises(TransformError, match="exp_matrix must be a dictionary"):
         extract_columns_from_matrix("not_a_dictionary")
     
     # Test empty dictionary
@@ -1031,7 +1032,7 @@ def test_extract_columns_from_matrix_with_1d_conversion(exp_matrix_data, mock_en
 
 def test_extract_columns_from_matrix_invalid_input():
     """Test that appropriate error is raised for invalid input."""
-    with pytest.raises(ValueError):
+    with pytest.raises(TransformError):
         extract_columns_from_matrix("not_a_dictionary")
 
 
@@ -1085,26 +1086,26 @@ def test_handle_signal_disp_X_T(signal_disp_X_T):
 def test_handle_signal_disp_missing_keys():
     """Test that appropriate errors are raised when required keys are missing."""
     # Missing signal_disp
-    with pytest.raises(ValueError, match="missing required 'signal_disp' key"):
+    with pytest.raises(TransformError, match="missing required 'signal_disp' key"):
         handle_signal_disp({'t': np.arange(10)})
     
     # Missing t
-    with pytest.raises(ValueError, match="missing required 't' key"):
+    with pytest.raises(TransformError, match="missing required 't' key"):
         handle_signal_disp({'signal_disp': np.ones((10, 5))})
 
 
 def test_handle_signal_disp_wrong_dimensions():
     """Test that appropriate errors are raised when dimensions don't match."""
     # 1D signal_disp (invalid)
-    with pytest.raises(ValueError, match="signal_disp must be 2D"):
+    with pytest.raises(TransformError, match="signal_disp must be 2D"):
         handle_signal_disp({'t': np.arange(10), 'signal_disp': np.ones(10)})
     
     # 3D signal_disp (invalid)
-    with pytest.raises(ValueError, match="signal_disp must be 2D"):
+    with pytest.raises(TransformError, match="signal_disp must be 2D"):
         handle_signal_disp({'t': np.arange(10), 'signal_disp': np.ones((10, 5, 2))})
     
     # Neither dimension matches time
-    with pytest.raises(ValueError, match="No dimension of signal_disp .* matches time dimension"):
+    with pytest.raises(TransformError, match="No dimension of signal_disp .* matches time dimension"):
         handle_signal_disp({'t': np.arange(10), 'signal_disp': np.ones((15, 20))})
 
 
