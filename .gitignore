@@ -178,5 +178,7 @@ prod_env/
 *_PLAN.md
 *_STATUS.md
 *_GAPS.md
+*_PASSING.md
 DESIGN_*.md
 PR_DESCRIPTION.md
+ALL_*.md
