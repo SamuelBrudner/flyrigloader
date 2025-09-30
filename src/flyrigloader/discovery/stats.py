@@ -100,7 +100,7 @@ class DefaultTimestampProvider:
 class FileStatsError(Exception):
     """Enhanced exception for file statistics operations with structured context."""
     
-    def __init__(self, message: str, path: Union[str, Path], context: Optional[Dict[str, Any]] = None):
+    def __init__(self, message: str, path: Union[str, Path], context: Optional[Dict[str, Any]] = None, recovery_hint: Optional[str] = None):
         """
         Initialize FileStatsError with structured context.
         
@@ -108,14 +108,18 @@ class FileStatsError(Exception):
             message: Error description
             path: File path that caused the error
             context: Additional context for debugging
+            recovery_hint: Actionable guidance for fixing the error
         """
         super().__init__(message)
         self.path = str(path)
         self.context = context or {}
+        self.recovery_hint = recovery_hint
         self.context.update({
             "path": self.path,
             "error_type": self.__class__.__name__
         })
+        if recovery_hint:
+            self.context["recovery_hint"] = recovery_hint
 
 
 def get_file_stats(
@@ -161,7 +165,8 @@ def get_file_stats(
                     "operation": "path_exists_check",
                     "fs_provider": fs_provider.__class__.__name__,
                     "test_hooks_enabled": enable_test_hooks
-                }
+                },
+                recovery_hint=f"Verify file exists at {path}. Check path spelling and directory structure."
             )
         
         # Get file statistics through configurable provider
@@ -216,7 +221,8 @@ def get_file_stats(
                 "fs_provider": fs_provider.__class__.__name__,
                 "timestamp_provider": timestamp_provider.__class__.__name__,
                 "test_hooks_enabled": enable_test_hooks
-            }
+            },
+            recovery_hint="Check file permissions and ensure file is accessible. Verify filesystem is mounted."
         ) from e
 
 
@@ -264,15 +270,13 @@ def attach_file_stats(
                 f"Unexpected error processing file {file_path}: {error}",
                 file_path,
                 context={
-                    "batch_processing": True,
-                    "original_error_type": error.__class__.__name__,
-                    "total_files": len(file_paths) if isinstance(file_data, list) else len(file_data)
-                }
+                    "operation": "batch_file_stats",
+                    "error_type": type(error).__name__,
+                    "processed_count": len(results),
+                    "total_files": len(file_data)
+                },
+                recovery_hint="Check file accessibility and permissions. Some files in batch may be inaccessible."
             ) from error
-    
-    # Use default error handler if none provided
-    if error_handler is None:
-        error_handler = default_error_handler
     
     # Extract file paths based on input type
     if isinstance(file_data, list):

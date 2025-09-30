@@ -1546,7 +1546,10 @@ def get_latest_file(
                     logger.warning(f"File does not exist: {file_path}")
                     if test_mode:
                         return 0.0  # Return minimal time for non-existent files in test mode
-                    raise FileNotFoundError(f"File not found: {file_path}")
+                    raise FileNotFoundError(
+                        f"File not found: {file_path}",
+                        recovery_hint=f"Verify file exists at {file_path}. Check discovery patterns and filters."
+                    )
                 
                 stat_result = fs_provider.stat(path)
                 mtime = stat_result.st_mtime
