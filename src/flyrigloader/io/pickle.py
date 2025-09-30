@@ -250,7 +250,10 @@ class PickleLoader:
             TypeError: If path type is unexpected
         """
         if path is None:
-            raise ValueError("Path cannot be None. Expected a valid file path as string or Path object.")
+            raise ValueError(
+                "Path cannot be None. Expected a valid file path as string or Path object.",
+                recovery_hint="Provide a valid file path. Example: 'data/experiment.pkl' or Path('data/experiment.pkl')"
+            )
         
         if not isinstance(path, (str, Path)):
             raise TypeError(
@@ -259,12 +262,18 @@ class PickleLoader:
             )
         
         if isinstance(path, str) and not path.strip():
-            raise ValueError("Path cannot be empty string. Expected a valid file path.")
+            raise ValueError(
+                "Path cannot be empty string. Expected a valid file path.",
+                recovery_hint="Provide a non-empty file path string. Example: 'data/experiment.pkl'"
+            )
         
         try:
             normalized_path = Path(path)
         except Exception as e:
-            raise ValueError(f"Failed to convert path to Path object: {e}. Input path: {repr(path)}") from e
+            raise ValueError(
+                f"Failed to convert path to Path object: {e}. Input path: {repr(path)}",
+                recovery_hint="Check path syntax for invalid characters or format. Use forward slashes (/) for paths."
+            ) from e
             
         logger.debug(f"Validated and normalized path: {normalized_path}")
         return normalized_path
@@ -287,13 +296,19 @@ class PickleLoader:
                     f"Current working directory: {Path.cwd()}"
                 )
                 logger.error(error_msg)
-                raise FileNotFoundError(error_msg)
+                raise FileNotFoundError(
+                    error_msg,
+                    recovery_hint=f"Create the file at {path} or verify the path is correct. Check spelling and directory structure."
+                )
         except Exception as e:
             if isinstance(e, FileNotFoundError):
                 raise
             error_msg = f"Error checking file existence for '{path}': {e}"
             logger.error(error_msg)
-            raise RuntimeError(error_msg) from e
+            raise RuntimeError(
+                error_msg,
+                recovery_hint="Check file permissions and ensure the path is accessible. Verify no filesystem issues."
+            ) from e
         
         logger.debug(f"Confirmed file exists: {path}")
     
@@ -364,7 +379,10 @@ class PickleLoader:
             error_msg = f"Permission denied accessing file '{path}': {e}"
             logger.error(error_msg)
             # Re-raise permission errors immediately as they are not retry-able
-            raise PermissionError(f"Cannot access file due to permissions: {e}") from e
+            raise PermissionError(
+                f"Cannot access file due to permissions: {e}",
+                recovery_hint="Check file permissions with 'ls -l' (Unix) or file properties (Windows). Ensure read access is granted."
+            ) from e
             
         except pickle.UnpicklingError as e:
             error_msg = f"Invalid pickle format in regular file '{path}': {e}"
@@ -478,7 +496,10 @@ class PickleLoader:
             f"Please verify the file is a valid pickle file and not corrupted."
         )
         logger.error(final_error_msg)
-        raise RuntimeError(final_error_msg)
+        raise RuntimeError(
+            final_error_msg,
+            recovery_hint="Verify the file is a valid pickle file (not corrupted). Try re-saving the original data or use a different file."
+        )
     
     def read_pickle_any_format(self, path: Union[str, Path]) -> Union[Dict[str, Any], pd.DataFrame]:
         """
@@ -581,7 +602,8 @@ def load_data_file(path: Union[str, Path], loader: Optional[str] = None) -> Any:
             
             raise RuntimeError(
                 f"No registered loader found for file extension '{extension}'. "
-                f"Supported extensions: {supported_extensions}"
+                f"Supported extensions: {supported_extensions}",
+                recovery_hint=f"Use one of the supported extensions: {supported_extensions}. Or register a custom loader for '{extension}'."
             )
         
         # Create loader instance and load the file
