@@ -330,11 +330,8 @@ class TestColumnConfigDict:
         assert len(config_dict.columns) == 1
         assert len(config_dict.special_handlers) == 0
 
-    def test_special_handlers_validation_warning(self, caplog, mocker):
+    def test_special_handlers_validation_warning(self, caplog):
         """Test special handlers validation logs warning for undefined handlers."""
-        # Mock the logger to capture warnings
-        mock_logger = mocker.patch('flyrigloader.io.column_models.logger')
-        
         config_data = {
             'columns': {
                 'test_col': {
@@ -346,13 +343,13 @@ class TestColumnConfigDict:
             'special_handlers': {}  # Missing the required handler
         }
         
-        config_dict = ColumnConfigDict.model_validate(config_data)
+        # Capture warnings during validation
+        with caplog.at_level('WARNING'):
+            config_dict = ColumnConfigDict.model_validate(config_data)
         
         # Verify the warning was logged
-        mock_logger.warning.assert_called_once()
-        warning_call = mock_logger.warning.call_args[0][0]
-        assert 'transform_to_match_time_dimension' in warning_call
-        assert 'not defined in special_handlers' in warning_call
+        assert 'transform_to_match_time_dimension' in caplog.text
+        assert 'not defined in special_handlers' in caplog.text
 
 
 # ============================================================================
@@ -376,18 +373,20 @@ class TestConfigurationLoading:
         with pytest.raises(FileNotFoundError):
             load_column_config('/nonexistent/path/config.yaml')
 
-    @pytest.mark.parametrize("invalid_yaml_content", [
-        "invalid: yaml: content:",  # Invalid YAML syntax
-        "not_dict_format",  # Not a dictionary
-        "",  # Empty file
+    @pytest.mark.parametrize("invalid_yaml_content,expected_error", [
+        ("invalid: yaml: content:", yaml.YAMLError),  # Invalid YAML syntax
+        ("not_dict_format", ValidationError),  # Not a dictionary - parses to None
+        ("", ValidationError),  # Empty file - parses to None
     ], ids=['invalid_syntax', 'not_dict', 'empty'])
-    def test_load_column_config_invalid_yaml(self, mocker, invalid_yaml_content):
+    def test_load_column_config_invalid_yaml(self, tmp_path, invalid_yaml_content, expected_error):
         """Test loading column configuration from invalid YAML files per TST-MOD-002."""
-        mock_open_func = mocker.mock_open(read_data=invalid_yaml_content)
-        mocker.patch('builtins.open', mock_open_func)
+        # Create real file with invalid content
+        config_file = tmp_path / "invalid_config.yaml"
+        config_file.write_text(invalid_yaml_content)
         
-        with pytest.raises((yaml.YAMLError, ValidationError, AttributeError)):
-            load_column_config('test_config.yaml')
+        # Should raise appropriate error when loading
+        with pytest.raises(expected_error):
+            load_column_config(str(config_file))
 
     def test_get_config_from_source_file_path(self, temp_config_file):
         """Test get_config_from_source with file path."""
@@ -421,19 +420,15 @@ class TestConfigurationLoading:
         with pytest.raises(TypeError, match="config_source must be"):
             get_config_from_source(invalid_source)
 
-    def test_get_config_from_source_none_uses_default(self, mocker):
+    def test_get_config_from_source_none_uses_default(self):
         """Test get_config_from_source with None uses default configuration."""
-        mock_get_default = mocker.patch('flyrigloader.io.column_models.get_default_config_path')
-        mock_load_config = mocker.patch('flyrigloader.io.column_models.load_column_config')
-        mock_config = ColumnConfigDict(columns={}, special_handlers={})
-        mock_load_config.return_value = mock_config
-        mock_get_default.return_value = '/default/path/config.yaml'
-        
+        # Call with None should load the default config
+        # This is an integration test - it uses the real default config
         config = get_config_from_source(None)
         
-        mock_get_default.assert_called_once()
-        mock_load_config.assert_called_once_with('/default/path/config.yaml')
-        assert config is mock_config
+        # Verify we got a valid config (the real default has columns)
+        assert isinstance(config, ColumnConfigDict)
+        assert len(config.columns) > 0  # Default config should have columns
 
     def test_get_default_config_path(self):
         """Test get_default_config_path returns valid path."""
@@ -659,15 +654,21 @@ class TestErrorHandlingAndEdgeCases:
 
     @pytest.mark.parametrize("invalid_config_structure", [
         {},  # Empty dict
-        {'columns': {}},  # Empty columns
         {'special_handlers': {}},  # Missing columns key
         {'columns': 'invalid'},  # Columns not a dict
         {'columns': {}, 'special_handlers': 'invalid'},  # Special handlers not a dict
-    ], ids=['empty', 'empty_columns', 'missing_columns', 'invalid_columns_type', 'invalid_handlers_type'])
+    ], ids=['empty', 'missing_columns', 'invalid_columns_type', 'invalid_handlers_type'])
     def test_column_config_dict_invalid_structures(self, invalid_config_structure):
         """Test ColumnConfigDict validation with invalid structures per TST-MOD-002."""
         with pytest.raises(ValidationError):
             ColumnConfigDict.model_validate(invalid_config_structure)
+    
+    def test_column_config_dict_empty_columns_valid(self):
+        """Test that ColumnConfigDict accepts empty columns dict (valid edge case)."""
+        # Empty columns is actually valid - no required columns
+        config = ColumnConfigDict.model_validate({'columns': {}})
+        assert len(config.columns) == 0
+        assert len(config.special_handlers) == 0
 
     def test_column_config_dict_invalid_column_config(self):
         """Test ColumnConfigDict validation with invalid column configuration."""
@@ -780,11 +781,8 @@ class TestErrorHandlingAndEdgeCases:
         assert 'optional_col' in df.columns
         assert df['optional_col'].iloc[0] is None
 
-    def test_special_handler_undefined_behavior(self, caplog, mocker):
+    def test_special_handler_undefined_behavior(self, caplog):
         """Test behavior when special handler is referenced but not defined."""
-        # Mock the logger to capture warnings
-        mock_logger = mocker.patch('flyrigloader.io.column_models.logger')
-        
         config_data = {
             'columns': {
                 't': {
@@ -805,25 +803,26 @@ class TestErrorHandlingAndEdgeCases:
         }
         
         # This should create the config but log a warning
-        config = ColumnConfigDict.model_validate(config_data)
+        with caplog.at_level('WARNING'):
+            config = ColumnConfigDict.model_validate(config_data)
         
         # Verify the warning was logged
-        mock_logger.warning.assert_called_once()
-        warning_call = mock_logger.warning.call_args[0][0]
-        assert 'transform_to_match_time_dimension' in warning_call
+        assert 'transform_to_match_time_dimension' in caplog.text
 
-    @pytest.mark.parametrize("corrupted_yaml_content", [
-        "columns:\n  t:\n    type: numpy.ndarray\n    description incomplete",  # Incomplete YAML
-        "columns:\n  t: [invalid, structure]",  # Wrong structure for column
-        "columns:\n  't':\n    type: 'numpy.ndarray'\n    dimension: 'invalid_dimension'",  # Invalid dimension type
+    @pytest.mark.parametrize("corrupted_yaml_content,expected_error", [
+        ("columns:\n  t:\n    type: numpy.ndarray\n    description incomplete", yaml.YAMLError),  # Incomplete YAML
+        ("columns:\n  t: [invalid, structure]", ValidationError),  # Wrong structure for column
+        ("columns:\n  't':\n    type: 'numpy.ndarray'\n    dimension: 'invalid_dimension'", ValidationError),  # Invalid dimension type
     ], ids=['incomplete', 'wrong_structure', 'invalid_dimension'])
-    def test_corrupted_yaml_configurations(self, mocker, corrupted_yaml_content):
+    def test_corrupted_yaml_configurations(self, tmp_path, corrupted_yaml_content, expected_error):
         """Test handling of corrupted YAML configuration files per TST-MOD-002."""
-        mock_open_func = mocker.mock_open(read_data=corrupted_yaml_content)
-        mocker.patch('builtins.open', mock_open_func)
+        # Create real file with corrupted content
+        config_file = tmp_path / "corrupted_config.yaml"
+        config_file.write_text(corrupted_yaml_content)
         
-        with pytest.raises((yaml.YAMLError, ValidationError)):
-            load_column_config('corrupted_config.yaml')
+        # Should raise appropriate error when loading
+        with pytest.raises(expected_error):
+            load_column_config(str(config_file))
 
 
 # ============================================================================
@@ -957,16 +956,22 @@ class TestIntegrationWorkflows:
 
 
 # ============================================================================
-# MOCK-BASED TESTS - pytest-mock integration per TST-MOD-003
+# MOCK-BASED TESTS - Minimal mocking for dependency isolation
 # ============================================================================
 
 class TestMockIntegration:
-    """Test suite demonstrating pytest-mock integration for isolated testing."""
+    """
+    Test suite for cases where mocking is genuinely needed.
+    
+    Note: Most tests should use real files (tmp_path) and real validation.
+    Mock only when testing interactions with external dependencies.
+    """
 
-    def test_yaml_loading_with_mocked_file_operations(self, mocker):
-        """Test YAML configuration loading with mocked file operations per TST-MOD-003."""
-        # Mock file content
-        yaml_content = """
+    def test_yaml_loading_with_real_file(self, tmp_path):
+        """Test YAML configuration loading with real file (preferred approach)."""
+        # Create real YAML file
+        config_file = tmp_path / "test_config.yaml"
+        config_file.write_text("""
 columns:
   t:
     type: numpy.ndarray
@@ -974,109 +979,37 @@ columns:
     required: true
     description: Time values
 special_handlers: {}
-"""
+""")
         
-        # Mock file operations
-        mock_open_func = mocker.mock_open(read_data=yaml_content)
-        mocker.patch('builtins.open', mock_open_func)
-        
-        # Mock yaml.safe_load to return our test data
-        test_config_data = {
-            'columns': {
-                't': {
-                    'type': 'numpy.ndarray',
-                    'dimension': 1,
-                    'required': True,
-                    'description': 'Time values'
-                }
-            },
-            'special_handlers': {}
-        }
-        mock_yaml_load = mocker.patch('yaml.safe_load', return_value=test_config_data)
-        
-        # Execute the function
-        config = load_column_config('test_config.yaml')
-        
-        # Verify mocks were called correctly
-        mock_open_func.assert_called_once_with('test_config.yaml', 'r')
-        mock_yaml_load.assert_called_once()
+        # Load the configuration
+        config = load_column_config(str(config_file))
         
         # Verify result
         assert isinstance(config, ColumnConfigDict)
         assert len(config.columns) == 1
         assert 't' in config.columns
+        assert config.columns['t'].required is True
 
-    def test_default_config_path_with_mocked_os_operations(self, mocker):
-        """Test default configuration path with mocked OS operations per TST-MOD-003."""
-        # Mock os.path operations
-        mock_dirname = mocker.patch('os.path.dirname', return_value='/mocked/directory')
-        mock_abspath = mocker.patch('os.path.abspath', return_value='/mocked/directory/column_models.py')
-        mock_join = mocker.patch('os.path.join', return_value='/mocked/directory/column_config.yaml')
-        
-        # Execute the function
-        config_path = get_default_config_path()
-        
-        # Verify mocks were called correctly
-        mock_abspath.assert_called_once()
-        mock_dirname.assert_called_once()
-        mock_join.assert_called_once_with('/mocked/directory', 'column_config.yaml')
-        
-        # Verify result
-        assert config_path == '/mocked/directory/column_config.yaml'
-
-    def test_make_dataframe_with_mocked_validation(self, mocker, sample_exp_matrix_basic):
-        """Test DataFrame creation with mocked validation functions per TST-MOD-003."""
-        # Create a mock configuration
-        mock_config = MagicMock(spec=ColumnConfigDict)
-        mock_config.columns = {
-            't': MagicMock(required=True, is_metadata=False, alias=None),
-            'x': MagicMock(required=True, is_metadata=False, alias=None)
+    def test_make_dataframe_with_real_config(self, sample_exp_matrix_basic):
+        """Test DataFrame creation with real configuration (preferred approach)."""
+        # Create real configuration
+        config_data = {
+            'columns': {
+                't': {'type': 'numpy.ndarray', 'required': True, 'description': 'Time'},
+                'x': {'type': 'numpy.ndarray', 'required': True, 'description': 'X position'}
+            },
+            'special_handlers': {}
         }
-        mock_config.special_handlers = {}
-        
-        # Mock the get_config_from_source function
-        mock_get_config = mocker.patch(
-            'flyrigloader.io.pickle.get_config_from_source',
-            return_value=mock_config
-        )
-        
-        # Mock the validation function to return no missing columns
-        mock_validate = mocker.patch(
-            'flyrigloader.io.pickle._validate_required_columns',
-            return_value=[]
-        )
+        config = ColumnConfigDict.model_validate(config_data)
         
         # Execute the function
-        df = make_dataframe_from_config(sample_exp_matrix_basic, mock_config)
-        
-        # Verify mocks were called
-        mock_get_config.assert_called_once_with(mock_config)
-        mock_validate.assert_called_once()
+        df = make_dataframe_from_config(sample_exp_matrix_basic, config)
         
         # Verify result
         assert isinstance(df, pd.DataFrame)
         assert len(df) > 0
-
-    def test_configuration_validation_with_mocked_pydantic(self, mocker, comprehensive_column_config):
-        """Test configuration validation with mocked Pydantic operations per TST-MOD-003."""
-        # Mock the Pydantic model_validate method
-        mock_validate = mocker.patch.object(ColumnConfigDict, 'model_validate')
-        
-        # Create expected return value
-        expected_config = ColumnConfigDict(
-            columns={'t': ColumnConfig(type='numpy.ndarray', description='Time')},
-            special_handlers={}
-        )
-        mock_validate.return_value = expected_config
-        
-        # Execute the function
-        config = get_config_from_source(comprehensive_column_config)
-        
-        # Verify mock was called with correct arguments
-        mock_validate.assert_called_once_with(comprehensive_column_config)
-        
-        # Verify result
-        assert config is expected_config
+        assert 't' in df.columns
+        assert 'x' in df.columns
 
 
 # ============================================================================

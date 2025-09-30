@@ -50,17 +50,35 @@ import os
 # Import main SchemaRegistry and BaseSchema from flyrigloader.registries per Section 0.2.1
 from flyrigloader.registries import SchemaRegistry, BaseSchema, register_schema as register_schema_main
 
-# Module exports for the new manifest-based workflow and decoupled transformation architecture
+# Module exports - organized by usage frequency
 __all__ = [
-    'ColumnConfigDict',
-    'ColumnConfig', 
-    'SpecialHandlerType',
-    'get_config_from_source',
-    # Additional exports for comprehensive column configuration support
-    'ColumnDimension',
-    'load_column_config',
-    'validate_experimental_data',
-    'transform_to_standardized_format',
+    # === PRIMARY PUBLIC API ===
+    # Most users only need these
+    'ColumnConfigDict',          # Pydantic model for validation
+    'ColumnConfig',              # Individual column configuration model
+    'load_column_config',        # Load from YAML file
+    'get_default_config',        # Get built-in default
+    
+    # === ENUMS (for type hints) ===
+    'ColumnDimension',           # 1D, 2D, 3D array dimensions
+    'SpecialHandlerType',        # Special data handling types
+    
+    # === ADVANCED / LEGACY ===
+    # Most users don't need these
+    'get_config_from_source',    # Polymorphic loader (consider using specific functions instead)
+    'validate_experimental_data',  # Low-level validation
+    'transform_to_standardized_format',  # Internal transformation
+    
+    # === SCHEMA REGISTRY (Advanced) ===
+    # For extending with custom schemas
+    'register_schema',
+    'get_schema_registry',
+    'get_schema_by_name',
+    'create_schema_from_config',
+    'DefaultColumnSchemaProvider',
+    
+    # === TESTING UTILITIES ===
+    # Internal - prefixed with underscore in next version
     'DependencyContainer',
     'ValidationConfig',
     'get_dependency_container',
@@ -70,12 +88,6 @@ __all__ = [
     'register_validation_behavior',
     'validate_column_config_with_hooks',
     'get_validation_diagnostics',
-    # SchemaRegistry exports for extensible column schema registration (using main registry)
-    'register_schema',
-    'get_schema_registry',
-    'get_schema_by_name',
-    'create_schema_from_config',
-    'DefaultColumnSchemaProvider'
 ]
 
 # Dependency injection interfaces for testability (TST-REF-001)
@@ -860,16 +872,15 @@ def _validate_config_data(config_data: Dict[str, Any], dependencies: Optional[De
         raise
 
 
-def load_column_config(config_path: str, dependencies: Optional[DependencyContainer] = None) -> ColumnConfigDict:
+def load_column_config(config_path: str, _dependencies: Optional[DependencyContainer] = None) -> ColumnConfigDict:
     """
     Load and validate column configuration from a YAML file.
     
-    Enhanced with dependency injection and modular function decomposition
-    per TST-REF-001 and TST-REF-002 requirements for comprehensive testing.
+    This is the primary function for loading column configurations from disk.
     
     Args:
         config_path: Path to the YAML configuration file
-        dependencies: Optional dependency container for testing scenarios
+        _dependencies: Internal parameter for testing (do not use)
         
     Returns:
         ColumnConfigDict: Validated column configuration model
@@ -877,8 +888,12 @@ def load_column_config(config_path: str, dependencies: Optional[DependencyContai
     Raises:
         FileNotFoundError: If the configuration file is not found
         ValidationError: If the configuration is invalid
+        
+    Example:
+        >>> config = load_column_config("my_config.yaml")
+        >>> df = make_dataframe_from_config(exp_matrix, config)
     """
-    deps = dependencies or get_dependency_container()
+    deps = _dependencies or get_dependency_container()
     
     deps.logger.info(f"Loading column configuration from {config_path}")
     
@@ -935,9 +950,26 @@ def _handle_none_source(dependencies: Optional[DependencyContainer] = None) -> C
     return load_column_config(default_path, deps)
 
 
+def get_default_config() -> ColumnConfigDict:
+    """
+    Load the default column configuration.
+    
+    This is a convenience function for loading the built-in default configuration.
+    
+    Returns:
+        ColumnConfigDict: Default column configuration model
+        
+    Example:
+        >>> config = get_default_config()
+        >>> df = make_dataframe_from_config(exp_matrix, config)
+    """
+    default_path = get_default_config_path()
+    return load_column_config(default_path)
+
+
 def get_config_from_source(
     config_source: Union[str, Dict[str, Any], ColumnConfigDict, None] = None,
-    dependencies: Optional[DependencyContainer] = None
+    _dependencies: Optional[DependencyContainer] = None
 ) -> ColumnConfigDict:
     """
     Get a validated ColumnConfigDict from different types of configuration sources.
@@ -951,7 +983,7 @@ def get_config_from_source(
             - A dictionary containing configuration data
             - A ColumnConfigDict instance
             - None (uses default configuration)
-        dependencies: Optional dependency container for testing scenarios
+        _dependencies: Internal parameter for testing (do not use)
             
     Returns:
         ColumnConfigDict: Validated column configuration model
@@ -961,12 +993,12 @@ def get_config_from_source(
         ValidationError: If the configuration is invalid
         FileNotFoundError: If a specified file is not found
     """
-    deps = dependencies or get_dependency_container()
+    deps = _dependencies or get_dependency_container()
     
     deps.logger.debug(f"Processing configuration source of type: {type(config_source).__name__}")
     
     # Execute source handling hook if registered (TST-REF-003)
-    hook_result = deps.execute_validation_hook('source_handling', config_source, dependencies)
+    hook_result = deps.execute_validation_hook('source_handling', config_source, _dependencies)
     if hook_result is not None:
         deps.logger.debug("Using source handling hook result")
         return hook_result
