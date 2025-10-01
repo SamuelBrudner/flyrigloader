@@ -740,7 +740,7 @@ class TestKedroFactoryFunctions:
             )
         
         assert exc_info.value.error_code == "CONFIG_007"
-        assert "filepath parameter is required" in str(exc_info.value)
+        assert "config_path parameter is required" in str(exc_info.value)
         
         # Test with invalid experiment name
         with pytest.raises(ConfigError) as exc_info:
@@ -1431,14 +1431,14 @@ class TestErrorHandlingAndExceptionPropagation:
         
         # Verify error message structure
         error_str = str(error)
-        assert "filepath parameter is required" in error_str
+        assert "config_path parameter is required" in error_str
         assert "Error Code:" in error_str
         
         # Test context preservation
         if hasattr(error, 'context'):
             assert isinstance(error.context, dict)
             assert 'parameter' in error.context
-            assert error.context['parameter'] == 'filepath'
+            assert error.context['parameter'] == 'config_path'
     
     def test_error_context_preservation(self, tmp_path):
         """Test that error context is preserved through the call stack."""

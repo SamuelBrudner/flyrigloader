@@ -75,7 +75,7 @@ class FlyRigLoaderDataSet(AbstractDataset[None, pd.DataFrame]):
     through manifest-based file discovery.
     
     Attributes:
-        filepath: Path to the FlyRigLoader configuration file
+        config_path: Path to the FlyRigLoader configuration file
         experiment_name: Name of the experiment to load data for
         _kwargs: Additional configuration parameters for discovery and loading
         _config: Cached configuration object after initial load
@@ -84,7 +84,7 @@ class FlyRigLoaderDataSet(AbstractDataset[None, pd.DataFrame]):
     Examples:
         >>> # Basic usage
         >>> dataset = FlyRigLoaderDataSet(
-        ...     filepath="configs/experiment_config.yaml",
+        ...     config_path="configs/experiment_config.yaml",
         ...     experiment_name="baseline_study"
         ... )
         >>> dataframe = dataset.load()
@@ -92,7 +92,7 @@ class FlyRigLoaderDataSet(AbstractDataset[None, pd.DataFrame]):
         
         >>> # With additional parameters
         >>> dataset = FlyRigLoaderDataSet(
-        ...     filepath="configs/experiment_config.yaml", 
+        ...     config_path="configs/experiment_config.yaml", 
         ...     experiment_name="behavioral_analysis",
         ...     recursive=True,
         ...     extract_metadata=True,
@@ -102,16 +102,18 @@ class FlyRigLoaderDataSet(AbstractDataset[None, pd.DataFrame]):
     
     def __init__(
         self,
-        filepath: Union[str, Path],
-        experiment_name: str,
+        config_path: Union[str, Path, None] = None,
+        experiment_name: str = None,
+        filepath: Union[str, Path, None] = None,  # Deprecated, for backward compatibility
         **kwargs: Any
     ) -> None:
         """
         Initialize FlyRigLoaderDataSet with configuration parameters.
         
         Args:
-            filepath: Path to the FlyRigLoader configuration file
+            config_path: Path to the FlyRigLoader configuration file
             experiment_name: Name of the experiment to load data for
+            filepath: (Deprecated) Use config_path instead
             **kwargs: Additional parameters for discovery and loading including:
                 - recursive: Enable recursive directory scanning
                 - extract_metadata: Extract metadata from filenames
@@ -121,17 +123,22 @@ class FlyRigLoaderDataSet(AbstractDataset[None, pd.DataFrame]):
                 - transform_options: Options for DataFrame transformation
         
         Raises:
-            ConfigError: If filepath or experiment_name are invalid
+            ConfigError: If config_path or experiment_name are invalid
             TypeError: If parameters have incorrect types
         """
         logger.debug(f"Initializing FlyRigLoaderDataSet for experiment '{experiment_name}'")
         
+        # Handle backward compatibility: filepath -> config_path
+        if filepath is not None and config_path is None:
+            logger.warning("Parameter 'filepath' is deprecated. Use 'config_path' instead.")
+            config_path = filepath
+        
         # Validate required parameters
-        if not filepath:
+        if not config_path:
             raise ConfigError(
-                "filepath parameter is required",
+                "config_path parameter is required",
                 error_code="CONFIG_007",
-                context={"parameter": "filepath", "value": filepath}
+                context={"parameter": "config_path", "value": config_path}
             )
         
         if not experiment_name or not isinstance(experiment_name, str):
@@ -142,7 +149,7 @@ class FlyRigLoaderDataSet(AbstractDataset[None, pd.DataFrame]):
             )
         
         # Store configuration parameters with deep copy for thread safety
-        self.filepath = Path(filepath)
+        self.config_path = Path(config_path)
         self.experiment_name = experiment_name.strip()
         self._kwargs = deepcopy(kwargs)
         
@@ -152,14 +159,20 @@ class FlyRigLoaderDataSet(AbstractDataset[None, pd.DataFrame]):
         
         # Validate filepath exists and is accessible
         try:
-            resolved_path = self.filepath.resolve()
+            resolved_path = self.config_path.resolve()
             if not resolved_path.exists():
                 logger.warning(f"Configuration file does not exist: {resolved_path}")
                 # Don't raise error here - let _exists() handle this for Kedro compatibility
         except (OSError, RuntimeError) as e:
-            logger.warning(f"Error accessing configuration file {filepath}: {e}")
+            logger.warning(f"Error accessing configuration file {config_path}: {e}")
         
         logger.info(f"FlyRigLoaderDataSet initialized for experiment '{self.experiment_name}'")
+    
+    @property
+    def filepath(self) -> Path:
+        """Backward compatibility property for accessing config_path."""
+        logger.warning("Property 'filepath' is deprecated. Use 'config_path' instead.")
+        return self.config_path
     
     def _load(self) -> pd.DataFrame:
         """
@@ -191,8 +204,8 @@ class FlyRigLoaderDataSet(AbstractDataset[None, pd.DataFrame]):
             try:
                 # Step 1: Load and validate configuration
                 if self._config is None:
-                    logger.debug(f"Loading configuration from {self.filepath}")
-                    self._config = load_config(self.filepath)
+                    logger.debug(f"Loading configuration from {self.config_path}")
+                    self._config = load_config(self.config_path)
                     logger.debug("Configuration loaded and validated successfully")
                 
                 # Step 2: Discover experiment files using manifest-based approach
@@ -338,7 +351,7 @@ class FlyRigLoaderDataSet(AbstractDataset[None, pd.DataFrame]):
         """
         try:
             # Check if configuration file exists and is accessible
-            resolved_path = self.filepath.resolve()
+            resolved_path = self.config_path.resolve()
             exists = resolved_path.exists() and resolved_path.is_file()
             
             logger.debug(f"Dataset existence check for '{self.experiment_name}': {exists}")
@@ -375,7 +388,7 @@ class FlyRigLoaderDataSet(AbstractDataset[None, pd.DataFrame]):
         metadata = {
             # Core dataset information
             'dataset_type': self.__class__.__name__,
-            'filepath': str(self.filepath),
+            'filepath': str(self.config_path),
             'experiment_name': self.experiment_name,
             
             # Configuration parameters
@@ -423,7 +436,7 @@ class FlyRigManifestDataSet(AbstractDataset[None, FileManifest]):
     discovery information with minimal memory overhead and fast execution times.
     
     Attributes:
-        filepath: Path to the FlyRigLoader configuration file
+        config_path: Path to the FlyRigLoader configuration file
         experiment_name: Name of the experiment to discover files for
         _kwargs: Additional configuration parameters for discovery
         _config: Cached configuration object after initial load
@@ -431,7 +444,7 @@ class FlyRigManifestDataSet(AbstractDataset[None, FileManifest]):
     Examples:
         >>> # Basic manifest discovery
         >>> dataset = FlyRigManifestDataSet(
-        ...     filepath="configs/experiment_config.yaml",
+        ...     config_path="configs/experiment_config.yaml",
         ...     experiment_name="baseline_study"
         ... )
         >>> manifest = dataset.load()
@@ -444,16 +457,18 @@ class FlyRigManifestDataSet(AbstractDataset[None, FileManifest]):
     
     def __init__(
         self,
-        filepath: Union[str, Path],
-        experiment_name: str,
+        config_path: Union[str, Path, None] = None,
+        experiment_name: str = None,
+        filepath: Union[str, Path, None] = None,  # Deprecated, for backward compatibility
         **kwargs: Any
     ) -> None:
         """
         Initialize FlyRigManifestDataSet with configuration parameters.
         
         Args:
-            filepath: Path to the FlyRigLoader configuration file
+            config_path: Path to the FlyRigLoader configuration file
             experiment_name: Name of the experiment to discover files for
+            filepath: (Deprecated) Use config_path instead
             **kwargs: Additional parameters for discovery including:
                 - recursive: Enable recursive directory scanning
                 - extract_metadata: Extract metadata from filenames
@@ -462,17 +477,22 @@ class FlyRigManifestDataSet(AbstractDataset[None, FileManifest]):
                 - filters: Additional filters for file selection
         
         Raises:
-            ConfigError: If filepath or experiment_name are invalid
+            ConfigError: If config_path or experiment_name are invalid
             TypeError: If parameters have incorrect types
         """
         logger.debug(f"Initializing FlyRigManifestDataSet for experiment '{experiment_name}'")
         
+        # Handle backward compatibility: filepath -> config_path
+        if filepath is not None and config_path is None:
+            logger.warning("Parameter 'filepath' is deprecated. Use 'config_path' instead.")
+            config_path = filepath
+        
         # Validate required parameters
-        if not filepath:
+        if not config_path:
             raise ConfigError(
-                "filepath parameter is required",
+                "config_path parameter is required",
                 error_code="CONFIG_007",
-                context={"parameter": "filepath", "value": filepath}
+                context={"parameter": "config_path", "value": config_path}
             )
         
         if not experiment_name or not isinstance(experiment_name, str):
@@ -483,7 +503,7 @@ class FlyRigManifestDataSet(AbstractDataset[None, FileManifest]):
             )
         
         # Store configuration parameters with deep copy for thread safety
-        self.filepath = Path(filepath)
+        self.config_path = Path(config_path)
         self.experiment_name = experiment_name.strip()
         self._kwargs = deepcopy(kwargs)
         
@@ -492,13 +512,19 @@ class FlyRigManifestDataSet(AbstractDataset[None, FileManifest]):
         
         # Validate filepath accessibility
         try:
-            resolved_path = self.filepath.resolve()
+            resolved_path = self.config_path.resolve()
             if not resolved_path.exists():
                 logger.warning(f"Configuration file does not exist: {resolved_path}")
         except (OSError, RuntimeError) as e:
-            logger.warning(f"Error accessing configuration file {filepath}: {e}")
+            logger.warning(f"Error accessing configuration file {config_path}: {e}")
         
         logger.info(f"FlyRigManifestDataSet initialized for experiment '{self.experiment_name}'")
+    
+    @property
+    def filepath(self) -> Path:
+        """Backward compatibility property for accessing config_path."""
+        logger.warning("Property 'filepath' is deprecated. Use 'config_path' instead.")
+        return self.config_path
     
     def _load(self) -> FileManifest:
         """
@@ -531,8 +557,8 @@ class FlyRigManifestDataSet(AbstractDataset[None, FileManifest]):
             try:
                 # Load and validate configuration
                 if self._config is None:
-                    logger.debug(f"Loading configuration from {self.filepath}")
-                    self._config = load_config(self.filepath)
+                    logger.debug(f"Loading configuration from {self.config_path}")
+                    self._config = load_config(self.config_path)
                     logger.debug("Configuration loaded and validated successfully")
                 
                 # Create discovery parameters optimized for manifest-only operations
@@ -612,7 +638,7 @@ class FlyRigManifestDataSet(AbstractDataset[None, FileManifest]):
         """
         try:
             # Check if configuration file exists and is accessible
-            resolved_path = self.filepath.resolve()
+            resolved_path = self.config_path.resolve()
             exists = resolved_path.exists() and resolved_path.is_file()
             
             logger.debug(f"Manifest dataset existence check for '{self.experiment_name}': {exists}")
@@ -649,7 +675,7 @@ class FlyRigManifestDataSet(AbstractDataset[None, FileManifest]):
         metadata = {
             # Core dataset information
             'dataset_type': self.__class__.__name__,
-            'filepath': str(self.filepath),
+            'filepath': str(self.config_path),
             'experiment_name': self.experiment_name,
             
             # Discovery parameters
