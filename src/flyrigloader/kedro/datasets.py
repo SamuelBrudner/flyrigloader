@@ -49,7 +49,7 @@ import pandas as pd
 # Internal imports  
 from flyrigloader.config.models import ExperimentConfig
 from flyrigloader.exceptions import ConfigError
-from flyrigloader.discovery.files import discover_experiment_manifest
+from flyrigloader.discovery.files import discover_experiment_manifest, FileManifest
 from flyrigloader.io.loaders import load_data_file
 from flyrigloader.io.transformers import transform_to_dataframe
 from flyrigloader.config.yaml_config import load_config
@@ -410,7 +410,7 @@ class FlyRigLoaderDataSet(AbstractDataset[None, pd.DataFrame]):
         return metadata
 
 
-class FlyRigManifestDataSet(AbstractDataset[None, Any]):
+class FlyRigManifestDataSet(AbstractDataset[None, FileManifest]):
     """
     Kedro AbstractDataset implementation for manifest-only operations without full data loading.
     
@@ -500,7 +500,7 @@ class FlyRigManifestDataSet(AbstractDataset[None, Any]):
         
         logger.info(f"FlyRigManifestDataSet initialized for experiment '{self.experiment_name}'")
     
-    def _load(self) -> Any:
+    def _load(self) -> FileManifest:
         """
         Discover experiment files and return manifest without loading data.
         
