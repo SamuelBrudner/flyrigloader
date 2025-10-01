@@ -172,13 +172,4 @@ logs/
 dev_env/
 prod_env/
 
-# Temporary session notes and working documents
-*_COMPLETE.md
-*_SUMMARY.md
-*_PLAN.md
-*_STATUS.md
-*_GAPS.md
-*_PASSING.md
-DESIGN_*.md
-PR_DESCRIPTION.md
-ALL_*.md
+
