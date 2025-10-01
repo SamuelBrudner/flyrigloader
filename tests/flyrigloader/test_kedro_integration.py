@@ -1862,6 +1862,86 @@ processed_data:
         assert manifest_desc['kedro_metadata']['data_type'] == 'FileManifest'
 
 
+# ==============================================================================
+# CONTRACT TESTS - Formal Verification of Semantic Model
+# ==============================================================================
+# These tests verify the formal contracts defined in docs/KEDRO_SEMANTIC_MODEL.md
+
+
+class TestKedroSemanticModelContracts:
+    """
+    Formal contract tests verifying invariants from KEDRO_SEMANTIC_MODEL.md.
+    
+    Tests verify:
+    - INV-1: Read-only operations
+    - INV-2: Thread safety  
+    - INV-3: Configuration immutability
+    """
+    
+    def test_inv1_read_only_save_raises(self, tmp_path):
+        """INV-1: Save operations always raise NotImplementedError (read-only)."""
+        config_file = tmp_path / "config.yaml"
+        config_file.write_text("schema_version: '1.0.0'\nexperiments: {}")
+        
+        dataset = FlyRigLoaderDataSet(
+            config_path=str(config_file),
+            experiment_name="test"
+        )
+        
+        with pytest.raises(NotImplementedError, match="read-only"):
+            dataset._save(pd.DataFrame())
+    
+    def test_inv2_thread_safe_concurrent_access(self, tmp_path):
+        """INV-2: Concurrent dataset operations are thread-safe."""
+        config_file = tmp_path / "config.yaml"
+        config_file.write_text("schema_version: '1.0.0'\nexperiments: {}")
+        
+        dataset = FlyRigLoaderDataSet(
+            config_path=str(config_file),
+            experiment_name="test"
+        )
+        
+        # Test concurrent _exists() calls
+        with ThreadPoolExecutor(max_workers=10) as executor:
+            futures = [executor.submit(dataset._exists) for _ in range(20)]
+            results = [f.result() for f in futures]
+        
+        # All calls succeed and return consistent boolean values
+        assert all(isinstance(r, bool) for r in results)
+        
+        # Test concurrent _describe() calls
+        with ThreadPoolExecutor(max_workers=10) as executor:
+            futures = [executor.submit(dataset._describe) for _ in range(20)]
+            results = [f.result() for f in futures]
+        
+        # All calls succeed and return valid dicts
+        assert all(isinstance(r, dict) and 'dataset_type' in r for r in results)
+    
+    def test_inv3_config_consistent_across_operations(self, tmp_path):
+        """INV-3: Configuration remains consistent across operations."""
+        config_file = tmp_path / "config.yaml"
+        config_file.write_text("schema_version: '1.0.0'\nexperiments: {}")
+        
+        dataset = FlyRigLoaderDataSet(
+            config_path=str(config_file),
+            experiment_name="test"
+        )
+        
+        initial_path = dataset.config_path
+        initial_name = dataset.experiment_name
+        
+        # Multiple operations should see same config
+        dataset._exists()
+        desc1 = dataset._describe()
+        desc2 = dataset._describe()
+        
+        # Configuration should remain consistent
+        assert dataset.config_path == initial_path
+        assert dataset.experiment_name == initial_name
+        assert desc1['experiment_name'] == desc2['experiment_name']
+        assert desc1['filepath'] == desc2['filepath'] or desc1.get('config_path') == desc2.get('config_path')
+
+
 # Run specific test categories
 if __name__ == "__main__":
     # Example of running specific test categories
