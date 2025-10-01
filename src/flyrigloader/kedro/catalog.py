@@ -64,6 +64,305 @@ from flyrigloader.exceptions import KedroIntegrationError
 logger = logging.getLogger(__name__)
 
 
+def generate_catalog(
+    template_type: str,
+    base_config_path: Union[str, Path],
+    experiments: Union[str, List[str]],
+    *,
+    dataset_prefix: str = "experiment",
+    include_manifests: bool = True,
+    validate_experiments: bool = False,
+    pipeline_stages: Optional[List[str]] = None,
+    include_intermediates: bool = True,
+    output_format: str = "dict",
+    **options: Any
+) -> Union[Dict[str, Any], str]:
+    """
+    Generate Kedro catalog configurations from templates (unified interface).
+    
+    This function consolidates catalog generation capabilities into a single, unified
+    interface. It replaces generate_catalog_template(), create_multi_experiment_catalog(),
+    and create_workflow_catalog_entries() with a consistent API.
+    
+    Args:
+        template_type: Type of catalog to generate:
+            - "single": Single experiment catalog
+            - "multi": Multiple experiments with data + manifest datasets  
+            - "workflow": Complete workflow with pipeline stages
+        base_config_path: Path to FlyRigLoader configuration file
+        experiments: Experiment name (str) or list of experiment names
+        dataset_prefix: Prefix for dataset names in catalog (default: "experiment")
+        include_manifests: Include manifest datasets (default: True)
+        validate_experiments: Validate experiments exist in config (default: False)
+        pipeline_stages: Pipeline stages for workflow type (default: ["raw", "processed", "analyzed"])
+        include_intermediates: Include intermediate datasets in workflow (default: True)
+        output_format: Output format - "dict" or "yaml" (default: "dict")
+        **options: Additional options passed to dataset configurations
+        
+    Returns:
+        Union[Dict[str, Any], str]: Generated catalog in requested format
+        
+    Raises:
+        ValueError: If template_type or parameters are invalid
+        FileNotFoundError: If config file doesn't exist (when validate_experiments=True)
+        KedroIntegrationError: If catalog generation fails
+        
+    Examples:
+        # Single experiment
+        >>> catalog = generate_catalog(
+        ...     "single",
+        ...     "config.yaml",
+        ...     "baseline"
+        ... )
+        
+        # Multiple experiments
+        >>> catalog = generate_catalog(
+        ...     "multi",
+        ...     "config.yaml",
+        ...     ["baseline", "treatment"],
+        ...     dataset_prefix="fly_behavior"
+        ... )
+        
+        # Complete workflow
+        >>> catalog = generate_catalog(
+        ...     "workflow",
+        ...     "config.yaml",
+        ...     ["baseline", "treatment"],
+        ...     pipeline_stages=["raw", "filtered", "analyzed"],
+        ...     output_format="yaml"
+        ... )
+    """
+    logger.info(f"Generating '{template_type}' catalog for experiments: {experiments}")
+    
+    # Validate template type
+    valid_types = ["single", "multi", "workflow"]
+    if template_type not in valid_types:
+        raise ValueError(
+            f"Invalid template_type '{template_type}'. Must be one of: {valid_types}"
+        )
+    
+    # Validate output format
+    valid_formats = ["dict", "yaml"]
+    if output_format not in valid_formats:
+        raise ValueError(
+            f"Invalid output_format '{output_format}'. Must be one of: {valid_formats}"
+        )
+    
+    # Normalize experiments to list
+    if isinstance(experiments, str):
+        experiments = [experiments]
+    elif not isinstance(experiments, list):
+        raise ValueError("experiments must be a string or list of strings")
+    
+    if not experiments:
+        raise ValueError("experiments cannot be empty")
+    
+    # Validate config path if validation requested
+    config_path_obj = Path(base_config_path)
+    if validate_experiments and not config_path_obj.exists():
+        raise FileNotFoundError(f"Configuration file not found: {base_config_path}")
+    
+    try:
+        catalog = {}
+        
+        # Validate experiments exist in configuration
+        if validate_experiments:
+            logger.debug("Validating experiments exist in configuration")
+            config_data = load_config(base_config_path)
+            
+            if hasattr(config_data, 'get'):
+                config_experiments = config_data.get("experiments", {})
+            else:
+                config_experiments = getattr(config_data, 'experiments', {}) if hasattr(config_data, 'experiments') else {}
+            
+            missing = [exp for exp in experiments if exp not in config_experiments]
+            if missing:
+                raise ValueError(f"Experiments not found in configuration: {missing}")
+            
+            logger.info(f"✓ Validated {len(experiments)} experiments in configuration")
+        
+        # Generate catalog based on template type
+        if template_type == "single":
+            catalog = _generate_single_catalog(
+                experiments[0], base_config_path, dataset_prefix, **options
+            )
+        
+        elif template_type == "multi":
+            catalog = _generate_multi_catalog(
+                experiments, base_config_path, dataset_prefix,
+                include_manifests, **options
+            )
+        
+        elif template_type == "workflow":
+            if pipeline_stages is None:
+                pipeline_stages = ["raw", "processed", "analyzed"]
+            
+            catalog = _generate_workflow_catalog(
+                experiments, base_config_path, dataset_prefix,
+                pipeline_stages, include_intermediates, **options
+            )
+        
+        # Add metadata
+        catalog["_catalog_metadata"] = {
+            "generated_by": "flyrigloader.kedro.catalog.generate_catalog",
+            "template_type": template_type,
+            "experiments": experiments,
+            "dataset_count": len([k for k in catalog.keys() if not k.startswith("_")])
+        }
+        
+        logger.info(f"✓ Generated catalog with {len(catalog)-1} datasets")
+        
+        # Return in requested format
+        if output_format == "yaml":
+            return yaml.safe_dump(catalog, default_flow_style=False, sort_keys=False)
+        else:
+            return catalog
+            
+    except Exception as e:
+        if isinstance(e, (ValueError, FileNotFoundError)):
+            raise
+        
+        error_msg = f"Catalog generation failed for type '{template_type}': {e}"
+        logger.error(error_msg)
+        raise KedroIntegrationError(
+            error_msg,
+            error_code="KEDRO_003",
+            context={
+                "template_type": template_type,
+                "experiments": experiments,
+                "function": "generate_catalog",
+                "original_error": str(e)
+            }
+        ) from e
+
+
+def _generate_single_catalog(
+    experiment: str,
+    config_path: Union[str, Path],
+    dataset_prefix: str,
+    **options: Any
+) -> Dict[str, Any]:
+    """Helper: Generate single experiment catalog."""
+    dataset_name = f"{dataset_prefix}_{experiment}"
+    
+    return {
+        dataset_name: {
+            "type": "flyrigloader.FlyRigLoaderDataSet",
+            "config_path": str(config_path),
+            "experiment_name": experiment,
+            "recursive": options.get("recursive", True),
+            "extract_metadata": options.get("extract_metadata", True),
+            "parse_dates": options.get("parse_dates", True)
+        }
+    }
+
+
+def _generate_multi_catalog(
+    experiments: List[str],
+    config_path: Union[str, Path],
+    dataset_prefix: str,
+    include_manifests: bool,
+    **options: Any
+) -> Dict[str, Any]:
+    """Helper: Generate multi-experiment catalog."""
+    catalog = {}
+    
+    for experiment in experiments:
+        # Data dataset
+        data_name = f"{dataset_prefix}_{experiment}_data"
+        catalog[data_name] = {
+            "type": "flyrigloader.FlyRigLoaderDataSet",
+            "config_path": str(config_path),
+            "experiment_name": experiment,
+            "recursive": options.get("recursive", True),
+            "extract_metadata": options.get("extract_metadata", True),
+            "parse_dates": options.get("parse_dates", True),
+            "transform_options": {
+                "include_kedro_metadata": True,
+                "experiment_name": experiment
+            }
+        }
+        
+        # Manifest dataset
+        if include_manifests:
+            manifest_name = f"{dataset_prefix}_{experiment}_manifest"
+            catalog[manifest_name] = {
+                "type": "flyrigloader.FlyRigManifestDataSet",
+                "config_path": str(config_path),
+                "experiment_name": experiment,
+                "recursive": options.get("recursive", True),
+                "include_stats": True
+            }
+    
+    return catalog
+
+
+def _generate_workflow_catalog(
+    experiments: List[str],
+    config_path: Union[str, Path],
+    dataset_prefix: str,
+    pipeline_stages: List[str],
+    include_intermediates: bool,
+    **options: Any
+) -> Dict[str, Any]:
+    """Helper: Generate workflow catalog with pipeline stages."""
+    catalog = {}
+    
+    for experiment in experiments:
+        for stage in pipeline_stages:
+            dataset_name = f"{dataset_prefix}_{experiment}_{stage}"
+            
+            if stage == "raw":
+                # Raw data from FlyRigLoader
+                catalog[dataset_name] = {
+                    "type": "flyrigloader.FlyRigLoaderDataSet",
+                    "config_path": str(config_path),
+                    "experiment_name": experiment,
+                    "recursive": options.get("recursive", True),
+                    "extract_metadata": options.get("extract_metadata", True),
+                    "parse_dates": options.get("parse_dates", True),
+                    "transform_options": {
+                        "include_kedro_metadata": True,
+                        "experiment_name": experiment,
+                        "workflow_stage": stage
+                    }
+                }
+                
+                # Manifest dataset for raw data
+                manifest_name = f"{dataset_prefix}_{experiment}_manifest"
+                catalog[manifest_name] = {
+                    "type": "flyrigloader.FlyRigManifestDataSet",
+                    "config_path": str(config_path),
+                    "experiment_name": experiment,
+                    "recursive": options.get("recursive", True),
+                    "include_stats": True
+                }
+            
+            elif stage in ["processed", "filtered", "cleaned"]:
+                if include_intermediates:
+                    catalog[dataset_name] = {
+                        "type": "pandas.ParquetDataset",
+                        "filepath": f"${{base_dir}}/intermediate/{experiment}_{stage}.parquet",
+                        "save_args": {"compression": "snappy"}
+                    }
+            
+            elif stage in ["analyzed", "results"]:
+                catalog[dataset_name] = {
+                    "type": "pandas.CSVDataset",
+                    "filepath": f"${{base_dir}}/results/{experiment}_{stage}.csv",
+                    "save_args": {"index": False}
+                }
+            
+            else:
+                # Custom stage
+                catalog[dataset_name] = {
+                    "type": "pickle.PickleDataset",
+                    "filepath": f"${{base_dir}}/custom/{experiment}_{stage}.pkl"
+                }
+    
+    return catalog
+
+
 def create_flyrigloader_catalog_entry(
     dataset_name: str,
     config_path: Union[str, Path],

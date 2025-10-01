@@ -73,13 +73,14 @@ from flyrigloader.kedro.datasets import (
 
 # Import catalog configuration helpers from kedro.catalog module
 from flyrigloader.kedro.catalog import (
+    generate_catalog,  # New unified function
     create_flyrigloader_catalog_entry,
     validate_catalog_config,
     get_dataset_parameters,
-    generate_catalog_template,
-    create_multi_experiment_catalog,
+    generate_catalog_template,  # Deprecated - use generate_catalog
+    create_multi_experiment_catalog,  # Deprecated - use generate_catalog
     inject_catalog_parameters,
-    create_workflow_catalog_entries,
+    create_workflow_catalog_entries,  # Deprecated - use generate_catalog
     validate_catalog_against_schema
 )
 
@@ -129,13 +130,14 @@ __all__ = [
     "create_kedro_dataset",     # Primary factory for dataset instantiation
     
     # Catalog configuration helpers - Programmatic catalog construction utilities
+    "generate_catalog",                     # Unified catalog generation (NEW!)
     "create_flyrigloader_catalog_entry",    # Single dataset catalog entry creation
     "validate_catalog_config",              # Catalog configuration validation
-    "generate_catalog_template",            # Template generation for workflows
-    "create_multi_experiment_catalog",      # Multi-experiment catalog creation
+    "generate_catalog_template",            # DEPRECATED: use generate_catalog instead
+    "create_multi_experiment_catalog",      # DEPRECATED: use generate_catalog instead
     "get_dataset_parameters",               # Parameter extraction utilities  
     "inject_catalog_parameters",            # Parameter injection for dynamic catalogs
-    "create_workflow_catalog_entries",      # Complete workflow catalog generation
+    "create_workflow_catalog_entries",      # DEPRECATED: use generate_catalog instead
     "validate_catalog_against_schema"       # Schema validation against FlyRigLoader requirements
 ]
 
