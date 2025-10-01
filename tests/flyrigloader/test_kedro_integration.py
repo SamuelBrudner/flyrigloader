@@ -42,21 +42,37 @@ from typing import Optional, Dict, Any, List
 from unittest.mock import patch, MagicMock, Mock
 import yaml
 
-# External imports for Kedro integration
-from kedro.io import AbstractDataset
-from kedro.pipeline import node
+# Check if Kedro is available
+try:
+    from kedro.io import AbstractDataset
+    from kedro.pipeline import node
+    KEDRO_AVAILABLE = True
+except ImportError:
+    KEDRO_AVAILABLE = False
+    AbstractDataset = None
+    node = None
+
 import pandas as pd
 
 # Hypothesis for property-based testing
 from hypothesis import given, strategies as st, settings
 from hypothesis.strategies import text, integers, lists, dictionaries, booleans, fixed_dictionaries
 
-# Internal imports
-from flyrigloader.kedro.datasets import FlyRigLoaderDataSet, FlyRigManifestDataSet
+# Internal imports - conditional on Kedro availability
+if KEDRO_AVAILABLE:
+    from flyrigloader.kedro.datasets import FlyRigLoaderDataSet, FlyRigManifestDataSet
+    from flyrigloader.kedro.catalog import validate_catalog_config
+else:
+    FlyRigLoaderDataSet = None
+    FlyRigManifestDataSet = None
+    validate_catalog_config = None
+
 from flyrigloader.api import discover_experiment_manifest
-from flyrigloader.kedro.catalog import validate_catalog_config
 from flyrigloader.exceptions import ConfigError
 from flyrigloader.config.models import create_config
+
+# Skip all tests in this module if Kedro is not available
+pytestmark = pytest.mark.skipif(not KEDRO_AVAILABLE, reason="Kedro not installed")
 
 
 class TestAbstractDatasetInterfaceCompliance:

@@ -72,7 +72,8 @@ markers = [
     "benchmark: marks tests as performance benchmarks",
     "property_based: marks tests that use property-based testing",
     "config: marks tests related to configuration functionality",
-    "builders: marks tests related to builder pattern functionality"
+    "builders: marks tests related to builder pattern functionality",
+    "kedro: marks tests that require kedro (skipped if not installed)"
 ]
 filterwarnings = [
     "error",
